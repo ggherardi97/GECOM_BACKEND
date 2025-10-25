@@ -11,8 +11,6 @@ RUN npm install
 
 COPY . .
 
-# RUN npx prisma generate
-
 ENV NODE_ENV=development
 EXPOSE 3000
 

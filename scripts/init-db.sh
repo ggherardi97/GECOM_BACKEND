@@ -35,4 +35,7 @@ npm run migration:up || true
 echo "✅ Banco pronto para uso!"
 
 echo "🚀 Iniciando a aplicação Gecom Api..."
+
+npm run prisma:update
+
 npm run start:dev

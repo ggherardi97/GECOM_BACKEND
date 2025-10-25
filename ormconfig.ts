@@ -6,9 +6,8 @@ const AppDataSource = new DataSource({
   port: parseInt(process.env.DB_PORT || '5432'),
   username: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASS || 'postgres',
-  database: process.env.DB_NAME || 'app_db',
-  entities: ['dist/**/*.entity.js'],
-  migrations: ['dist/migrations/*.js'],
+  database: process.env.DB_NAME || 'gecom_db',
+  migrations: ['dist/typeorm/migrations/*.js'],
   synchronize: false,
   logging: true,
 });
