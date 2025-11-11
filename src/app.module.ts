@@ -6,6 +6,7 @@ import { MailModule } from './modules/mailer/mailer.module';
 import { UserModule } from './modules/users/user.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
     MailModule,
     UserModule,
     PrismaModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

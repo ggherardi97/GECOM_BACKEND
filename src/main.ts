@@ -2,9 +2,11 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { setupSwagger } from './config/swagger/swagger.config';
 import { ValidationPipe } from '@nestjs/common';
+import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.useGlobalGuards(app.get(JwtAuthGuard));
 
   if (process.env.NODE_ENV === 'development') {
     setupSwagger(app);
