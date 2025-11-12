@@ -5,6 +5,7 @@ import { UpdateUserDTO } from './dto/update.dto';
 import { CryptoService } from '../crypto/crypto.service';
 import { UserStatusEnum } from './enums';
 import { users } from '@prisma/client';
+import { SessionType } from './types/session.type';
 
 @Injectable()
 export class UserService {
@@ -33,7 +34,7 @@ export class UserService {
     return this.repository.findAll();
   }
 
-  async findById(id: string): Promise<users> {
+  async findById(id: string) {
     const user = await this.repository.findById(id);
     if (!user) throw new NotFoundException('User not found');
     return user;
@@ -81,5 +82,13 @@ export class UserService {
     if (!user) throw new NotFoundException('User not found');
 
     return this.repository.updateStatus(id, UserStatusEnum.DELETED);
+  }
+
+  async createOrUpdateSession(session: SessionType) {
+    await this.repository.session(session);
+  }
+
+  async logoutAll(refresh_token: string) {
+    await this.repository.logoutAll(refresh_token);
   }
 }

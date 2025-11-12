@@ -4,6 +4,7 @@ import { CreateUserDTO } from '../dto/create.dto';
 import { UpdateUserDTO } from '../dto/update.dto';
 import { CryptoService } from '../../crypto/crypto.service';
 import { users, user_role_enum, user_status_enum } from '@prisma/client';
+import { SessionType } from '../types/session.type';
 
 @Injectable()
 export class UserRepository {
@@ -35,8 +36,8 @@ export class UserRepository {
     return await this.prisma.users.findMany();
   }
 
-  async findById(id: string): Promise<users | null> {
-    return await this.prisma.users.findUnique({ where: { id } });
+  async findById(id: string) {
+    return this.prisma.users.findUnique({ where: { id }, include: { sessions: true } });
   }
 
   async findByEmail(email: string): Promise<users | null> {
@@ -74,6 +75,38 @@ export class UserRepository {
     return this.prisma.users.update({
       where: { id },
       data: { status: user_status_enum.DELETED },
+    });
+  }
+
+  async session(session: SessionType) {
+    try {
+      await this.prisma.sessions.upsert({
+        where: {
+          user_id: session.user_id,
+        },
+        update: {
+          refresh_token: session.refresh_token,
+          ip_address: session.ip_address,
+          device_info: session.device_info,
+          expires_at: session.expires_at,
+          updated_at: new Date(),
+        },
+        create: {
+          user_id: session.user_id,
+          refresh_token: session.refresh_token,
+          ip_address: session.ip_address,
+          device_info: session.device_info,
+          expires_at: session.expires_at,
+        },
+      });
+    } catch (e) {
+      this.logger.error('Error creating/updating session:', e);
+    }
+  }
+
+  async logoutAll(refresh_token: string) {
+    await this.prisma.sessions.deleteMany({
+      where: { refresh_token: refresh_token },
     });
   }
 }
