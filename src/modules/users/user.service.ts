@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { UserRepository } from './repositories/user.repository';
+import { UserRepository } from './user.repository';
 import { CreateUserDTO } from './dto/create.dto';
 import { UpdateUserDTO } from './dto/update.dto';
 import { CryptoService } from '../crypto/crypto.service';

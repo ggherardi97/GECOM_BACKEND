@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { CreateUserDTO } from '../dto/create.dto';
-import { UpdateUserDTO } from '../dto/update.dto';
-import { CryptoService } from '../../crypto/crypto.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { CreateUserDTO } from './dto/create.dto';
+import { UpdateUserDTO } from './dto/update.dto';
+import { CryptoService } from '../crypto/crypto.service';
 import { users, user_role_enum, user_status_enum } from '@prisma/client';
-import { SessionType } from '../types/session.type';
+import { SessionType } from './types/session.type';
 
 @Injectable()
 export class UserRepository {
