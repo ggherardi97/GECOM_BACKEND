@@ -5,6 +5,7 @@ import { UpdateUserDTO } from './dto/update.dto';
 import { CryptoService } from '../crypto/crypto.service';
 import { users, user_role_enum, user_status_enum } from '@prisma/client';
 import { SessionType } from './types/session.type';
+import { handlePrismaError } from '../utils/errors';
 
 @Injectable()
 export class UserRepository {
@@ -36,6 +37,16 @@ export class UserRepository {
     return await this.prisma.users.findMany();
   }
 
+  async findAllCustomers() {
+    try {
+      return await this.prisma.users.findMany({
+        where: { role: user_role_enum.CUSTOMER as user_role_enum },
+      });
+    } catch (error) {
+      handlePrismaError(error, 'fetching customers');
+    }
+  }
+
   async findById(id: string) {
     return this.prisma.users.findUnique({ where: { id }, include: { sessions: true } });
   }
@@ -54,11 +65,11 @@ export class UserRepository {
     });
   }
 
-  async updatePassword(id: string, newPassword: string): Promise<users> {
-    const hashedPassword = await this.cryptoService.hash(newPassword);
+  async resetPassword(id: string, newPassword: string): Promise<users> {
+    const hashed_password = await this.cryptoService.hash(newPassword);
     return this.prisma.users.update({
       where: { id },
-      data: { password: hashedPassword },
+      data: { password: hashed_password },
     });
   }
 

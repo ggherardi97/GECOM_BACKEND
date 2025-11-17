@@ -7,7 +7,7 @@ import { UserModule } from './modules/users/user.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './modules/auth/auth.module';
-import { CustomersModule } from './modules/customers/customers.module';
+import { PasswordResetModule } from './modules/password-reset/password-reset.module';
 
 @Module({
   imports: [
@@ -28,7 +28,7 @@ import { CustomersModule } from './modules/customers/customers.module';
     UserModule,
     PrismaModule,
     AuthModule,
-    CustomersModule,
+    PasswordResetModule,
   ],
   controllers: [AppController],
   providers: [AppService],

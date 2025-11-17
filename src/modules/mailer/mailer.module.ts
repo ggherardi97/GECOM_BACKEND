@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MailerService } from './mailer.service';
+import * as nodemailer from 'nodemailer';
 
 @Module({
   imports: [
@@ -28,7 +29,25 @@ import { MailerService } from './mailer.service';
       inject: [ConfigService],
     }),
   ],
-  providers: [MailerService],
-  exports: [MailerModule],
+  providers: [
+    {
+      provide: 'MAIL_TRANSPORTER',
+      useFactory: async () => {
+        return nodemailer.createTransport({
+          host: process.env.MAIL_HOST,
+          port: Number(process.env.MAIL_PORT || 1025),
+          secure: false,
+          auth: process.env.MAIL_USER
+            ? {
+                user: process.env.MAIL_USER,
+                pass: process.env.MAIL_PASS,
+              }
+            : undefined,
+        });
+      },
+    },
+    MailerService,
+  ],
+  exports: ['MAIL_TRANSPORTER', MailerService],
 })
 export class MailModule {}

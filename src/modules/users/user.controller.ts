@@ -5,11 +5,13 @@ import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiBearerAuth,
+  ApiOperation,
 } from '@nestjs/swagger';
 import { UserService } from './user.service';
 import { CreateUserDTO } from './dto/create.dto';
 import { UpdateUserDTO } from './dto/update.dto';
 import { users } from '@prisma/client';
+import { CustomerResponseDTO } from './dto/customer-response.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -30,6 +32,20 @@ export class UserController {
     return this.service.findAll();
   }
 
+  @Get('/customers')
+  @ApiOperation({
+    summary: 'List all customers',
+    description: 'Returns all users with role CUSTOMER, including their related customer data.',
+  })
+  @ApiOkResponse({
+    description: 'List of customers returned successfully.',
+    type: CustomerResponseDTO,
+    isArray: true,
+  })
+  async findAllCustomers() {
+    return this.service.findAllCustomers();
+  }
+
   @Get(':id')
   @ApiOkResponse({ description: 'User found' })
   async findById(@Param('id') id: string): Promise<Partial<users>> {
@@ -43,25 +59,26 @@ export class UserController {
     return this.service.update(id, data);
   }
 
-  @Patch(':id/password')
+  @Patch('/reset-password/:id/:token')
   @ApiBody({ type: UpdateUserDTO })
   @ApiOkResponse({ description: 'Password updated' })
-  async updatePassword(
+  async resetPassword(
     @Param('id') id: string,
+    @Param('token') token: string,
     @Body('password') password: string
-  ): Promise<Partial<users>> {
-    return this.service.updatePassword(id, password);
+  ): Promise<any> {
+    return this.service.resetPassword(id, token, password);
   }
-
-  @Patch(':id/status')
-  @ApiBody({ schema: { type: 'object', properties: { status: { type: 'string' } } } })
-  @ApiOkResponse({ description: 'Status updated' })
-  async updateStatus(
-    @Param('id') id: string,
-    @Body('status') status: string
-  ): Promise<Partial<users>> {
-    return this.service.updateStatus(id, status as any);
-  }
+  //
+  // @Patch(':id/status')
+  // @ApiBody({ schema: { type: 'object', properties: { status: { type: 'string' } } } })
+  // @ApiOkResponse({ description: 'Status updated' })
+  // async updateStatus(
+  //   @Param('id') id: string,
+  //   @Body('status') status: string
+  // ): Promise<Partial<users>> {
+  //   return this.service.updateStatus(id, status as any);
+  // }
 
   @Delete(':id')
   @ApiOkResponse({ description: 'User removed' })

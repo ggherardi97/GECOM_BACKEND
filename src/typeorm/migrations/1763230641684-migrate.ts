@@ -1,10 +1,12 @@
 import { MigrationInterface, QueryRunner, Table } from 'typeorm';
 
-export class Migrate1763219583191 implements MigrationInterface {
+export class Migrate1763230641684 implements MigrationInterface {
+  name = 'Migrate1763230641684';
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({
-        name: 'customers',
+        name: 'password_resets',
         columns: [
           {
             name: 'id',
@@ -14,41 +16,41 @@ export class Migrate1763219583191 implements MigrationInterface {
             default: 'uuid_generate_v4()',
           },
           {
-            name: 'full_name',
+            name: 'user_id',
+            type: 'uuid',
+            isUnique: true,
+            isNullable: false,
+          },
+          {
+            name: 'token',
             type: 'varchar',
             length: '255',
             isNullable: false,
           },
           {
-            name: 'email',
-            type: 'varchar',
-            length: '255',
+            name: 'expires_at',
+            type: 'timestamp',
             isNullable: false,
-            isUnique: true,
           },
           {
             name: 'created_at',
             type: 'timestamp',
-            default: 'CURRENT_TIMESTAMP',
-          },
-          {
-            name: 'updated_at',
-            type: 'timestamp',
-            default: 'CURRENT_TIMESTAMP',
-            onUpdate: 'CURRENT_TIMESTAMP',
-          },
-          {
-            name: 'deleted_at',
-            type: 'timestamp',
-            isNullable: true,
+            default: 'now()',
           },
         ],
-      }),
-      true
+        foreignKeys: [
+          {
+            columnNames: ['user_id'],
+            referencedColumnNames: ['id'],
+            referencedTableName: 'users',
+            onDelete: 'CASCADE',
+          },
+        ],
+      })
     );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.dropTable('customers');
+    await queryRunner.dropTable('password_resets');
   }
 }
