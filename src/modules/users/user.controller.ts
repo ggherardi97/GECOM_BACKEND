@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Patch, Delete } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Patch, Delete, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiBody,
@@ -7,14 +7,19 @@ import {
   ApiBearerAuth,
   ApiOperation,
 } from '@nestjs/swagger';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UserService } from './user.service';
 import { CreateUserDTO } from './dto/create.dto';
 import { UpdateUserDTO } from './dto/update.dto';
 import { users } from '@prisma/client';
 import { CustomerResponseDTO } from './dto/customer-response.dto';
+import { UserRole } from './enums/user.role';
 
 @ApiTags('users')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('users')
 export class UserController {
   constructor(private readonly service: UserService) {}
@@ -33,9 +38,10 @@ export class UserController {
   }
 
   @Get('/customers')
+  @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: 'List all customers',
-    description: 'Returns all users with role CUSTOMER, including their related customer data.',
+    summary: 'List all customers (Admin only)',
+    description: 'Returns all users with role CUSTOMER, including their related customer data. Requires ADMIN role.',
   })
   @ApiOkResponse({
     description: 'List of customers returned successfully.',

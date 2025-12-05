@@ -25,7 +25,7 @@ export class AuthService {
     const user = await this.userService.validateUser(email, password);
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
-    const payload = { sub: user.id, email: user.email };
+    const payload = { sub: user.id, email: user.email, role: user.role };
 
     const access_token = this.jwtService.sign(payload, {
       expiresIn: '15m',
@@ -64,7 +64,7 @@ export class AuthService {
 
       if (!isValid) throw new UnauthorizedException('Invalid refresh token');
 
-      const payload_for_new_tokens = { sub: user.id, email: user.email };
+      const payload_for_new_tokens = { sub: user.id, email: user.email, role: user.role };
 
       const new_access_token = this.jwtService.sign(payload_for_new_tokens, {
         secret: process.env.JWT_SECRET,
