@@ -13,6 +13,8 @@ import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { SignInDTO } from './dtos/signin.dto';
 import { RefreshTokenDTO } from './dtos/refresh-token.dto';
+import { ForgotPasswordDTO } from './dtos/forgot-password.dto';
+import { ResetPasswordDTO } from './dtos/reset-password.dto';
 import type { Request, Response } from 'express';
 
 @ApiTags('Authentication')
@@ -142,5 +144,53 @@ export class AuthController {
     });
 
     return { success: true, message: 'Logout successful' };
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @ApiOperation({ 
+    summary: 'Solicitar reset de senha',
+    description: 'Envia um email com link para redefinir a senha do usuário'
+  })
+  @ApiBody({ type: ForgotPasswordDTO })
+  @ApiResponse({
+    status: 200,
+    description: 'Email de reset enviado se o usuário existir.',
+    schema: {
+      example: { 
+        message: 'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.' 
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Dados inválidos.' })
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDTO) {
+    return this.authService.forgotPassword(forgotPasswordDto.email);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @ApiOperation({ 
+    summary: 'Redefinir senha',
+    description: 'Redefine a senha do usuário usando o token recebido por email'
+  })
+  @ApiBody({ type: ResetPasswordDTO })
+  @ApiResponse({
+    status: 200,
+    description: 'Senha redefinida com sucesso.',
+    schema: {
+      example: { 
+        message: 'Senha redefinida com sucesso. Faça login com sua nova senha.' 
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Token inválido ou dados incorretos.' })
+  @ApiResponse({ status: 404, description: 'Usuário não encontrado.' })
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDTO) {
+    return this.authService.resetPassword(
+      resetPasswordDto.user_id,
+      resetPasswordDto.token,
+      resetPasswordDto.new_password,
+      resetPasswordDto.confirm_password
+    );
   }
 }

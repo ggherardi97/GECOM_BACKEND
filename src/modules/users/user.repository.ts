@@ -33,14 +33,17 @@ export class UserRepository {
     }
   }
 
-  async findAll(): Promise<users[]> {
-    return await this.prisma.users.findMany();
+  async findAll(): Promise<Omit<users, 'password'>[]> {
+    return await this.prisma.users.findMany({
+      omit: { password: true },
+    });
   }
 
   async findAllCustomers() {
     try {
       return await this.prisma.users.findMany({
         where: { role: user_role_enum.CUSTOMER as user_role_enum },
+        omit: { password: true },
       });
     } catch (error) {
       handlePrismaError(error, 'fetching customers');
@@ -70,6 +73,13 @@ export class UserRepository {
     return this.prisma.users.update({
       where: { id },
       data: { password: hashed_password },
+    });
+  }
+
+  async updatePassword(id: string, hashedPassword: string): Promise<users> {
+    return this.prisma.users.update({
+      where: { id },
+      data: { password: hashedPassword },
     });
   }
 

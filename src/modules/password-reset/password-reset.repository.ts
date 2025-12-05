@@ -14,12 +14,12 @@ export class PasswordResetRepository {
         where: { user_id: input.user_id },
         update: {
           token: input.token,
-          expires_at: new Date(Date.now() + 60 * 60 * 1000),
+          expires_at: new Date(Date.now() + 60 * 60 * 1000), // 1 hora
         },
         create: {
           user_id: input.user_id,
           token: input.token,
-          expires_at: new Date(Date.now() + 60 * 60 * 1000),
+          expires_at: new Date(Date.now() + 60 * 60 * 1000), // 1 hora
         },
       });
     } catch (error) {

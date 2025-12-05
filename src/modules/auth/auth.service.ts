@@ -1,17 +1,24 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { UserService } from '../users/user.service';
 import { JwtService } from '@nestjs/jwt';
 import { CryptoService } from '../crypto/crypto.service';
+import { PasswordResetService } from '../password-reset/password-reset.service';
+import { MailerService } from '../mailer/mailer.service';
 import type { Request } from 'express';
 import { UAParser } from 'ua-parser-js';
 import { addDays } from 'date-fns';
+import { generateToken } from '../utils/generate-token';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 @Injectable()
 export class AuthService {
   constructor(
     private jwtService: JwtService,
     private userService: UserService,
-    private readonly cryptoService: CryptoService
+    private readonly cryptoService: CryptoService,
+    private readonly passwordResetService: PasswordResetService,
+    private readonly mailerService: MailerService
   ) {}
 
   async login(email: string, password: string, req: Request) {
@@ -103,5 +110,92 @@ export class AuthService {
   async logout(refresh_token: string) {
     await this.userService.logoutAll(refresh_token);
     return { message: 'All sessions terminated' };
+  }
+
+  async forgotPassword(email: string) {
+    try {
+      const user = await this.userService.findByEmail(email);
+      console.log(user);
+      const resetToken = generateToken(32);
+      const tokenHash = await this.cryptoService.hash(resetToken);
+
+      await this.passwordResetService.generateResetToken({
+        token: tokenHash,
+        user_id: user.id,
+      });
+
+      const template = readFileSync(
+        join(__dirname, '..', 'mailer', 'templates', 'forgot-password.html'),
+        'utf8'
+      );
+
+      const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}&userId=${user.id}`;
+      const currentYear = new Date().getFullYear();
+      
+      const html = template
+        .replace(/{{name}}/g, user.full_name)
+        .replace(/{{resetLink}}/g, resetLink)
+        .replace(/{{year}}/g, currentYear.toString());
+
+      await this.mailerService.sendWelcomeEmail(
+        user.email,
+        'Redefinição de Senha - GECOM',
+        html
+      );
+
+      return {
+        message: 'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
+      };
+    } catch (error) {
+      return {
+        message: 'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
+      };
+    }
+  }
+
+  async resetPassword(user_id: string, token: string, new_password: string, confirm_password: string) {
+    // Validar se as senhas coincidem
+    if (new_password !== confirm_password) {
+      throw new BadRequestException('As senhas não coincidem');
+    }
+
+    // Buscar usuário
+    const user = await this.userService.findById(user_id);
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    // Buscar token de reset
+    const reset_record = await this.passwordResetService.getToken(user_id);
+    if (!reset_record) {
+      throw new BadRequestException('Token de reset inválido ou expirado');
+    }
+
+    // Verificar se token é válido
+    const isValidToken = await this.cryptoService.verify(token, reset_record.token);
+    if (!isValidToken) {
+      throw new BadRequestException('Token de reset inválido');
+    }
+
+    // Verificar se token não expirou (1 hora)
+    if (reset_record.expires_at < new Date()) {
+      await this.passwordResetService.deleteToken(user_id);
+      throw new BadRequestException('Token de reset expirado. Solicite um novo reset de senha.');
+    }
+
+    // Atualizar senha do usuário
+    const hashedPassword = await this.cryptoService.hash(new_password);
+    await this.userService.updatePassword(user_id, hashedPassword);
+
+    // Remover token usado
+    await this.passwordResetService.deleteToken(user_id);
+    // Invalidar todas as sessões do usuário por segurança
+    if (user.sessions) {
+      await this.userService.logoutAll(user.sessions.refresh_token);
+    }
+
+    return {
+      message: 'Senha redefinida com sucesso. Faça login com sua nova senha.',
+    };
   }
 }

@@ -1,19 +1,16 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { MailerService as Service } from '@nestjs-modules/mailer';
-import * as nodemailer from 'nodemailer';
+import { Injectable } from '@nestjs/common';
+import { MailerService as NestMailerService } from '@nestjs-modules/mailer';
 import { handlePrismaError } from '../utils/errors';
 
 @Injectable()
 export class MailerService {
   constructor(
-    @Inject('MAIL_TRANSPORTER')
-    private readonly transporter: nodemailer.Transporter
+    private readonly nestMailerService: NestMailerService
   ) {}
 
   async sendWelcomeEmail(to: string, subject: string, html: string) {
     try {
-      await this.transporter.sendMail({
-        from: process.env.MAIL_FROM,
+      await this.nestMailerService.sendMail({
         to,
         subject,
         html,

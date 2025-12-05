@@ -56,7 +56,7 @@ export class UserService {
     return { message: 'User created successfully. Check your email for the reset link.' };
   }
 
-  async findAll(): Promise<users[]> {
+  async findAll(): Promise<Omit<users, 'password'>[]> {
     return this.repository.findAll();
   }
 
@@ -137,5 +137,9 @@ export class UserService {
 
   async logoutAll(refresh_token: string) {
     await this.repository.logoutAll(refresh_token);
+  }
+
+  async updatePassword(id: string, hashedPassword: string): Promise<users> {
+    return this.repository.updatePassword(id, hashedPassword);
   }
 }

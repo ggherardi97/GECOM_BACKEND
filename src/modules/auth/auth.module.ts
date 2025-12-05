@@ -8,12 +8,16 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { UserModule } from '../users/user.module';
 import { CryptoModule } from '../crypto/crypto.module';
+import { PasswordResetModule } from '../password-reset/password-reset.module';
+import { MailModule } from '../mailer/mailer.module';
 
 @Module({
   imports: [
     UserModule,
     PassportModule,
     CryptoModule,
+    PasswordResetModule,
+    MailModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '15m' },
@@ -26,7 +30,7 @@ import { CryptoModule } from '../crypto/crypto.module';
     JwtAuthGuard,
     {
       provide: APP_GUARD,
-      useExisting: JwtAuthGuard, // 🔑 usa a instância registrada
+      useExisting: JwtAuthGuard,
     },
   ],
   exports: [AuthService, JwtAuthGuard],
