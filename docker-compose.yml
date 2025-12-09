@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - postgres_network
+      - gecom_network
 
   mailhog:
     image: mailhog/mailhog:latest
@@ -27,7 +27,7 @@ services:
       - "1025:1025"
       - "8025:8025"
     networks:
-      - postgres_network
+      - gecom_network
 
   api:
     container_name: ${API_CONTAINER_NAME}
@@ -65,7 +65,7 @@ services:
     command: >
       sh -c "npm install && npm run prisma:generate && npm run dev"
     networks:
-      - postgres_network
+      - gecom_network
 
   pgadmin:
     image: dpage/pgadmin4:${PGADMIN_VERSION:-latest}
@@ -80,11 +80,11 @@ services:
     depends_on:
       - postgres
     networks:
-      - postgres_network
+      - gecom_network
 
 volumes:
   gecom_data:
 
 networks:
-  postgres_network:
+  gecom_network:
     driver: bridge

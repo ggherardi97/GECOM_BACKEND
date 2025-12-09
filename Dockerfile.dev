@@ -1,10 +1,12 @@
-# syntax=docker/dockerfile:1.4
-
-FROM node:22-bullseye
+FROM node:22-alpine
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y postgresql-client
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/main" > /etc/apk/repositories \
+ && echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/community" >> /etc/apk/repositories \
+ && apk update
+
+RUN apk add --no-cache postgresql15-client openssl
 
 COPY package*.json ./
 RUN npm install
@@ -14,7 +16,7 @@ COPY . .
 ENV NODE_ENV=development
 EXPOSE 3000
 
-COPY scripts/init-db.sh /usr/src/app/scripts/init-db.sh
-ENTRYPOINT ["sh", "/usr/src/app/scripts/init-db.sh"]
+COPY scripts/init-db.sh /app/scripts/init-db.sh
+RUN chmod +x /app/scripts/init-db.sh
 
-CMD ["npm", "run", "start:dev"]
+CMD ["sh", "-c", "npm run dev"]

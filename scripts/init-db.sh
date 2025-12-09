@@ -38,4 +38,4 @@ echo "🚀 Iniciando a aplicação Gecom Api..."
 
 npm run prisma:update
 
-npm run start:dev
+npm run dev
