@@ -9,6 +9,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './modules/auth/auth.module';
 import { PasswordResetModule } from './modules/password-reset/password-reset.module';
+import { ProcessModule } from './modules/processes/process.module';
+import { EventModule } from './modules/events/event.module';
 
 @Module({
   imports: [
@@ -31,6 +33,8 @@ import { PasswordResetModule } from './modules/password-reset/password-reset.mod
     PrismaModule,
     AuthModule,
     PasswordResetModule,
+    ProcessModule,
+    EventModule,
   ],
   controllers: [AppController],
   providers: [AppService],

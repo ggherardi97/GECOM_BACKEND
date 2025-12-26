@@ -1,9 +1,4 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableForeignKey,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableForeignKey } from 'typeorm';
 
 export class Migrate1766584199012 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -89,7 +84,7 @@ export class Migrate1766584199012 implements MigrationInterface {
             isNullable: true,
           },
         ],
-      }),
+      })
     );
 
     await queryRunner.createForeignKey(
@@ -100,7 +95,7 @@ export class Migrate1766584199012 implements MigrationInterface {
         referencedColumnNames: ['id'],
         onDelete: 'RESTRICT',
         onUpdate: 'CASCADE',
-      }),
+      })
     );
   }
 
@@ -108,9 +103,7 @@ export class Migrate1766584199012 implements MigrationInterface {
     const table = await queryRunner.getTable('companies');
 
     if (table) {
-      const foreignKey = table.foreignKeys.find(
-        (fk) => fk.columnNames.indexOf('user_id') !== -1,
-      );
+      const foreignKey = table.foreignKeys.find((fk) => fk.columnNames.indexOf('user_id') !== -1);
 
       if (foreignKey) {
         await queryRunner.dropForeignKey('companies', foreignKey);
@@ -120,4 +113,3 @@ export class Migrate1766584199012 implements MigrationInterface {
     await queryRunner.dropTable('companies');
   }
 }
-
