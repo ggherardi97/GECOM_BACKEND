@@ -2,21 +2,27 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+# Repositórios e update
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/main" > /etc/apk/repositories \
  && echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/community" >> /etc/apk/repositories \
  && apk update
 
+# Cliente do Postgres + openssl (para psql, pg_isready, etc.)
 RUN apk add --no-cache postgresql15-client openssl
 
+# Primeiro só package.json para aproveitar cache
 COPY package*.json ./
 RUN npm install
 
+# Depois o restante do código
 COPY . .
 
 ENV NODE_ENV=development
 EXPOSE 3000
 
+# Garante que o script está no lugar certo e é executável
 COPY scripts/init-db.sh /app/scripts/init-db.sh
 RUN chmod +x /app/scripts/init-db.sh
 
-CMD ["sh", "-c", "npm run dev"]
+# Usa o script de init como comando do container
+CMD ["sh", "/app/scripts/init-db.sh"]
