@@ -1,0 +1,11 @@
+export enum ProcessStatus {
+  PENDING = 0,
+  IN_PROGRESS = 1,
+  AWAITING_APPROVAL = 2,
+  APPROVED = 3,
+  IN_PRODUCTION = 4,
+  SHIPPED = 5,
+  DELIVERED = 6,
+  CANCELLED = 7,
+  COMPLETED = 8,
+}

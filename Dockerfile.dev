@@ -4,8 +4,8 @@ WORKDIR /app
 
 # Repositórios e update
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/main" > /etc/apk/repositories \
- && echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/community" >> /etc/apk/repositories \
- && apk update
+    && echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/community" >> /etc/apk/repositories \
+    && apk update
 
 # Cliente do Postgres + openssl (para psql, pg_isready, etc.)
 RUN apk add --no-cache postgresql15-client openssl
@@ -17,6 +17,8 @@ RUN npm install
 # Depois o restante do código
 COPY . .
 
+RUN chmod -R 777 /app/node_modules/.prisma || true
+
 ENV NODE_ENV=development
 EXPOSE 3000
 
@@ -26,3 +28,4 @@ RUN chmod +x /app/scripts/init-db.sh
 
 # Usa o script de init como comando do container
 CMD ["sh", "/app/scripts/init-db.sh"]
+

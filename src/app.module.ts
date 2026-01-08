@@ -4,10 +4,13 @@ import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
 import { MailModule } from './modules/mailer/mailer.module';
 import { UserModule } from './modules/users/user.module';
+import { CompanyModule } from './modules/companies/company.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './modules/auth/auth.module';
 import { PasswordResetModule } from './modules/password-reset/password-reset.module';
+import { ProcessModule } from './modules/processes/process.module';
+import { EventModule } from './modules/events/event.module';
 
 @Module({
   imports: [
@@ -26,9 +29,12 @@ import { PasswordResetModule } from './modules/password-reset/password-reset.mod
     }),
     MailModule,
     UserModule,
+    CompanyModule,
     PrismaModule,
     AuthModule,
     PasswordResetModule,
+    ProcessModule,
+    EventModule,
   ],
   controllers: [AppController],
   providers: [AppService],
