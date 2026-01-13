@@ -16,6 +16,7 @@ import { UpdateUserDTO } from './dto/update.dto';
 import { users } from '@prisma/client';
 import { CustomerResponseDTO } from './dto/customer-response.dto';
 import { UserRole } from './enums/user.role';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -24,7 +25,8 @@ import { UserRole } from './enums/user.role';
 export class UserController {
   constructor(private readonly service: UserService) {}
 
-  @Post()
+  @Public()
+  @Post() 
   @ApiBody({ type: CreateUserDTO })
   @ApiCreatedResponse({ description: 'User successfully created' })
   async create(@Body() data: CreateUserDTO) {

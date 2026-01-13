@@ -63,6 +63,8 @@ export class CompanyRepository {
             id: true,
             full_name: true,
             email: true,
+            status: true,
+            role: true
           },
         },
       },
