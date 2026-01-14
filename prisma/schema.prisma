@@ -22,6 +22,8 @@ model users {
   status          user_status_enum @default(ACTIVE)
   created_at      DateTime         @default(now()) @db.Timestamp(6)
   updated_at      DateTime         @default(now()) @db.Timestamp(6)
+  phonenumber     String?          @db.VarChar(50)
+  first_access    Boolean          @default(true)
   companies       companies[]
   password_resets password_resets?
   processes       processes[]
@@ -60,23 +62,27 @@ model password_resets {
 }
 
 model companies {
-  id              String      @id(map: "PK_d4bc3e82a314fa9e29f652c2c22") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  company_name    String      @db.VarChar
-  user_id         String      @db.Uuid
-  phone           String?     @db.VarChar
-  company_number  String?     @db.VarChar
-  sector          String?     @db.VarChar
-  category        String?     @db.VarChar
-  address_line    String?     @db.VarChar
-  address_street  String?     @db.VarChar
-  address_number  String?     @db.VarChar
-  address_city    String?     @db.VarChar
-  address_country String?     @db.VarChar
-  created_at      DateTime    @default(now()) @db.Timestamp(6)
-  updated_at      DateTime    @default(now()) @db.Timestamp(6)
-  deleted_at      DateTime?   @db.Timestamp(6)
-  users           users       @relation(fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
-  processes       processes[]
+  id                 String      @id(map: "PK_d4bc3e82a314fa9e29f652c2c22") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_name       String      @db.VarChar
+  user_id            String      @db.Uuid
+  phone              String?     @db.VarChar
+  company_number     String?     @db.VarChar
+  sector             String?     @db.VarChar
+  category           String?     @db.VarChar
+  address_line       String?     @db.VarChar
+  address_street     String?     @db.VarChar
+  address_number     String?     @db.VarChar
+  address_city       String?     @db.VarChar
+  address_country    String?     @db.VarChar
+  created_at         DateTime    @default(now()) @db.Timestamp(6)
+  updated_at         DateTime    @default(now()) @db.Timestamp(6)
+  deleted_at         DateTime?   @db.Timestamp(6)
+  address_postalcode String?     @db.VarChar
+  address_state      String?     @db.VarChar
+  number_of_invoices Int         @default(0)
+  language           String?     @db.VarChar
+  users              users       @relation(fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
+  processes          processes[]
 }
 
 model events {

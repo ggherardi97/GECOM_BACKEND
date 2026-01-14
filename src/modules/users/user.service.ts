@@ -53,7 +53,11 @@ export class UserService {
     const html = template.replace('{{name}}', user.full_name).replace('{{resetLink}}', url);
     await this.mailerService.sendWelcomeEmail(user.email, 'Welcome a Gecom!', html);
 
-    return { message: 'User created successfully. Check your email for the reset link.' };
+    return {
+      message: 'User created successfully. Check your email for the reset link.',
+      user_id: user.id,
+    };
+
   }
 
   async findAll(): Promise<Omit<users, 'password'>[]> {

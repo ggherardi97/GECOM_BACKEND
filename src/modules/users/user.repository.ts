@@ -16,22 +16,25 @@ export class UserRepository {
     private readonly cryptoService: CryptoService
   ) {}
 
-  async create(data: CreateUserDTO): Promise<users | null> {
-    try {
-      return await this.prisma.users.create({
-        data: {
-          full_name: data.full_name,
-          email: data.email,
-          password: data.password,
-          role: data.role || user_role_enum.USER,
-          status: data.status || user_status_enum.ACTIVE,
-        },
-      });
-    } catch (e) {
-      this.logger.error(e);
-      return null;
-    }
+async create(data: CreateUserDTO): Promise<users | null> {
+  try {
+    return await this.prisma.users.create({
+      data: {
+        full_name: data.full_name,
+        email: data.email,
+        password: data.password,
+        role: data.role || user_role_enum.USER,
+        status: data.status || user_status_enum.ACTIVE,
+        phonenumber: data.phonenumber ?? null,
+        first_access: data.first_access ?? true,
+      },
+    });
+  } catch (e) {
+    this.logger.error(e);
+    return null;
   }
+}
+
 
   async findAll(): Promise<Omit<users, 'password'>[]> {
     return await this.prisma.users.findMany({

@@ -1,10 +1,4 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableForeignKey,
-  TableIndex,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableForeignKey, TableIndex } from 'typeorm';
 
 export class Migrate1766749124290 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -70,7 +64,7 @@ export class Migrate1766749124290 implements MigrationInterface {
             isNullable: true,
           },
         ],
-      }),
+      })
     );
 
     await queryRunner.createForeignKeys('processes', [
@@ -171,7 +165,7 @@ export class Migrate1766749124290 implements MigrationInterface {
             default: 'now()',
           },
         ],
-      }),
+      })
     );
 
     await queryRunner.createIndices('events', [

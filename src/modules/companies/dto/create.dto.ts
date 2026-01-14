@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsOptional, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsUUID, IsInt, Min } from 'class-validator';
 
 export class CreateCompanyDTO {
   @ApiProperty({
@@ -89,4 +89,39 @@ export class CreateCompanyDTO {
   @IsString()
   @IsOptional()
   address_country?: string;
+
+  // ---------------- New fields ----------------
+
+  @ApiPropertyOptional({
+    description: 'CEP / Postal code',
+    example: '09271-400',
+  })
+  @IsString()
+  @IsOptional()
+  address_postalcode?: string;
+
+  @ApiPropertyOptional({
+    description: 'Estado / State',
+    example: 'SP',
+  })
+  @IsString()
+  @IsOptional()
+  address_state?: string;
+
+  @ApiPropertyOptional({
+    description: 'Number of invoices for the company',
+    example: 0,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  number_of_invoices?: number;
+
+  @ApiPropertyOptional({
+    description: 'Company language',
+    example: 'pt-BR',
+  })
+  @IsString()
+  @IsOptional()
+  language?: string;
 }

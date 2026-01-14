@@ -25,9 +25,14 @@ export class CompanyRepository {
           address_number: data.address_number,
           address_city: data.address_city,
           address_country: data.address_country,
+
+          // New fields
+          address_postalcode: data.address_postalcode,
+          address_state: data.address_state,
+          number_of_invoices: data.number_of_invoices ?? 0,
+          language: data.language,
         },
       });
-    return null;
     } catch (e) {
       this.logger.error('Error creating company:', e);
       return null;
@@ -55,7 +60,7 @@ export class CompanyRepository {
   }
 
   async findById(id: string): Promise<companies | null> {
-    return await this.prisma.companies.findUnique({
+    return await this.prisma.companies.findFirst({
       where: { id, deleted_at: null },
       include: {
         users: {
@@ -64,7 +69,8 @@ export class CompanyRepository {
             full_name: true,
             email: true,
             status: true,
-            role: true
+            phonenumber: true,
+            role: true,
           },
         },
       },
@@ -85,14 +91,17 @@ export class CompanyRepository {
 
   async update(id: string, data: UpdateCompanyDTO): Promise<companies> {
     try {
+      // Avoid forcing user_id if it was not provided
+      const { user_id, ...rest } = data as any;
+
       return await this.prisma.companies.update({
-      where: { id },
-      data: {
-        ...data,
-        user_id: data.user_id,
-        updated_at: new Date(),
-      },
-    });
+        where: { id },
+        data: {
+          ...rest,
+          ...(user_id ? { user_id } : {}),
+          updated_at: new Date(),
+        },
+      });
     } catch (error) {
       this.logger.error('Error updating company:', error);
       throw new BadRequestException('Error updating company');
@@ -102,11 +111,11 @@ export class CompanyRepository {
   async remove(id: string): Promise<companies> {
     try {
       return await this.prisma.companies.update({
-      where: { id, deleted_at: null },
-      data: {
-        deleted_at: new Date(),
-      },
-    });
+        where: { id },
+        data: {
+          deleted_at: new Date(),
+        },
+      });
     } catch (error) {
       this.logger.error('Error removing company:', error);
       throw new BadRequestException('Error removing company');
@@ -116,8 +125,8 @@ export class CompanyRepository {
   async hardDelete(id: string): Promise<companies> {
     try {
       return await this.prisma.companies.delete({
-      where: { id },
-    });
+        where: { id },
+      });
     } catch (error) {
       this.logger.error('Error hard deleting company:', error);
       throw new BadRequestException('Error hard deleting company');

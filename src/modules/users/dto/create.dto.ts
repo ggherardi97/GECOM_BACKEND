@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsNotEmpty, IsString, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { UserRole, UserStatusEnum } from '../enums';
 
 export class CreateUserDTO {
@@ -19,12 +28,12 @@ export class CreateUserDTO {
   email: string;
 
   @ApiProperty({
-    description: 'Senha do usuário (mínimo 6 caracteres)',
+    description: 'Senha do usuário (mínimo 8 caracteres)',
     example: 'senhaSegura123',
-    minLength: 6,
+    minLength: 8,
   })
   @IsString()
-  @MinLength(8, { message: 'A senha deve ter pelo menos 6 caracteres' })
+  @MinLength(8, { message: 'A senha deve ter pelo menos 8 caracteres' })
   password: string;
 
   @ApiProperty({
@@ -40,6 +49,24 @@ export class CreateUserDTO {
     example: 'ACTIVE',
     description: 'Status of the user',
   })
+  @IsOptional()
   @IsEnum(UserStatusEnum)
-  status: UserStatusEnum;
+  status?: UserStatusEnum;
+
+  @ApiPropertyOptional({
+    description: 'User phone number',
+    example: '+5511961383449',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  phonenumber?: string;
+
+  @ApiPropertyOptional({
+    description: 'Indicates if this is the first access',
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  first_access?: boolean;
 }
