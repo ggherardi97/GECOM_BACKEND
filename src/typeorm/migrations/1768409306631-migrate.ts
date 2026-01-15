@@ -2,27 +2,33 @@ import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class AddCompanyIdToUsers1761419999999 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // 1) Add nullable column first (safe for existing data)
     await queryRunner.query(`
       ALTER TABLE "users"
       ADD COLUMN IF NOT EXISTS "company_id" uuid NULL
     `);
 
-    // 2) Index (performance for joins / filtering)
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_users_company_id"
       ON "users" ("company_id")
     `);
 
-    // 3) Foreign key to companies
-    //    - ON DELETE SET NULL: if company is deleted, users are detached (safer)
-    //    - ON UPDATE CASCADE: keeps integrity if company id changes (rare)
+    // ✅ Postgres does NOT support: ADD CONSTRAINT IF NOT EXISTS
+    // So we check existence manually.
     await queryRunner.query(`
-      ALTER TABLE "users"
-      ADD CONSTRAINT IF NOT EXISTS "FK_users_company_id"
-      FOREIGN KEY ("company_id") REFERENCES "companies"("id")
-      ON DELETE SET NULL
-      ON UPDATE CASCADE
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'FK_users_company_id'
+        ) THEN
+          ALTER TABLE "users"
+          ADD CONSTRAINT "FK_users_company_id"
+          FOREIGN KEY ("company_id") REFERENCES "companies"("id")
+          ON DELETE SET NULL
+          ON UPDATE CASCADE;
+        END IF;
+      END$$;
     `);
   }
 
@@ -37,8 +43,21 @@ export class AddCompanyIdToUsers1761419999999 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'FK_users_company_id'
+    ) THEN
       ALTER TABLE "users"
-      DROP COLUMN IF EXISTS "company_id"
-    `);
+      ADD CONSTRAINT "FK_users_company_id"
+      FOREIGN KEY ("company_id") REFERENCES "companies"("id")
+      ON DELETE SET NULL
+      ON UPDATE CASCADE;
+    END IF;
+  END$$;
+`);
+
   }
 }

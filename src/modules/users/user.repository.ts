@@ -22,11 +22,14 @@ async create(data: CreateUserDTO): Promise<users | null> {
       data: {
         full_name: data.full_name,
         email: data.email,
-        password: data.password,
+        password: data.password ?? "",
         role: data.role || user_role_enum.USER,
         status: data.status || user_status_enum.ACTIVE,
         phonenumber: data.phonenumber ?? null,
         first_access: data.first_access ?? true,
+
+        // ✅ NEW: membership link
+        company_id: data.company_id ?? null,
       },
     });
   } catch (e) {
@@ -34,6 +37,7 @@ async create(data: CreateUserDTO): Promise<users | null> {
     return null;
   }
 }
+
 
 
   async findAll(): Promise<Omit<users, 'password'>[]> {

@@ -14,20 +14,29 @@ model migrations {
 }
 
 model users {
-  id              String           @id(map: "PK_a3ffb1c0c8416b9fc6f907b7433") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  full_name       String           @db.VarChar(255)
-  email           String           @unique(map: "UQ_97672ac88f789774dd47f7c8be3") @db.VarChar(255)
-  password        String           @db.VarChar(255)
-  role            user_role_enum   @default(USER)
-  status          user_status_enum @default(ACTIVE)
-  created_at      DateTime         @default(now()) @db.Timestamp(6)
-  updated_at      DateTime         @default(now()) @db.Timestamp(6)
-  phonenumber     String?          @db.VarChar(50)
-  first_access    Boolean          @default(true)
-  companies       companies[]
+  id           String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  full_name    String
+  email        String           @unique
+  password     String
+  role         user_role_enum   @default(USER)
+  status       user_status_enum @default(ACTIVE)
+  phonenumber  String?
+  first_access Boolean?         @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  // ✅ Users -> Company membership (N users -> 1 company)
+  company_id String?    @db.Uuid
+  company    companies? @relation("CompanyUsers", fields: [company_id], references: [id])
+
+  // ✅ Reverse side for primaryUser relation (a user can be primary for many companies)
+  primaryForCompanies companies[] @relation("CompanyPrimaryUser")
+
+  // Back-relations required by Prisma
+  sessions        sessions?
   password_resets password_resets?
   processes       processes[]
-  sessions        sessions?
 }
 
 model sessions {
@@ -39,7 +48,8 @@ model sessions {
   expires_at    DateTime? @db.Timestamp(6)
   updated_at    DateTime  @default(now()) @db.Timestamp(6)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
-  users         users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_085d540d9f418cfbdc7bd55bb19")
+
+  users users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_085d540d9f418cfbdc7bd55bb19")
 }
 
 model customers {
@@ -58,31 +68,45 @@ model password_resets {
   token      String   @db.VarChar(255)
   expires_at DateTime @db.Timestamp(6)
   created_at DateTime @default(now()) @db.Timestamp(6)
-  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f7a4c3bc48f24df007936d217be")
+
+  users users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f7a4c3bc48f24df007936d217be")
 }
 
 model companies {
-  id                 String      @id(map: "PK_d4bc3e82a314fa9e29f652c2c22") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  company_name       String      @db.VarChar
-  user_id            String      @db.Uuid
-  phone              String?     @db.VarChar
-  company_number     String?     @db.VarChar
-  sector             String?     @db.VarChar
-  category           String?     @db.VarChar
-  address_line       String?     @db.VarChar
-  address_street     String?     @db.VarChar
-  address_number     String?     @db.VarChar
-  address_city       String?     @db.VarChar
-  address_country    String?     @db.VarChar
-  created_at         DateTime    @default(now()) @db.Timestamp(6)
-  updated_at         DateTime    @default(now()) @db.Timestamp(6)
-  deleted_at         DateTime?   @db.Timestamp(6)
-  address_postalcode String?     @db.VarChar
-  address_state      String?     @db.VarChar
-  number_of_invoices Int         @default(0)
-  language           String?     @db.VarChar
-  users              users       @relation(fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
-  processes          processes[]
+  id           String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_name String
+
+  // ✅ agora pode ser null (company criada antes de ter usuário)
+  user_id String? @db.Uuid
+
+  phone          String?
+  company_number String?
+  sector         String?
+  category       String?
+
+  address_line    String?
+  address_street  String?
+  address_number  String?
+  address_city    String?
+  address_country String?
+
+  address_postalcode String?
+  address_state      String?
+  number_of_invoices Int?    @default(0)
+  language           String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+
+  // ✅ relação agora é opcional
+  primaryUser users? @relation("CompanyPrimaryUser", fields: [user_id], references: [id])
+
+  // ✅ users that belong to the company (users.company_id -> companies.id)
+  users users[] @relation("CompanyUsers")
+
+  // ✅ REQUIRED opposite side for processes.company_id -> companies.id
+  processes processes[] @relation("CompanyProcesses")
 }
 
 model events {
@@ -114,8 +138,11 @@ model processes {
   completed          Int       @default(0)
   created_on         DateTime  @default(now()) @db.Timestamp(6)
   deleted_at         DateTime? @db.Timestamp(6)
-  users              users     @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
-  companies          companies @relation(fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
+
+  users users @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
+
+  // ✅ Added relation name + must match companies.processes relation
+  companies companies @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
 
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
   @@index([process_number], map: "IDX_PROCESS_PROCESS_NUMBER")

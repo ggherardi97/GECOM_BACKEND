@@ -6,8 +6,10 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { UserRole, UserStatusEnum } from '../enums';
 
@@ -27,14 +29,16 @@ export class CreateUserDTO {
   @IsEmail({}, { message: 'E-mail inválido' })
   email: string;
 
-  @ApiProperty({
-    description: 'Senha do usuário (mínimo 8 caracteres)',
+  @ApiPropertyOptional({
+    description: 'Senha do usuário (mínimo 8 caracteres). Se não vier (ou vier vazia), o backend gera uma temporária.',
     example: 'senhaSegura123',
     minLength: 8,
   })
+  @IsOptional()
   @IsString()
+  @ValidateIf((o) => o.password != null && String(o.password).trim().length > 0)
   @MinLength(8, { message: 'A senha deve ter pelo menos 8 caracteres' })
-  password: string;
+  password?: string;
 
   @ApiProperty({
     description: 'Papel do usuário dentro do sistema',
@@ -69,4 +73,12 @@ export class CreateUserDTO {
   @IsOptional()
   @IsBoolean()
   first_access?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Company membership (N users -> 1 company)',
+    example: 'e3594b9c-fea9-4e72-adc2-29bccb16cf35',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  company_id?: string;
 }

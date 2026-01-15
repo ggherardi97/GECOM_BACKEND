@@ -21,16 +21,32 @@ export class UserService {
     private readonly passwordResetService: PasswordResetService
   ) {}
 
+  private generateTempPassword(): string {
+    // Strong-ish temp pass (no money calc etc; just string)
+    const rand = Math.random().toString(36).slice(2);
+    const rand2 = Math.random().toString(36).slice(2);
+    return `Tmp@${rand}${rand2}9`;
+  }
+
   async create(data: CreateUserDTO): Promise<any> {
-    const { password } = data;
     const emailExists = await this.repository.findByEmail(data.email);
 
     if (emailExists) {
       throw new BadRequestException('Email already exists');
     }
 
-    const hash_password = await this.cryptoService.hash(password);
-    const user = await this.repository.create({ ...data, password: hash_password });
+    // ✅ If password missing/empty -> generate temp
+    const rawPassword = (data.password ?? '').trim();
+    const passwordToUse = rawPassword.length > 0 ? rawPassword : this.generateTempPassword();
+
+    const hash_password = await this.cryptoService.hash(passwordToUse);
+
+    const user = await this.repository.create({
+      ...data,
+      password: hash_password,
+      // if you want: first_access default true when generating temp
+      first_access: data.first_access ?? true,
+    });
 
     if (!user) {
       throw new BadRequestException('Failed to create user');
@@ -51,14 +67,15 @@ export class UserService {
 
     const url = `${process.env.FRONTEND_URL}/${user.id}/reset-password?token=${token_generated}`;
     const html = template.replace('{{name}}', user.full_name).replace('{{resetLink}}', url);
+
     await this.mailerService.sendWelcomeEmail(user.email, 'Welcome a Gecom!', html);
 
     return {
       message: 'User created successfully. Check your email for the reset link.',
       user_id: user.id,
     };
-
   }
+
 
   async findAll(): Promise<Omit<users, 'password'>[]> {
     return this.repository.findAll();
