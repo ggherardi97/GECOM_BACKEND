@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from "typeorm";
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class AddCompanyIdToUsers1761419999999 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -58,6 +58,5 @@ export class AddCompanyIdToUsers1761419999999 implements MigrationInterface {
     END IF;
   END$$;
 `);
-
   }
 }

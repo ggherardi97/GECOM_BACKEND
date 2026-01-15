@@ -1,0 +1,184 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { InvoiceStatus } from '../enums/invoice-status.enum';
+
+export class CreateInvoiceLineDTO {
+  @ApiPropertyOptional({
+    description: 'Product id (optional). If missing, you can still use description + unit + pricing.',
+    example: 'e3594b9c-fea9-4e72-adc2-29bccb16cf35',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  product_id?: string;
+
+  @ApiPropertyOptional({
+    description: 'Free text description for the line.',
+    example: 'Freight / Service fee',
+  })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Unit name (box, pallet, service, etc).',
+    example: 'pallet',
+  })
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @ApiProperty({
+    description: 'Unit price as string decimal (Prisma Decimal).',
+    example: '1250.00',
+  })
+  @IsString()
+  @IsNotEmpty()
+  unit_price: string;
+
+  @ApiProperty({
+    description: 'Quantity as string decimal (supports 1.0000 etc).',
+    example: '2',
+  })
+  @IsString()
+  @IsNotEmpty()
+  quantity: string;
+
+  @ApiPropertyOptional({
+    description: 'Tax rate between 0 and 1. Example: 0.15 = 15%',
+    example: '0.15',
+  })
+  @IsOptional()
+  @IsString()
+  tax_rate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Discount percent for this line (0..100).',
+    example: 10,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  discount_percent?: number;
+}
+
+export class CreateInvoiceDTO {
+  @ApiProperty({
+    description: 'Company id related to this invoice.',
+    example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
+  })
+  @IsUUID('4')
+  company_id: string;
+
+  @ApiProperty({
+    description: 'Currency id (FK currencies).',
+    example: 'b1c2d3e4-5f6g-7h8i-9j0k-l1m2n3o4p5q6',
+  })
+  @IsUUID('4')
+  currency_id: string;
+
+  @ApiPropertyOptional({
+    description: 'Quote datetime (ISO string).',
+    example: '2025-12-30T10:00:00Z',
+  })
+  @IsOptional()
+  @IsString()
+  quote_at?: string;
+
+  @ApiPropertyOptional({
+    description: 'Exchange rate as decimal string. Default: 1',
+    example: '1.00000000',
+  })
+  @IsOptional()
+  @IsString()
+  exchange_rate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Invoice version.',
+    example: 1,
+  })
+  @IsOptional()
+  @IsInt()
+  version?: number;
+
+  @ApiPropertyOptional({ description: 'Billing address line 1', example: 'Rua X, 500' })
+  @IsOptional()
+  @IsString()
+  billing_address_line1?: string;
+
+  @ApiPropertyOptional({ description: 'Billing address line 2', example: 'Ap 143' })
+  @IsOptional()
+  @IsString()
+  billing_address_line2?: string;
+
+  @ApiPropertyOptional({ description: 'Billing city', example: 'Santo André' })
+  @IsOptional()
+  @IsString()
+  billing_address_city?: string;
+
+  @ApiPropertyOptional({ description: 'Billing state', example: 'SP' })
+  @IsOptional()
+  @IsString()
+  billing_address_state?: string;
+
+  @ApiPropertyOptional({ description: 'Billing postal code', example: '09271-400' })
+  @IsOptional()
+  @IsString()
+  billing_address_postal_code?: string;
+
+  @ApiPropertyOptional({ description: 'Billing country', example: 'Brazil' })
+  @IsOptional()
+  @IsString()
+  billing_address_country?: string;
+
+  @ApiPropertyOptional({
+    description: 'Invoice status: 0 Active, 1 Expired, 2 Invoiced, 3 Paid',
+    enum: InvoiceStatus,
+    example: InvoiceStatus.ACTIVE,
+  })
+  @IsOptional()
+  @IsEnum(InvoiceStatus)
+  status?: InvoiceStatus;
+
+  @ApiPropertyOptional({
+    description: 'Header discount percent (0..100).',
+    example: 5,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  discount_percent?: number;
+
+  @ApiPropertyOptional({ description: 'Notes', example: 'Payable within 10 business days.' })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @ApiPropertyOptional({ description: 'Terms', example: 'Net 10' })
+  @IsOptional()
+  @IsString()
+  terms?: string;
+
+  @ApiProperty({
+    description: 'Invoice lines',
+    type: CreateInvoiceLineDTO,
+    isArray: true,
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateInvoiceLineDTO)
+  lines: CreateInvoiceLineDTO[];
+}

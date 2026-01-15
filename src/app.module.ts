@@ -11,6 +11,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { PasswordResetModule } from './modules/password-reset/password-reset.module';
 import { ProcessModule } from './modules/processes/process.module';
 import { EventModule } from './modules/events/event.module';
+import { InvoiceModule } from './modules/invoices/invoices.module';
+import { InvoiceLineModule } from './modules/invoice-lines/invoice-line.module';
+import { ProductModule } from './modules/products/product.module';
+import { CurrencyModule } from './modules/currencies/currency.module';
 
 @Module({
   imports: [
@@ -35,6 +39,10 @@ import { EventModule } from './modules/events/event.module';
     PasswordResetModule,
     ProcessModule,
     EventModule,
+    InvoiceModule,
+    ProductModule,
+    CurrencyModule,
+    InvoiceLineModule,
   ],
   controllers: [AppController],
   providers: [AppService],

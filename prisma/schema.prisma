@@ -107,6 +107,10 @@ model companies {
 
   // ✅ REQUIRED opposite side for processes.company_id -> companies.id
   processes processes[] @relation("CompanyProcesses")
+  
+    // ✅ REQUIRED opposite side for invoices.company_id -> companies.id
+  invoices invoices[] @relation("CompanyInvoices")
+
 }
 
 model events {
@@ -147,6 +151,130 @@ model processes {
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
   @@index([process_number], map: "IDX_PROCESS_PROCESS_NUMBER")
 }
+
+model currencies {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code       String   @unique @db.VarChar(3)  // BRL, USD, EUR
+  name       String   @db.VarChar(100)
+  symbol     String?  @db.VarChar(10)
+  decimals   Int      @default(2) @db.SmallInt
+  is_active  Boolean  @default(true)
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  products   products[]
+  invoices   invoices[]
+}
+
+model products {
+  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  product_code       String   @unique @db.VarChar(80)
+  name               String   @db.VarChar(255)
+  brand              String?  @db.VarChar(120)
+  unit               String?  @db.VarChar(50)
+  description        String?
+
+  currency_id        String   @db.Uuid
+  default_unit_price Decimal  @default(0) @db.Decimal(19,4)
+  default_tax_rate   Decimal  @default(0) @db.Decimal(9,4)  // 0..1
+
+  is_active          Boolean  @default(true)
+
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  currencies         currencies @relation(fields: [currency_id], references: [id])
+  invoice_lines      invoice_lines[]
+
+  @@index([currency_id])
+  @@index([is_active])
+}
+
+model invoices {
+  id                      String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  invoice_seq             BigInt   @default(dbgenerated("nextval('invoices_invoice_seq_seq'::regclass)"))
+  invoice_number          String   @unique @db.VarChar(30)
+
+  company_id              String   @db.Uuid
+  currency_id             String   @db.Uuid
+
+  quote_at                DateTime? @db.Timestamptz(6)
+  exchange_rate           Decimal   @default(1) @db.Decimal(19,8)
+
+  version                 Int       @default(1)
+
+  billing_address_line1       String?
+  billing_address_line2       String?
+  billing_address_city        String?
+  billing_address_state       String?
+  billing_address_postal_code String?
+  billing_address_country     String?
+
+  status                  Int       @default(0) @db.SmallInt // 0..3
+
+  subtotal                Decimal   @default(0) @db.Decimal(19,4)
+  discount_percent         Int       @default(0)
+  discount_amount          Decimal   @default(0) @db.Decimal(19,4)
+  tax_total                Decimal   @default(0) @db.Decimal(19,4)
+  fee_total                Decimal   @default(0) @db.Decimal(19,4)
+  total                   Decimal   @default(0) @db.Decimal(19,4)
+
+  issued_at               DateTime? @db.Timestamptz(6)
+  due_at                  DateTime? @db.Timestamptz(6)
+  paid_at                 DateTime? @db.Timestamptz(6)
+
+  notes                   String?
+  terms                   String?
+
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @default(now()) @db.Timestamptz(6)
+
+  // relations
+  companies     companies  @relation("CompanyInvoices", fields: [company_id], references: [id])
+  currencies    currencies @relation(fields: [currency_id], references: [id])
+  invoice_lines invoice_lines[]
+
+  @@index([company_id])
+  @@index([currency_id])
+  @@index([status])
+  @@index([company_id, status])
+}
+
+model invoice_lines {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  invoice_id       String   @db.Uuid
+  line_number      Int
+
+  product_id       String?  @db.Uuid
+  description      String?
+  unit             String?  @db.VarChar(50)
+
+  unit_price       Decimal  @default(0) @db.Decimal(19,4)
+  quantity         Decimal  @default(1) @db.Decimal(19,4)
+
+  tax_rate         Decimal  @default(0) @db.Decimal(9,4)   // 0..1
+  tax_amount       Decimal  @default(0) @db.Decimal(19,4)
+
+  discount_percent Int      @default(0)
+  discount_amount  Decimal  @default(0) @db.Decimal(19,4)
+
+  line_subtotal    Decimal  @default(0) @db.Decimal(19,4)
+  line_total       Decimal  @default(0) @db.Decimal(19,4)
+
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  invoices         invoices @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  products         products? @relation(fields: [product_id], references: [id], onDelete: SetNull)
+
+  @@unique([invoice_id, line_number])
+  @@index([invoice_id])
+  @@index([product_id])
+}
+
 
 enum user_role_enum {
   USER
