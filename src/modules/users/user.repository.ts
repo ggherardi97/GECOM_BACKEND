@@ -16,29 +16,25 @@ export class UserRepository {
     private readonly cryptoService: CryptoService
   ) {}
 
-async create(data: CreateUserDTO): Promise<users | null> {
-  try {
-    return await this.prisma.users.create({
-      data: {
-        full_name: data.full_name,
-        email: data.email,
-        password: data.password ?? "",
-        role: data.role || user_role_enum.USER,
-        status: data.status || user_status_enum.ACTIVE,
-        phonenumber: data.phonenumber ?? null,
-        first_access: data.first_access ?? true,
-
-        // ✅ NEW: membership link
-        company_id: data.company_id ?? null,
-      },
-    });
-  } catch (e) {
-    this.logger.error(e);
-    return null;
+  async create(data: CreateUserDTO): Promise<users | null> {
+    try {
+      return await this.prisma.users.create({
+        data: {
+          full_name: data.full_name,
+          email: data.email,
+          password: data.password ?? '',
+          role: data.role || user_role_enum.USER,
+          status: data.status || user_status_enum.ACTIVE,
+          phonenumber: data.phonenumber ?? null,
+          first_access: data.first_access ?? true,
+          company_id: data.company_id ?? null,
+        },
+      });
+    } catch (e) {
+      this.logger.error(e);
+      return null;
+    }
   }
-}
-
-
 
   async findAll(): Promise<Omit<users, 'password'>[]> {
     return await this.prisma.users.findMany({
@@ -63,6 +59,27 @@ async create(data: CreateUserDTO): Promise<users | null> {
 
   async findByEmail(email: string): Promise<users | null> {
     return await this.prisma.users.findUnique({ where: { email } });
+  }
+
+  /**
+   * Returns a "safe" user payload (no password), ideal for "who am I" / post-login usage.
+   */
+  async findPublicByEmail(email: string): Promise<Omit<users, 'password'> | null> {
+    return await this.prisma.users.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        full_name: true,
+        email: true,
+        role: true,
+        status: true,
+        phonenumber: true,
+        first_access: true,
+        company_id: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
   }
 
   async update(id: string, data: UpdateUserDTO): Promise<users> {

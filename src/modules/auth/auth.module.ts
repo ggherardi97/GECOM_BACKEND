@@ -11,6 +11,14 @@ import { CryptoModule } from '../crypto/crypto.module';
 import { PasswordResetModule } from '../password-reset/password-reset.module';
 import { MailModule } from '../mailer/mailer.module';
 
+// NEW: /auth/me (refresh-cookie based)
+import { AuthMeController } from './auth-me.controller';
+import { RefreshSessionGuard } from './guards/refresh-session.guard';
+
+// IMPORTANT: adjust import according to your project structure
+// If you have PrismaModule, use it. If you only have PrismaService, see note below.
+import { PrismaModule } from '../../prisma/prisma.module';
+
 @Module({
   imports: [
     UserModule,
@@ -18,16 +26,21 @@ import { MailModule } from '../mailer/mailer.module';
     CryptoModule,
     PasswordResetModule,
     MailModule,
+    PrismaModule, // NEW: needed for RefreshSessionGuard + AuthMeController
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '15m' },
     }),
   ],
-  controllers: [AuthController],
+  controllers: [
+    AuthController,
+    AuthMeController, // NEW
+  ],
   providers: [
     AuthService,
     JwtStrategy,
     JwtAuthGuard,
+    RefreshSessionGuard, // NEW
     {
       provide: APP_GUARD,
       useExisting: JwtAuthGuard,

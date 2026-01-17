@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Patch, Delete, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Patch, Delete, UseGuards, Query, BadRequestException } from '@nestjs/common';
 import {
   ApiTags,
   ApiBody,
@@ -6,6 +6,7 @@ import {
   ApiOkResponse,
   ApiBearerAuth,
   ApiOperation,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -26,7 +27,7 @@ export class UserController {
   constructor(private readonly service: UserService) {}
 
   @Public()
-  @Post() 
+  @Post()
   @ApiBody({ type: CreateUserDTO })
   @ApiCreatedResponse({ description: 'User successfully created' })
   async create(@Body() data: CreateUserDTO) {
@@ -43,7 +44,8 @@ export class UserController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'List all customers (Admin only)',
-    description: 'Returns all users with role CUSTOMER, including their related customer data. Requires ADMIN role.',
+    description:
+      'Returns all users with role CUSTOMER, including their related customer data. Requires ADMIN role.',
   })
   @ApiOkResponse({
     description: 'List of customers returned successfully.',
@@ -52,6 +54,27 @@ export class UserController {
   })
   async findAllCustomers() {
     return this.service.findAllCustomers();
+  }
+
+  /**
+   * GET /users/by-email?email=foo@bar.com
+   * Used by frontend/BFF after login to load user profile.
+   * This endpoint is protected (requires JWT).
+   */
+  @Get('by-email')
+  @ApiOperation({
+    summary: 'Get user by email (safe payload)',
+    description: 'Returns user profile by email without sensitive fields like password.',
+  })
+  @ApiQuery({ name: 'email', required: true, type: String })
+  @ApiOkResponse({ description: 'User found' })
+  async findByEmail(@Query('email') email: string) {
+    const normalizedEmail = (email ?? '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new BadRequestException('Missing query param: email');
+    }
+
+    return this.service.findPublicByEmail(normalizedEmail);
   }
 
   @Get(':id')
@@ -77,16 +100,6 @@ export class UserController {
   ): Promise<any> {
     return this.service.resetPassword(id, token, password);
   }
-  //
-  // @Patch(':id/status')
-  // @ApiBody({ schema: { type: 'object', properties: { status: { type: 'string' } } } })
-  // @ApiOkResponse({ description: 'Status updated' })
-  // async updateStatus(
-  //   @Param('id') id: string,
-  //   @Body('status') status: string
-  // ): Promise<Partial<users>> {
-  //   return this.service.updateStatus(id, status as any);
-  // }
 
   @Delete(':id')
   @ApiOkResponse({ description: 'User removed' })

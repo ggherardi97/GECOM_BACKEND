@@ -22,7 +22,6 @@ export class UserService {
   ) {}
 
   private generateTempPassword(): string {
-    // Strong-ish temp pass (no money calc etc; just string)
     const rand = Math.random().toString(36).slice(2);
     const rand2 = Math.random().toString(36).slice(2);
     return `Tmp@${rand}${rand2}9`;
@@ -35,7 +34,6 @@ export class UserService {
       throw new BadRequestException('Email already exists');
     }
 
-    // ✅ If password missing/empty -> generate temp
     const rawPassword = (data.password ?? '').trim();
     const passwordToUse = rawPassword.length > 0 ? rawPassword : this.generateTempPassword();
 
@@ -44,7 +42,6 @@ export class UserService {
     const user = await this.repository.create({
       ...data,
       password: hash_password,
-      // if you want: first_access default true when generating temp
       first_access: data.first_access ?? true,
     });
 
@@ -76,7 +73,6 @@ export class UserService {
     };
   }
 
-
   async findAll(): Promise<Omit<users, 'password'>[]> {
     return this.repository.findAll();
   }
@@ -97,12 +93,21 @@ export class UserService {
     return user;
   }
 
+  /**
+   * Safe version for frontend usage (no password).
+   */
+  async findPublicByEmail(email: string): Promise<Omit<users, 'password'>> {
+    const user = await this.repository.findPublicByEmail(email);
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
   async validateUser(email: string, password: string): Promise<users> {
     const user = await this.findByEmail(email);
-    if (!user) throw new NotFoundException('User not found');
 
     const isPasswordValid = await this.cryptoService.verify(password, user.password);
     if (!isPasswordValid) throw new BadRequestException('Invalid password');
+
     return user;
   }
 

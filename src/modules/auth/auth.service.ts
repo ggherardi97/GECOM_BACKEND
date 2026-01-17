@@ -22,28 +22,30 @@ export class AuthService {
   ) {}
 
   async login(email: string, password: string, req: Request) {
-    const user = await this.userService.validateUser(email, password);
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+  const user = await this.userService.validateUser(email, password);
+  if (!user) throw new UnauthorizedException('Invalid credentials');
 
-    const payload = { sub: user.id, email: user.email, role: user.role };
+  const payload = { sub: user.id, email: user.email, role: user.role };
 
-    const access_token = this.jwtService.sign(payload, {
-      expiresIn: '15m',
-    });
+  const access_token = this.jwtService.sign(payload, {
+    secret: process.env.JWT_SECRET,
+    expiresIn: '15m',
+  });
 
-    const refresh_token = this.jwtService.sign(payload, {
-      expiresIn: '7d',
-    });
+  const refresh_token = this.jwtService.sign(payload, {
+    secret: process.env.JWT_REFRESH_SECRET,
+    expiresIn: '7d',
+  });
 
-    const refresh_token_hash = await this.cryptoService.hash(refresh_token);
+  const refresh_token_hash = await this.cryptoService.hash(refresh_token);
+  await this.createOrUpdateSession(user.id, refresh_token_hash, req);
 
-    await this.createOrUpdateSession(user.id, refresh_token_hash, req);
+  return {
+    access_token,
+    refresh_token,
+  };
+}
 
-    return {
-      access_token: access_token,
-      refresh_token: refresh_token,
-    };
-  }
 
   async refreshToken(refresh_token: string, req: Request) {
     try {
