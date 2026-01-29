@@ -172,13 +172,14 @@ export class CreateInvoiceDTO {
   @IsString()
   terms?: string;
 
-  @ApiProperty({
-    description: 'Invoice lines',
+  @ApiPropertyOptional({
+    description: 'Invoice lines (optional on create; can be added later by PATCH).',
     type: CreateInvoiceLineDTO,
     isArray: true,
   })
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateInvoiceLineDTO)
-  lines: CreateInvoiceLineDTO[];
+  lines?: CreateInvoiceLineDTO[];
 }

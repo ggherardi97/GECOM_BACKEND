@@ -23,6 +23,7 @@ import { ProcessService } from './process.service';
 import { CreateProcessDTO } from './dto/create-process.dto';
 import { UpdateProcessStatusDTO } from './dto/update-process-status.dto';
 import { processes } from '@prisma/client';
+import { Req, Query, ForbiddenException } from '@nestjs/common';
 
 @ApiTags('processes')
 @ApiBearerAuth()
@@ -42,15 +43,28 @@ export class ProcessController {
     return this.service.create(data);
   }
 
-  @Get()
-  @ApiOperation({
-    summary: 'List all processes',
-    description: 'Returns a list of all active processes',
-  })
-  @ApiOkResponse({ description: 'List of processes' })
-  async findAll(): Promise<processes[]> {
+@Get()
+@ApiOperation({
+  summary: 'List all processes',
+  description: 'Returns a list of all active processes',
+})
+@ApiOkResponse({ description: 'List of processes' })
+async findAll(
+  @Req() req: any,
+  @Query('company_id') companyIdQuery?: string,
+): Promise<processes[]> {
+  const role = String(req?.user?.role || '').toUpperCase();
+console.log("[DEBUG] req.user:", req?.user);
+  // ADMIN can see all, optionally filter by query
+  if (role === 'ADMIN') {
+    if (companyIdQuery && String(companyIdQuery).trim().length > 0) {
+      return this.service.findByCompanyId(String(companyIdQuery).trim());
+    }
     return this.service.findAll();
   }
+
+  return this.service.findByCompanyId(String(companyIdQuery));
+}
 
   @Get(':id')
   @ApiOperation({

@@ -23,13 +23,20 @@ export class InvoiceService {
   }
 
   async create(data: CreateInvoiceDTO) {
-    if (!data.lines || data.lines.length === 0) {
-      throw new BadRequestException('Invoice must have at least one line');
-    }
-
+    // ✅ Wizard-friendly: allow creating invoice without lines
     const headerDiscountPercent = data.discount_percent ?? 0;
 
-    const computed = this.computeTotals(data.lines, headerDiscountPercent);
+    const hasLines = Array.isArray(data.lines) && data.lines.length > 0;
+
+    const computed = hasLines
+      ? this.computeTotals(data.lines, headerDiscountPercent)
+      : {
+          subtotal: new Prisma.Decimal(0),
+          taxTotal: new Prisma.Decimal(0),
+          discountAmount: new Prisma.Decimal(0),
+          total: new Prisma.Decimal(0),
+          linesToCreate: [],
+        };
 
     const created = await this.repository.create({
       // DB trigger will fill invoice_number if empty
@@ -61,22 +68,26 @@ export class InvoiceService {
       notes: data.notes,
       terms: data.terms,
 
-      invoice_lines: {
-        create: computed.linesToCreate.map((l) => ({
-          line_number: l.line_number,
-          product_id: l.product_id ?? null,
-          description: l.description ?? null,
-          unit: l.unit ?? null,
-          unit_price: l.unit_price,
-          quantity: l.quantity,
-          tax_rate: l.tax_rate,
-          tax_amount: l.tax_amount,
-          discount_percent: l.discount_percent,
-          discount_amount: l.discount_amount,
-          line_subtotal: l.line_subtotal,
-          line_total: l.line_total,
-        })),
-      },
+      ...(hasLines
+        ? {
+            invoice_lines: {
+              create: computed.linesToCreate.map((l) => ({
+                line_number: l.line_number,
+                product_id: l.product_id ?? null,
+                description: l.description ?? null,
+                unit: l.unit ?? null,
+                unit_price: l.unit_price,
+                quantity: l.quantity,
+                tax_rate: l.tax_rate,
+                tax_amount: l.tax_amount,
+                discount_percent: l.discount_percent,
+                discount_amount: l.discount_amount,
+                line_subtotal: l.line_subtotal,
+                line_total: l.line_total,
+              })),
+            },
+          }
+        : {}),
     });
 
     if (!created) throw new BadRequestException('Failed to create invoice');
@@ -108,10 +119,23 @@ export class InvoiceService {
     if (data.notes !== undefined) patch.notes = data.notes ?? null;
     if (data.terms !== undefined) patch.terms = data.terms ?? null;
 
-    // If lines were provided -> recompute totals and replace lines
-    if (data.lines && data.lines.length > 0) {
-      const headerDiscountPercent = data.discount_percent ?? existing.discount_percent ?? 0;
+    // ✅ If lines were provided -> recompute totals and replace lines
+    if (Array.isArray(data.lines)) {
+      if (data.lines.length === 0) {
+        // If caller explicitly sends empty lines, we allow it (wizard/partial use-cases).
+        // Totals will be set to 0 and lines cleared.
+        patch.subtotal = new Prisma.Decimal(0);
+        patch.discount_percent = data.discount_percent ?? existing.discount_percent ?? 0;
+        patch.discount_amount = new Prisma.Decimal(0);
+        patch.tax_total = new Prisma.Decimal(0);
+        patch.total = new Prisma.Decimal(0);
 
+        await this.repository.update(id, patch);
+        await this.repository.replaceLines(id, []); // clears all lines
+        return this.findById(id);
+      }
+
+      const headerDiscountPercent = data.discount_percent ?? existing.discount_percent ?? 0;
       const computed = this.computeTotals(data.lines, headerDiscountPercent);
 
       patch.subtotal = computed.subtotal;
@@ -147,7 +171,6 @@ export class InvoiceService {
     }
 
     // If header discount changed but no lines passed, we do NOT auto-recalc totals (avoids hidden changes).
-    // If you want auto-recalc, tell me and I adjust.
     if (data.discount_percent !== undefined) patch.discount_percent = data.discount_percent;
 
     return this.repository.update(id, patch);
@@ -159,7 +182,9 @@ export class InvoiceService {
     return this.repository.remove(id);
   }
 
-  private computeTotals(lines: CreateInvoiceDTO['lines'], headerDiscountPercent: number) {
+  private computeTotals(lines: CreateInvoiceDTO['lines'] | undefined, headerDiscountPercent: number) {
+  const safeLines = lines ?? [];
+
     let subtotal = new Prisma.Decimal(0);
     let taxTotal = new Prisma.Decimal(0);
 
@@ -178,7 +203,7 @@ export class InvoiceService {
       line_total: Prisma.Decimal;
     }> = [];
 
-    lines.forEach((l, index) => {
+    safeLines.forEach((l, index) => {
       const lineNumber = index + 1;
 
       const unitPrice = new Prisma.Decimal(l.unit_price);

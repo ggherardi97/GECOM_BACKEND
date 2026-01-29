@@ -4,6 +4,7 @@ import { setupSwagger } from './config/swagger/swagger.config';
 import { ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
 import { RequestHandler } from 'express';
+//import { BigIntJsonInterceptor } from "./common/interceptors/bigint-json.interceptor";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -25,7 +26,7 @@ async function bootstrap() {
       transform: true,
     })
   );
-
+  //app.useGlobalInterceptors(new BigIntJsonInterceptor());
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
