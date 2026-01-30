@@ -41,6 +41,13 @@ export class CreateProcessDTO {
   primary_contact_id: string;
 
   @ApiProperty({
+    description: 'Process type',
+    example: 'b1c2d3e4-5f6g-7h8i-9j0k-l1m2n3o4p5q6',
+  })
+  @IsUUID()
+  process_type_id: string;
+
+  @ApiProperty({
     description: 'Shipment date',
     example: '2025-12-30T10:00:00Z',
     required: false,

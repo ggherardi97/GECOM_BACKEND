@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Patch,
-  Delete,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Patch, Delete, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiBody,
@@ -43,28 +34,27 @@ export class ProcessController {
     return this.service.create(data);
   }
 
-@Get()
-@ApiOperation({
-  summary: 'List all processes',
-  description: 'Returns a list of all active processes',
-})
-@ApiOkResponse({ description: 'List of processes' })
-async findAll(
-  @Req() req: any,
-  @Query('company_id') companyIdQuery?: string,
-): Promise<processes[]> {
-  const role = String(req?.user?.role || '').toUpperCase();
-console.log("[DEBUG] req.user:", req?.user);
-  // ADMIN can see all, optionally filter by query
-  if (role === 'ADMIN') {
-    if (companyIdQuery && String(companyIdQuery).trim().length > 0) {
-      return this.service.findByCompanyId(String(companyIdQuery).trim());
-    }
-    return this.service.findAll();
-  }
+  @Get()
+  @ApiOperation({
+    summary: 'List all processes',
+    description: 'Returns a list of all active processes',
+  })
+  @ApiOkResponse({ description: 'List of processes' })
+  async findAll(
+    @Req() req: any,
+    @Query('company_id') companyIdQuery?: string
+  ): Promise<processes[]> {
+    const role = String(req?.user?.role || '').toUpperCase();
 
-  return this.service.findByCompanyId(String(companyIdQuery));
-}
+    if (role === 'ADMIN') {
+      if (companyIdQuery && String(companyIdQuery).trim().length > 0) {
+        return this.service.findByCompanyId(String(companyIdQuery).trim());
+      }
+      return this.service.findAll();
+    }
+
+    return this.service.findByCompanyId(String(companyIdQuery));
+  }
 
   @Get(':id')
   @ApiOperation({
@@ -77,7 +67,7 @@ console.log("[DEBUG] req.user:", req?.user);
     example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
   })
   @ApiOkResponse({ description: 'Process found' })
-  async findById(@Param('id') id: string): Promise<processes> {
+  async findById(@Param('id') id: string) {
     return this.service.findById(id);
   }
 
@@ -95,7 +85,7 @@ console.log("[DEBUG] req.user:", req?.user);
   @ApiOkResponse({ description: 'Process status updated' })
   async updateStatus(
     @Param('id') id: string,
-    @Body() data: UpdateProcessStatusDTO,
+    @Body() data: UpdateProcessStatusDTO
   ): Promise<processes> {
     return this.service.updateStatus(id, data.status);
   }

@@ -15,6 +15,7 @@ import { InvoiceModule } from './modules/invoices/invoices.module';
 import { InvoiceLineModule } from './modules/invoice-lines/invoice-line.module';
 import { ProductModule } from './modules/products/product.module';
 import { CurrencyModule } from './modules/currencies/currency.module';
+import { ProcessTypeModule } from './modules/process-type/process-type.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { CurrencyModule } from './modules/currencies/currency.module';
     AuthModule,
     PasswordResetModule,
     ProcessModule,
+    ProcessTypeModule,
     EventModule,
     InvoiceModule,
     ProductModule,

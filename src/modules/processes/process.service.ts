@@ -10,15 +10,13 @@ import { ProcessStatus } from './enums/process-status.enum';
 export class ProcessService {
   constructor(
     private readonly repository: ProcessRepository,
-    private readonly eventService: EventService,
+    private readonly eventService: EventService
   ) {}
 
   async create(data: CreateProcessDTO): Promise<processes> {
     const existingProcess = await this.repository.findByProcessNumber(data.process_number);
     if (existingProcess) {
-      throw new BadRequestException(
-        `Process with number ${data.process_number} already exists`,
-      );
+      throw new BadRequestException(`Process with number ${data.process_number} already exists`);
     }
 
     const process = await this.repository.create(data);

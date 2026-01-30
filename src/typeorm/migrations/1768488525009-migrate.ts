@@ -1,4 +1,11 @@
-import { MigrationInterface, QueryRunner, Table, TableForeignKey, TableIndex, TableUnique } from "typeorm";
+import {
+  MigrationInterface,
+  QueryRunner,
+  Table,
+  TableForeignKey,
+  TableIndex,
+  TableUnique,
+} from 'typeorm';
 
 export class Migrate1769999999999 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -19,23 +26,23 @@ export class Migrate1769999999999 implements MigrationInterface {
     // ---------------- currencies ----------------
     await queryRunner.createTable(
       new Table({
-        name: "currencies",
+        name: 'currencies',
         columns: [
           {
-            name: "id",
-            type: "uuid",
+            name: 'id',
+            type: 'uuid',
             isPrimary: true,
             isUnique: true,
-            generationStrategy: "uuid",
-            default: "uuid_generate_v4()",
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
           },
-          { name: "code", type: "varchar", length: "3", isNullable: false, isUnique: true }, // ISO 4217
-          { name: "name", type: "varchar", length: "100", isNullable: false },
-          { name: "symbol", type: "varchar", length: "10", isNullable: true },
-          { name: "decimals", type: "smallint", isNullable: false, default: "2" },
-          { name: "is_active", type: "boolean", isNullable: false, default: "true" },
-          { name: "created_at", type: "timestamptz", default: "CURRENT_TIMESTAMP" },
-          { name: "updated_at", type: "timestamptz", default: "CURRENT_TIMESTAMP" },
+          { name: 'code', type: 'varchar', length: '3', isNullable: false, isUnique: true }, // ISO 4217
+          { name: 'name', type: 'varchar', length: '100', isNullable: false },
+          { name: 'symbol', type: 'varchar', length: '10', isNullable: true },
+          { name: 'decimals', type: 'smallint', isNullable: false, default: '2' },
+          { name: 'is_active', type: 'boolean', isNullable: false, default: 'true' },
+          { name: 'created_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
+          { name: 'updated_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
         ],
       }),
       true
@@ -61,56 +68,78 @@ export class Migrate1769999999999 implements MigrationInterface {
     // ---------------- products ----------------
     await queryRunner.createTable(
       new Table({
-        name: "products",
+        name: 'products',
         columns: [
           {
-            name: "id",
-            type: "uuid",
+            name: 'id',
+            type: 'uuid',
             isPrimary: true,
             isUnique: true,
-            generationStrategy: "uuid",
-            default: "uuid_generate_v4()",
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
           },
-          { name: "product_code", type: "varchar", length: "80", isNullable: false, isUnique: true },
-          { name: "name", type: "varchar", length: "255", isNullable: false },
-          { name: "brand", type: "varchar", length: "120", isNullable: true },
-          { name: "unit", type: "varchar", length: "50", isNullable: true }, // box, pallet, etc
-          { name: "description", type: "text", isNullable: true },
+          {
+            name: 'product_code',
+            type: 'varchar',
+            length: '80',
+            isNullable: false,
+            isUnique: true,
+          },
+          { name: 'name', type: 'varchar', length: '255', isNullable: false },
+          { name: 'brand', type: 'varchar', length: '120', isNullable: true },
+          { name: 'unit', type: 'varchar', length: '50', isNullable: true }, // box, pallet, etc
+          { name: 'description', type: 'text', isNullable: true },
 
-          { name: "currency_id", type: "uuid", isNullable: false },
-          { name: "default_unit_price", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
+          { name: 'currency_id', type: 'uuid', isNullable: false },
+          {
+            name: 'default_unit_price',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
           // 0..1 (ex.: 0.15 = 15%)
-          { name: "default_tax_rate", type: "numeric", precision: 9, scale: 4, isNullable: false, default: "0" },
+          {
+            name: 'default_tax_rate',
+            type: 'numeric',
+            precision: 9,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
 
-          { name: "is_active", type: "boolean", isNullable: false, default: "true" },
+          { name: 'is_active', type: 'boolean', isNullable: false, default: 'true' },
 
-          { name: "created_at", type: "timestamptz", default: "CURRENT_TIMESTAMP" },
-          { name: "updated_at", type: "timestamptz", default: "CURRENT_TIMESTAMP" },
+          { name: 'created_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
+          { name: 'updated_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
         ],
-        uniques: [new TableUnique({ name: "uq_products_product_code", columnNames: ["product_code"] })],
+        uniques: [
+          new TableUnique({ name: 'uq_products_product_code', columnNames: ['product_code'] }),
+        ],
       }),
       true
     );
 
     await queryRunner.createForeignKey(
-      "products",
+      'products',
       new TableForeignKey({
-        name: "fk_products_currency",
-        columnNames: ["currency_id"],
-        referencedTableName: "currencies",
-        referencedColumnNames: ["id"],
-        onDelete: "RESTRICT",
+        name: 'fk_products_currency',
+        columnNames: ['currency_id'],
+        referencedTableName: 'currencies',
+        referencedColumnNames: ['id'],
+        onDelete: 'RESTRICT',
       })
     );
 
     await queryRunner.createIndex(
-      "products",
-      new TableIndex({ name: "idx_products_currency_id", columnNames: ["currency_id"] })
+      'products',
+      new TableIndex({ name: 'idx_products_currency_id', columnNames: ['currency_id'] })
     );
 
     await queryRunner.createIndex(
-      "products",
-      new TableIndex({ name: "idx_products_is_active", columnNames: ["is_active"] })
+      'products',
+      new TableIndex({ name: 'idx_products_is_active', columnNames: ['is_active'] })
     );
 
     await queryRunner.query(`
@@ -140,58 +169,111 @@ export class Migrate1769999999999 implements MigrationInterface {
 
     await queryRunner.createTable(
       new Table({
-        name: "invoices",
+        name: 'invoices',
         columns: [
           {
-            name: "id",
-            type: "uuid",
+            name: 'id',
+            type: 'uuid',
             isPrimary: true,
             isUnique: true,
-            generationStrategy: "uuid",
-            default: "uuid_generate_v4()",
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
           },
 
           // seq used to build invoice_number
-          { name: "invoice_seq", type: "bigint", isNullable: false, default: "nextval('invoices_invoice_seq_seq')" },
-          { name: "invoice_number", type: "varchar", length: "30", isNullable: false, isUnique: true },
+          {
+            name: 'invoice_seq',
+            type: 'bigint',
+            isNullable: false,
+            default: "nextval('invoices_invoice_seq_seq')",
+          },
+          {
+            name: 'invoice_number',
+            type: 'varchar',
+            length: '30',
+            isNullable: false,
+            isUnique: true,
+          },
 
-          { name: "company_id", type: "uuid", isNullable: false },
-          { name: "currency_id", type: "uuid", isNullable: false },
+          { name: 'company_id', type: 'uuid', isNullable: false },
+          { name: 'currency_id', type: 'uuid', isNullable: false },
 
-          { name: "quote_at", type: "timestamptz", isNullable: true },
-          { name: "exchange_rate", type: "numeric", precision: 19, scale: 8, isNullable: false, default: "1" },
+          { name: 'quote_at', type: 'timestamptz', isNullable: true },
+          {
+            name: 'exchange_rate',
+            type: 'numeric',
+            precision: 19,
+            scale: 8,
+            isNullable: false,
+            default: '1',
+          },
 
-          { name: "version", type: "int", isNullable: false, default: "1" },
+          { name: 'version', type: 'int', isNullable: false, default: '1' },
 
           // billing address
-          { name: "billing_address_line1", type: "text", isNullable: true },
-          { name: "billing_address_line2", type: "text", isNullable: true },
-          { name: "billing_address_city", type: "text", isNullable: true },
-          { name: "billing_address_state", type: "text", isNullable: true },
-          { name: "billing_address_postal_code", type: "text", isNullable: true },
-          { name: "billing_address_country", type: "text", isNullable: true },
+          { name: 'billing_address_line1', type: 'text', isNullable: true },
+          { name: 'billing_address_line2', type: 'text', isNullable: true },
+          { name: 'billing_address_city', type: 'text', isNullable: true },
+          { name: 'billing_address_state', type: 'text', isNullable: true },
+          { name: 'billing_address_postal_code', type: 'text', isNullable: true },
+          { name: 'billing_address_country', type: 'text', isNullable: true },
 
           // 0 active, 1 expired, 2 invoiced, 3 paid
-          { name: "status", type: "smallint", isNullable: false, default: "0" },
+          { name: 'status', type: 'smallint', isNullable: false, default: '0' },
 
           // totals
-          { name: "subtotal", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
-          { name: "discount_percent", type: "int", isNullable: false, default: "0" },
-          { name: "discount_amount", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
-          { name: "tax_total", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
-          { name: "fee_total", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
-          { name: "total", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
+          {
+            name: 'subtotal',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
+          { name: 'discount_percent', type: 'int', isNullable: false, default: '0' },
+          {
+            name: 'discount_amount',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
+          {
+            name: 'tax_total',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
+          {
+            name: 'fee_total',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
+          {
+            name: 'total',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
 
           // suggested lifecycle fields
-          { name: "issued_at", type: "timestamptz", isNullable: true },
-          { name: "due_at", type: "timestamptz", isNullable: true },
-          { name: "paid_at", type: "timestamptz", isNullable: true },
+          { name: 'issued_at', type: 'timestamptz', isNullable: true },
+          { name: 'due_at', type: 'timestamptz', isNullable: true },
+          { name: 'paid_at', type: 'timestamptz', isNullable: true },
 
-          { name: "notes", type: "text", isNullable: true },
-          { name: "terms", type: "text", isNullable: true },
+          { name: 'notes', type: 'text', isNullable: true },
+          { name: 'terms', type: 'text', isNullable: true },
 
-          { name: "created_at", type: "timestamptz", default: "CURRENT_TIMESTAMP" },
-          { name: "updated_at", type: "timestamptz", default: "CURRENT_TIMESTAMP" },
+          { name: 'created_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
+          { name: 'updated_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
         ],
       }),
       true
@@ -199,31 +281,43 @@ export class Migrate1769999999999 implements MigrationInterface {
 
     // FKs (companies must already exist)
     await queryRunner.createForeignKey(
-      "invoices",
+      'invoices',
       new TableForeignKey({
-        name: "fk_invoices_company",
-        columnNames: ["company_id"],
-        referencedTableName: "companies",
-        referencedColumnNames: ["id"],
-        onDelete: "RESTRICT",
+        name: 'fk_invoices_company',
+        columnNames: ['company_id'],
+        referencedTableName: 'companies',
+        referencedColumnNames: ['id'],
+        onDelete: 'RESTRICT',
       })
     );
 
     await queryRunner.createForeignKey(
-      "invoices",
+      'invoices',
       new TableForeignKey({
-        name: "fk_invoices_currency",
-        columnNames: ["currency_id"],
-        referencedTableName: "currencies",
-        referencedColumnNames: ["id"],
-        onDelete: "RESTRICT",
+        name: 'fk_invoices_currency',
+        columnNames: ['currency_id'],
+        referencedTableName: 'currencies',
+        referencedColumnNames: ['id'],
+        onDelete: 'RESTRICT',
       })
     );
 
-    await queryRunner.createIndex("invoices", new TableIndex({ name: "idx_invoices_company_id", columnNames: ["company_id"] }));
-    await queryRunner.createIndex("invoices", new TableIndex({ name: "idx_invoices_currency_id", columnNames: ["currency_id"] }));
-    await queryRunner.createIndex("invoices", new TableIndex({ name: "idx_invoices_status", columnNames: ["status"] }));
-    await queryRunner.createIndex("invoices", new TableIndex({ name: "idx_invoices_company_status", columnNames: ["company_id", "status"] }));
+    await queryRunner.createIndex(
+      'invoices',
+      new TableIndex({ name: 'idx_invoices_company_id', columnNames: ['company_id'] })
+    );
+    await queryRunner.createIndex(
+      'invoices',
+      new TableIndex({ name: 'idx_invoices_currency_id', columnNames: ['currency_id'] })
+    );
+    await queryRunner.createIndex(
+      'invoices',
+      new TableIndex({ name: 'idx_invoices_status', columnNames: ['status'] })
+    );
+    await queryRunner.createIndex(
+      'invoices',
+      new TableIndex({ name: 'idx_invoices_company_status', columnNames: ['company_id', 'status'] })
+    );
 
     await queryRunner.query(`
       ALTER TABLE invoices
@@ -274,76 +368,128 @@ export class Migrate1769999999999 implements MigrationInterface {
     // ---------------- invoice_lines ----------------
     await queryRunner.createTable(
       new Table({
-        name: "invoice_lines",
+        name: 'invoice_lines',
         columns: [
           {
-            name: "id",
-            type: "uuid",
+            name: 'id',
+            type: 'uuid',
             isPrimary: true,
             isUnique: true,
-            generationStrategy: "uuid",
-            default: "uuid_generate_v4()",
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
           },
 
-          { name: "invoice_id", type: "uuid", isNullable: false },
-          { name: "line_number", type: "int", isNullable: false },
+          { name: 'invoice_id', type: 'uuid', isNullable: false },
+          { name: 'line_number', type: 'int', isNullable: false },
 
-          { name: "product_id", type: "uuid", isNullable: true },
-          { name: "description", type: "text", isNullable: true },
-          { name: "unit", type: "varchar", length: "50", isNullable: true },
+          { name: 'product_id', type: 'uuid', isNullable: true },
+          { name: 'description', type: 'text', isNullable: true },
+          { name: 'unit', type: 'varchar', length: '50', isNullable: true },
 
-          { name: "unit_price", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
-          { name: "quantity", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "1" },
+          {
+            name: 'unit_price',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
+          {
+            name: 'quantity',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '1',
+          },
 
-          { name: "tax_rate", type: "numeric", precision: 9, scale: 4, isNullable: false, default: "0" },
-          { name: "tax_amount", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
+          {
+            name: 'tax_rate',
+            type: 'numeric',
+            precision: 9,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
+          {
+            name: 'tax_amount',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
 
-          { name: "discount_percent", type: "int", isNullable: false, default: "0" },
-          { name: "discount_amount", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
+          { name: 'discount_percent', type: 'int', isNullable: false, default: '0' },
+          {
+            name: 'discount_amount',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
 
-          { name: "line_subtotal", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
-          { name: "line_total", type: "numeric", precision: 19, scale: 4, isNullable: false, default: "0" },
+          {
+            name: 'line_subtotal',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
+          {
+            name: 'line_total',
+            type: 'numeric',
+            precision: 19,
+            scale: 4,
+            isNullable: false,
+            default: '0',
+          },
 
-          { name: "created_at", type: "timestamptz", default: "CURRENT_TIMESTAMP" },
-          { name: "updated_at", type: "timestamptz", default: "CURRENT_TIMESTAMP" },
+          { name: 'created_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
+          { name: 'updated_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
         ],
         uniques: [
-          new TableUnique({ name: "uq_invoice_lines_invoice_line", columnNames: ["invoice_id", "line_number"] }),
+          new TableUnique({
+            name: 'uq_invoice_lines_invoice_line',
+            columnNames: ['invoice_id', 'line_number'],
+          }),
         ],
       }),
       true
     );
 
     await queryRunner.createForeignKey(
-      "invoice_lines",
+      'invoice_lines',
       new TableForeignKey({
-        name: "fk_invoice_lines_invoice",
-        columnNames: ["invoice_id"],
-        referencedTableName: "invoices",
-        referencedColumnNames: ["id"],
-        onDelete: "CASCADE",
+        name: 'fk_invoice_lines_invoice',
+        columnNames: ['invoice_id'],
+        referencedTableName: 'invoices',
+        referencedColumnNames: ['id'],
+        onDelete: 'CASCADE',
       })
     );
 
     await queryRunner.createForeignKey(
-      "invoice_lines",
+      'invoice_lines',
       new TableForeignKey({
-        name: "fk_invoice_lines_product",
-        columnNames: ["product_id"],
-        referencedTableName: "products",
-        referencedColumnNames: ["id"],
-        onDelete: "SET NULL",
+        name: 'fk_invoice_lines_product',
+        columnNames: ['product_id'],
+        referencedTableName: 'products',
+        referencedColumnNames: ['id'],
+        onDelete: 'SET NULL',
       })
     );
 
     await queryRunner.createIndex(
-      "invoice_lines",
-      new TableIndex({ name: "idx_invoice_lines_invoice_id", columnNames: ["invoice_id"] })
+      'invoice_lines',
+      new TableIndex({ name: 'idx_invoice_lines_invoice_id', columnNames: ['invoice_id'] })
     );
 
     await queryRunner.createIndex(
-      "invoice_lines",
-      new TableIndex({ name: "idx_invoice_lines_product_id", columnNames: ["product_id"] })
+      'invoice_lines',
+      new TableIndex({ name: 'idx_invoice_lines_product_id', columnNames: ['product_id'] })
     );
 
     await queryRunner.query(`
@@ -371,22 +517,24 @@ export class Migrate1769999999999 implements MigrationInterface {
     // Drop in reverse order
 
     // invoice_lines
-    await queryRunner.query(`DROP TRIGGER IF EXISTS trg_invoice_lines_updated_at ON invoice_lines;`);
-    await queryRunner.dropTable("invoice_lines", true);
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS trg_invoice_lines_updated_at ON invoice_lines;`
+    );
+    await queryRunner.dropTable('invoice_lines', true);
 
     // invoices (drop triggers/functions)
     await queryRunner.query(`DROP TRIGGER IF EXISTS trg_invoices_set_invoice_number ON invoices;`);
     await queryRunner.query(`DROP FUNCTION IF EXISTS set_invoice_number;`);
     await queryRunner.query(`DROP TRIGGER IF EXISTS trg_invoices_updated_at ON invoices;`);
-    await queryRunner.dropTable("invoices", true);
+    await queryRunner.dropTable('invoices', true);
 
     // products
     await queryRunner.query(`DROP TRIGGER IF EXISTS trg_products_updated_at ON products;`);
-    await queryRunner.dropTable("products", true);
+    await queryRunner.dropTable('products', true);
 
     // currencies
     await queryRunner.query(`DROP TRIGGER IF EXISTS trg_currencies_updated_at ON currencies;`);
-    await queryRunner.dropTable("currencies", true);
+    await queryRunner.dropTable('currencies', true);
 
     // sequence
     await queryRunner.query(`DROP SEQUENCE IF EXISTS invoices_invoice_seq_seq;`);
