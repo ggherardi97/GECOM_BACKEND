@@ -14,29 +14,25 @@ model migrations {
 }
 
 model users {
-  id           String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  full_name    String
-  email        String           @unique
-  password     String
-  role         user_role_enum   @default(USER)
-  status       user_status_enum @default(ACTIVE)
-  phonenumber  String?
-  first_access Boolean?         @default(true)
+  id                  String           @id(map: "PK_a3ffb1c0c8416b9fc6f907b7433") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  full_name           String           @db.VarChar(255)
+  email               String           @unique(map: "UQ_97672ac88f789774dd47f7c8be3") @db.VarChar(255)
+  password            String           @db.VarChar(255)
+  role                user_role_enum   @default(USER)
+  status              user_status_enum @default(ACTIVE)
+  created_at          DateTime         @default(now()) @db.Timestamp(6)
+  updated_at          DateTime         @default(now()) @db.Timestamp(6)
+  company_id          String?          @db.Uuid
+  phonenumber         String?          @db.VarChar(50)
+  first_access        Boolean          @default(true)
+  primaryForCompanies companies[]      @relation("CompanyPrimaryUser")
+  documents           documents[]
+  password_resets     password_resets?
+  processes           processes[]
+  sessions            sessions?
+  company             companies?       @relation("CompanyUsers", fields: [company_id], references: [id], map: "FK_users_company_id")
 
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now())
-
-  // ✅ Users -> Company membership (N users -> 1 company)
-  company_id String?    @db.Uuid
-  company    companies? @relation("CompanyUsers", fields: [company_id], references: [id])
-
-  // ✅ Reverse side for primaryUser relation (a user can be primary for many companies)
-  primaryForCompanies companies[] @relation("CompanyPrimaryUser")
-
-  // Back-relations required by Prisma
-  sessions        sessions?
-  password_resets password_resets?
-  processes       processes[]
+  @@index([company_id], map: "IDX_users_company_id")
 }
 
 model sessions {
@@ -48,8 +44,7 @@ model sessions {
   expires_at    DateTime? @db.Timestamp(6)
   updated_at    DateTime  @default(now()) @db.Timestamp(6)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
-
-  users users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_085d540d9f418cfbdc7bd55bb19")
+  users         users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_085d540d9f418cfbdc7bd55bb19")
 }
 
 model customers {
@@ -68,49 +63,34 @@ model password_resets {
   token      String   @db.VarChar(255)
   expires_at DateTime @db.Timestamp(6)
   created_at DateTime @default(now()) @db.Timestamp(6)
-
-  users users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f7a4c3bc48f24df007936d217be")
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f7a4c3bc48f24df007936d217be")
 }
 
 model companies {
-  id           String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  company_name String
-
-  // ✅ agora pode ser null (company criada antes de ter usuário)
-  user_id String? @db.Uuid
-
-  phone          String?
-  company_number String?
-  sector         String?
-  category       String?
-
-  address_line    String?
-  address_street  String?
-  address_number  String?
-  address_city    String?
-  address_country String?
-
-  address_postalcode String?
-  address_state      String?
-  number_of_invoices Int?    @default(0)
-  language           String?
-
-  created_at DateTime  @default(now())
-  updated_at DateTime  @default(now())
-  deleted_at DateTime?
-
-  // ✅ relação agora é opcional
-  primaryUser users? @relation("CompanyPrimaryUser", fields: [user_id], references: [id])
-
-  // ✅ users that belong to the company (users.company_id -> companies.id)
-  users users[] @relation("CompanyUsers")
-
-  // ✅ REQUIRED opposite side for processes.company_id -> companies.id
-  processes processes[] @relation("CompanyProcesses")
-  
-    // ✅ REQUIRED opposite side for invoices.company_id -> companies.id
-  invoices invoices[] @relation("CompanyInvoices")
-
+  id                 String      @id(map: "PK_d4bc3e82a314fa9e29f652c2c22") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_name       String      @db.VarChar
+  user_id            String      @db.Uuid
+  phone              String?     @db.VarChar
+  company_number     String?     @db.VarChar
+  sector             String?     @db.VarChar
+  category           String?     @db.VarChar
+  address_line       String?     @db.VarChar
+  address_street     String?     @db.VarChar
+  address_number     String?     @db.VarChar
+  address_city       String?     @db.VarChar
+  address_country    String?     @db.VarChar
+  created_at         DateTime    @default(now()) @db.Timestamp(6)
+  updated_at         DateTime    @default(now()) @db.Timestamp(6)
+  deleted_at         DateTime?   @db.Timestamp(6)
+  address_postalcode String?     @db.VarChar
+  address_state      String?     @db.VarChar
+  number_of_invoices Int         @default(0)
+  language           String?     @db.VarChar
+  primaryUser        users       @relation("CompanyPrimaryUser", fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
+  documents          documents[]
+  invoices           invoices[]  @relation("CompanyInvoices")
+  processes          processes[] @relation("CompanyProcesses")
+  users              users[]     @relation("CompanyUsers")
 }
 
 model events {
@@ -132,149 +112,192 @@ model events {
 }
 
 model processes {
-  id                 String    @id(map: "PK_566885de50f7d20a6df306c12e6") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  process_number     String    @db.VarChar(100)
+  id                 String         @id(map: "PK_566885de50f7d20a6df306c12e6") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  process_number     String         @db.VarChar(100)
   status             Int
-  invoice            String?   @db.VarChar(100)
-  company_id         String    @db.Uuid
-  primary_contact_id String    @db.Uuid
-  ship_date          DateTime? @db.Timestamp(6)
-  completed          Int       @default(0)
-  created_on         DateTime  @default(now()) @db.Timestamp(6)
-  deleted_at         DateTime? @db.Timestamp(6)
-
-  users users @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
-
-  // ✅ Added relation name + must match companies.processes relation
-  companies companies @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
+  invoice            String?        @db.VarChar(100)
+  company_id         String         @db.Uuid
+  primary_contact_id String         @db.Uuid
+  ship_date          DateTime?      @db.Timestamp(6)
+  completed          Int            @default(0)
+  created_on         DateTime       @default(now()) @db.Timestamp(6)
+  deleted_at         DateTime?      @db.Timestamp(6)
+  process_type_id    String?        @db.Uuid
+  documents          documents[]
+  users              users          @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
+  companies          companies      @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
+  process_types      process_types? @relation(fields: [process_type_id], references: [id], onUpdate: NoAction, map: "FK_ded16035eaef6f141a36aea73b3")
+  transports         transports[]
 
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
   @@index([process_number], map: "IDX_PROCESS_PROCESS_NUMBER")
 }
 
 model currencies {
-  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  code       String   @unique @db.VarChar(3)  // BRL, USD, EUR
-  name       String   @db.VarChar(100)
-  symbol     String?  @db.VarChar(10)
-  decimals   Int      @default(2) @db.SmallInt
-  is_active  Boolean  @default(true)
-
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @db.Timestamptz(6)
-
-  products   products[]
+  id         String     @id(map: "PK_d528c54860c4182db13548e08c4") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code       String     @unique(map: "UQ_9f8d0972aeeb5a2277e40332d29") @db.VarChar(3)
+  name       String     @db.VarChar(100)
+  symbol     String?    @db.VarChar(10)
+  decimals   Int        @default(2) @db.SmallInt
+  is_active  Boolean    @default(true)
+  created_at DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at DateTime   @default(now()) @db.Timestamptz(6)
   invoices   invoices[]
+  products   products[]
 }
 
 model products {
-  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  product_code       String   @unique @db.VarChar(80)
-  name               String   @db.VarChar(255)
-  brand              String?  @db.VarChar(120)
-  unit               String?  @db.VarChar(50)
+  id                 String          @id(map: "PK_0806c755e0aca124e67c0cf6d7d") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  product_code       String          @unique(map: "uq_products_product_code") @db.VarChar(80)
+  name               String          @db.VarChar(255)
+  brand              String?         @db.VarChar(120)
+  unit               String?         @db.VarChar(50)
   description        String?
-
-  currency_id        String   @db.Uuid
-  default_unit_price Decimal  @default(0) @db.Decimal(19,4)
-  default_tax_rate   Decimal  @default(0) @db.Decimal(9,4)  // 0..1
-
-  is_active          Boolean  @default(true)
-
-  created_at         DateTime @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime @default(now()) @db.Timestamptz(6)
-
-  currencies         currencies @relation(fields: [currency_id], references: [id])
+  currency_id        String          @db.Uuid
+  default_unit_price Decimal         @default(0) @db.Decimal(19, 4)
+  default_tax_rate   Decimal         @default(0) @db.Decimal(9, 4)
+  is_active          Boolean         @default(true)
+  created_at         DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime        @default(now()) @db.Timestamptz(6)
   invoice_lines      invoice_lines[]
+  currencies         currencies      @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_products_currency")
 
-  @@index([currency_id])
-  @@index([is_active])
+  @@index([currency_id], map: "idx_products_currency_id")
+  @@index([is_active], map: "idx_products_is_active")
 }
 
 model invoices {
-  id                      String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-
-  invoice_seq             BigInt   @default(dbgenerated("nextval('invoices_invoice_seq_seq'::regclass)"))
-  invoice_number          String   @unique @db.VarChar(30)
-
-  company_id              String   @db.Uuid
-  currency_id             String   @db.Uuid
-
-  quote_at                DateTime? @db.Timestamptz(6)
-  exchange_rate           Decimal   @default(1) @db.Decimal(19,8)
-
-  version                 Int       @default(1)
-
+  id                          String          @id(map: "PK_668cef7c22a427fd822cc1be3ce") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  invoice_seq                 BigInt          @default(autoincrement())
+  invoice_number              String          @unique(map: "UQ_d8f8d3788694e1b3f96c42c36fb") @db.VarChar(30)
+  company_id                  String          @db.Uuid
+  currency_id                 String          @db.Uuid
+  quote_at                    DateTime?       @db.Timestamptz(6)
+  exchange_rate               Decimal         @default(1) @db.Decimal(19, 8)
+  version                     Int             @default(1)
   billing_address_line1       String?
   billing_address_line2       String?
   billing_address_city        String?
   billing_address_state       String?
   billing_address_postal_code String?
   billing_address_country     String?
+  status                      Int             @default(0) @db.SmallInt
+  subtotal                    Decimal         @default(0) @db.Decimal(19, 4)
+  discount_percent            Int             @default(0)
+  discount_amount             Decimal         @default(0) @db.Decimal(19, 4)
+  tax_total                   Decimal         @default(0) @db.Decimal(19, 4)
+  fee_total                   Decimal         @default(0) @db.Decimal(19, 4)
+  total                       Decimal         @default(0) @db.Decimal(19, 4)
+  issued_at                   DateTime?       @db.Timestamptz(6)
+  due_at                      DateTime?       @db.Timestamptz(6)
+  paid_at                     DateTime?       @db.Timestamptz(6)
+  notes                       String?
+  terms                       String?
+  created_at                  DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime        @default(now()) @db.Timestamptz(6)
+  invoice_lines               invoice_lines[]
+  companies                   companies       @relation("CompanyInvoices", fields: [company_id], references: [id], onUpdate: NoAction, map: "fk_invoices_company")
+  currencies                  currencies      @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_invoices_currency")
 
-  status                  Int       @default(0) @db.SmallInt // 0..3
-
-  subtotal                Decimal   @default(0) @db.Decimal(19,4)
-  discount_percent         Int       @default(0)
-  discount_amount          Decimal   @default(0) @db.Decimal(19,4)
-  tax_total                Decimal   @default(0) @db.Decimal(19,4)
-  fee_total                Decimal   @default(0) @db.Decimal(19,4)
-  total                   Decimal   @default(0) @db.Decimal(19,4)
-
-  issued_at               DateTime? @db.Timestamptz(6)
-  due_at                  DateTime? @db.Timestamptz(6)
-  paid_at                 DateTime? @db.Timestamptz(6)
-
-  notes                   String?
-  terms                   String?
-
-  created_at              DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime  @default(now()) @db.Timestamptz(6)
-
-  // relations
-  companies     companies  @relation("CompanyInvoices", fields: [company_id], references: [id])
-  currencies    currencies @relation(fields: [currency_id], references: [id])
-  invoice_lines invoice_lines[]
-
-  @@index([company_id])
-  @@index([currency_id])
-  @@index([status])
-  @@index([company_id, status])
+  @@index([company_id], map: "idx_invoices_company_id")
+  @@index([company_id, status], map: "idx_invoices_company_status")
+  @@index([currency_id], map: "idx_invoices_currency_id")
+  @@index([status], map: "idx_invoices_status")
 }
 
 model invoice_lines {
-  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-
-  invoice_id       String   @db.Uuid
+  id               String    @id(map: "PK_3d18eb48142b916f581f0c21a65") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  invoice_id       String    @db.Uuid
   line_number      Int
-
-  product_id       String?  @db.Uuid
+  product_id       String?   @db.Uuid
   description      String?
-  unit             String?  @db.VarChar(50)
+  unit             String?   @db.VarChar(50)
+  unit_price       Decimal   @default(0) @db.Decimal(19, 4)
+  quantity         Decimal   @default(1) @db.Decimal(19, 4)
+  tax_rate         Decimal   @default(0) @db.Decimal(9, 4)
+  tax_amount       Decimal   @default(0) @db.Decimal(19, 4)
+  discount_percent Int       @default(0)
+  discount_amount  Decimal   @default(0) @db.Decimal(19, 4)
+  line_subtotal    Decimal   @default(0) @db.Decimal(19, 4)
+  line_total       Decimal   @default(0) @db.Decimal(19, 4)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  invoices         invoices  @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_invoice_lines_invoice")
+  products         products? @relation(fields: [product_id], references: [id], onUpdate: NoAction, map: "fk_invoice_lines_product")
 
-  unit_price       Decimal  @default(0) @db.Decimal(19,4)
-  quantity         Decimal  @default(1) @db.Decimal(19,4)
-
-  tax_rate         Decimal  @default(0) @db.Decimal(9,4)   // 0..1
-  tax_amount       Decimal  @default(0) @db.Decimal(19,4)
-
-  discount_percent Int      @default(0)
-  discount_amount  Decimal  @default(0) @db.Decimal(19,4)
-
-  line_subtotal    Decimal  @default(0) @db.Decimal(19,4)
-  line_total       Decimal  @default(0) @db.Decimal(19,4)
-
-  created_at       DateTime @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime @default(now()) @db.Timestamptz(6)
-
-  invoices         invoices @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
-  products         products? @relation(fields: [product_id], references: [id], onDelete: SetNull)
-
-  @@unique([invoice_id, line_number])
-  @@index([invoice_id])
-  @@index([product_id])
+  @@unique([invoice_id, line_number], map: "uq_invoice_lines_invoice_line")
+  @@index([invoice_id], map: "idx_invoice_lines_invoice_id")
+  @@index([product_id], map: "idx_invoice_lines_product_id")
 }
 
+model documents {
+  id              String      @id(map: "PK_ac51aa5181ee2036f5ca482857c") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  file_name       String      @db.VarChar(255)
+  path            String?     @db.Uuid
+  object_type     Int
+  description     String?     @db.VarChar(500)
+  company_id      String      @db.Uuid
+  process_id      String?     @db.Uuid
+  object_file     Bytes?
+  object_link     String?     @db.VarChar(500)
+  is_link         Boolean     @default(false)
+  is_folder       Boolean     @default(false)
+  created_at      DateTime    @default(now()) @db.Timestamp(6)
+  created_by      String?     @db.Uuid
+  documents       documents?  @relation("documentsTodocuments", fields: [path], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_07b9336f17003408cd3fed89a6f")
+  other_documents documents[] @relation("documentsTodocuments")
+  users           users?      @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "FK_14371caaff44d0801b59b284166")
+  companies       companies   @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_7f9de69b9f75391dc280dd640fc")
+  processes       processes?  @relation(fields: [process_id], references: [id], onUpdate: NoAction, map: "FK_94b761f15711c686d245811e5ac")
+
+  @@index([company_id], map: "IDX_DOCUMENTS_COMPANY")
+  @@index([is_folder], map: "IDX_DOCUMENTS_IS_FOLDER")
+  @@index([path], map: "IDX_DOCUMENTS_PATH")
+  @@index([process_id], map: "IDX_DOCUMENTS_PROCESS")
+}
+
+model process_types {
+  id         String      @id(map: "PK_ec1f6afa2802c5d6a1fd315aece") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String      @db.VarChar
+  created_at DateTime    @default(now()) @db.Timestamp(6)
+  updated_at DateTime    @default(now()) @db.Timestamp(6)
+  processes  processes[]
+}
+
+model transport_statuses {
+  id         String       @id(map: "PK_66e9b557983383a66afbee940f3") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String       @db.VarChar
+  created_at DateTime     @default(now()) @db.Timestamp(6)
+  updated_at DateTime     @default(now()) @db.Timestamp(6)
+  transports transports[]
+}
+
+model transport_types {
+  id         String       @id(map: "PK_798b40b4bdf4aa75d716cdf954c") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String       @db.VarChar
+  created_at DateTime     @default(now()) @db.Timestamp(6)
+  updated_at DateTime     @default(now()) @db.Timestamp(6)
+  transports transports[]
+}
+
+model transports {
+  id                  String              @id(map: "PK_f1c7f51afd891fa301da438910e") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  transport_company   String              @db.VarChar
+  origin              String              @db.VarChar
+  destination         String              @db.VarChar
+  contact_phone       String?             @db.VarChar
+  transport_type_id   String?             @db.Uuid
+  departure_forecast  DateTime?           @db.Timestamp(6)
+  arrival_forecast    DateTime?           @db.Timestamp(6)
+  transit_time        Int?
+  transport_status_id String?             @db.Uuid
+  process_id          String              @db.Uuid
+  created_at          DateTime            @default(now()) @db.Timestamp(6)
+  updated_at          DateTime            @default(now()) @db.Timestamp(6)
+  transport_types     transport_types?    @relation(fields: [transport_type_id], references: [id], onUpdate: NoAction, map: "FK_110fc9c0bc02da7801eb079a295")
+  transport_statuses  transport_statuses? @relation(fields: [transport_status_id], references: [id], onUpdate: NoAction, map: "FK_185a53c3b7a6faf5550be54c602")
+  processes           processes           @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_9c0f227592aee16d3f035cc846a")
+}
 
 enum user_role_enum {
   USER

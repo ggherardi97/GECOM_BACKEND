@@ -16,6 +16,7 @@ import { InvoiceLineModule } from './modules/invoice-lines/invoice-line.module';
 import { ProductModule } from './modules/products/product.module';
 import { CurrencyModule } from './modules/currencies/currency.module';
 import { ProcessTypeModule } from './modules/process-type/process-type.module';
+import { TransportsModule } from './modules/transports/transports.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { ProcessTypeModule } from './modules/process-type/process-type.module';
     ProductModule,
     CurrencyModule,
     InvoiceLineModule,
+    TransportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
