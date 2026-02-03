@@ -1,34 +1,49 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { EventRepository } from './event.repository';
-import { CreateEventDTO } from './dto/create-event.dto';
-import { events } from '@prisma/client';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma, events } from "@prisma/client";
+import { EventRepository } from "./event.repository";
+
+type FindEventsFilter = {
+  type?: number;
+  related_table?: string;
+  related_id?: string;
+  process_id?: string;
+  client_id?: string;
+};
 
 @Injectable()
 export class EventService {
-  constructor(private readonly repository: EventRepository) {}
+  constructor(private readonly repo: EventRepository) {}
 
-  async create(data: CreateEventDTO): Promise<events> {
-    return await this.repository.create(data);
+  async findMany(filter: FindEventsFilter): Promise<events[]> {
+    return this.repo.findMany(filter);
   }
 
+  // ✅ Compatibility alias (used by ProcessService)
   async listEventsByRelated(relatedTable: string, relatedId: string): Promise<events[]> {
-    return await this.repository.findByRelated(relatedTable, relatedId);
+    return this.findMany({
+      related_table: relatedTable,
+      related_id: relatedId,
+    });
   }
 
   async findById(id: string): Promise<events> {
-    const event = await this.repository.findById(id);
-    if (!event) {
-      throw new NotFoundException(`Event with ID ${id} not found`);
-    }
-    return event;
+    const found = await this.repo.findById(id);
+    if (!found) throw new NotFoundException("Evento não encontrado.");
+    return found;
   }
 
-  async findByType(type: number): Promise<events[]> {
-    return await this.repository.findByType(type);
+  async create(body: Prisma.eventsCreateInput): Promise<events> {
+    return this.repo.create(body);
   }
 
-  async markAsFinished(id: string): Promise<events> {
+  async patchById(id: string, body: Prisma.eventsUpdateInput): Promise<events> {
     await this.findById(id);
-    return await this.repository.updateFinished(id, true);
+    return this.repo.updateById(id, body);
+  }
+
+  async deleteById(id: string): Promise<{ ok: true }> {
+    await this.findById(id);
+    await this.repo.deleteById(id);
+    return this.repo.deleteById(id).then(() => ({ ok: true }));
   }
 }

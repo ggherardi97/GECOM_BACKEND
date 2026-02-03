@@ -1,74 +1,63 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOkResponse,
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiQuery,
-} from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { EventService } from './event.service';
-import { events } from '@prisma/client';
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { EventService } from "./event.service";
 
-@ApiTags('events')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('events')
+@Controller("events")
 export class EventController {
   constructor(private readonly service: EventService) {}
 
-  @Get('related')
-  @ApiOperation({
-    summary: 'List events by related entity',
-    description: 'Returns all events for a specific related table and ID',
-  })
-  @ApiQuery({
-    name: 'related_table',
-    description: 'Table name',
-    example: 'processes',
-  })
-  @ApiQuery({
-    name: 'related_id',
-    description: 'Related record ID',
-    example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
-  })
-  @ApiOkResponse({ description: 'List of events' })
-  async listByRelated(
-    @Query('related_table') relatedTable: string,
-    @Query('related_id') relatedId: string,
-  ): Promise<events[]> {
-    return this.service.listEventsByRelated(relatedTable, relatedId);
+  // GET /events?type=1&related_table=processes&related_id=uuid
+  // GET /events?process_id=uuid
+  // GET /events?client_id=uuid
+  @Get()
+  async getMany(
+    @Query("type") type?: string,
+    @Query("related_table") related_table?: string,
+    @Query("related_id") related_id?: string,
+    @Query("process_id") process_id?: string,
+    @Query("client_id") client_id?: string
+  ) {
+    const parsedType = type != null && String(type).trim() !== "" ? Number(type) : undefined;
+
+    return this.service.findMany({
+      type: Number.isFinite(parsedType) ? parsedType : undefined,
+      related_table,
+      related_id,
+      process_id,
+      client_id,
+    });
   }
 
-  @Get('type/:type')
-  @ApiOperation({
-    summary: 'List events by type',
-    description: 'Returns all events of a specific type',
-  })
-  @ApiParam({
-    name: 'type',
-    description: 'Event type',
-    example: 1,
-  })
-  @ApiOkResponse({ description: 'List of events' })
-  async listByType(@Param('type') type: string): Promise<events[]> {
-    return this.service.findByType(parseInt(type, 10));
-  }
-
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get event by ID',
-    description: 'Returns a specific event by its ID',
-  })
-  @ApiParam({
-    name: 'id',
-    description: 'Event ID',
-    example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
-  })
-  @ApiOkResponse({ description: 'Event found' })
-  async findById(@Param('id') id: string): Promise<events> {
+  // GET /events/:id
+  @Get(":id")
+  async getById(@Param("id") id: string) {
     return this.service.findById(id);
+  }
+
+  // POST /events
+  @Post()
+  async create(@Body() body: Prisma.eventsCreateInput) {
+    return this.service.create(body);
+  }
+
+  // PATCH /events/:id
+  @Patch(":id")
+  async patch(@Param("id") id: string, @Body() body: Prisma.eventsUpdateInput) {
+    return this.service.patchById(id, body);
+  }
+
+  // DELETE /events/:id
+  @Delete(":id")
+  async delete(@Param("id") id: string) {
+    return this.service.deleteById(id);
   }
 }

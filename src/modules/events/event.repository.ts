@@ -1,67 +1,61 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { CreateEventDTO } from './dto/create-event.dto';
-import { events } from '@prisma/client';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "src/prisma/prisma.service";
+import { Prisma, events } from "@prisma/client";
+
+type FindEventsFilter = {
+  type?: number;
+  related_table?: string;
+  related_id?: string;
+  process_id?: string;
+  client_id?: string;
+};
 
 @Injectable()
 export class EventRepository {
-  private logger = new Logger(EventRepository.name);
-
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(data: CreateEventDTO): Promise<events> {
-    try {
-      return await this.prisma.events.create({
-        data: {
-          related_table: data.related_table,
-          related_id: data.related_id,
-          status: data.status,
-          title: data.title,
-          description: data.description,
-          type: data.type,
-          start_time: new Date(data.start_time),
-          end_time: data.end_time ? new Date(data.end_time) : null,
-          finished: data.finished ?? false,
-          document_related: data.document_related ?? false,
-        },
-      });
-    } catch (error) {
-      this.logger.error('Error creating event:', error);
-      throw error;
-    }
-  }
+  async findMany(filter: FindEventsFilter): Promise<events[]> {
+    const where: Prisma.eventsWhereInput = {};
 
-  async findByRelated(relatedTable: string, relatedId: string): Promise<events[]> {
-    return await this.prisma.events.findMany({
-      where: {
-        related_table: relatedTable,
-        related_id: relatedId,
-      },
-      orderBy: {
-        created_at: 'desc',
-      },
+    if (Number.isFinite(filter.type)) {
+      where.type = filter.type;
+    }
+
+    // Direct filters
+    if (filter.related_table) where.related_table = filter.related_table;
+    if (filter.related_id) where.related_id = filter.related_id;
+
+    // Friendly aliases
+    if (filter.process_id) {
+      where.related_table = "processes";
+      where.related_id = filter.process_id;
+    }
+
+    if (filter.client_id) {
+      // "client" in the portal = company
+      where.related_table = "companies";
+      where.related_id = filter.client_id;
+    }
+
+    return this.prisma.events.findMany({
+      where,
+      orderBy: { created_at: "desc" },
     });
   }
 
   async findById(id: string): Promise<events | null> {
-    return await this.prisma.events.findUnique({
-      where: { id },
-    });
+    return this.prisma.events.findUnique({ where: { id } });
   }
 
-  async findByType(type: number): Promise<events[]> {
-    return await this.prisma.events.findMany({
-      where: { type },
-      orderBy: {
-        created_at: 'desc',
-      },
-    });
+  async create(data: Prisma.eventsCreateInput): Promise<events> {
+    return this.prisma.events.create({ data });
   }
 
-  async updateFinished(id: string, finished: boolean): Promise<events> {
-    return await this.prisma.events.update({
-      where: { id },
-      data: { finished },
-    });
+  async updateById(id: string, data: Prisma.eventsUpdateInput): Promise<events> {
+    return this.prisma.events.update({ where: { id }, data });
+  }
+
+  async deleteById(id: string): Promise<events> {
+    return this.prisma.events.delete({ where: { id } });
   }
 }

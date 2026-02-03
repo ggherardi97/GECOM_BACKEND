@@ -17,6 +17,8 @@ import { ProductModule } from './modules/products/product.module';
 import { CurrencyModule } from './modules/currencies/currency.module';
 import { ProcessTypeModule } from './modules/process-type/process-type.module';
 import { TransportsModule } from './modules/transports/transports.module';
+import { TransportTypesModule } from "./modules/transport-types/transport-types.module";
+import { TransportStatusesModule } from "./modules/transport-statuses/transport-statuses.module";
 
 @Module({
   imports: [
@@ -46,6 +48,7 @@ import { TransportsModule } from './modules/transports/transports.module';
     ProductModule,
     CurrencyModule,
     InvoiceLineModule,
+    TransportTypesModule,TransportStatusesModule,
     TransportsModule,
   ],
   controllers: [AppController],
