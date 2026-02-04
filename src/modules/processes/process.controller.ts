@@ -15,6 +15,7 @@ import { CreateProcessDTO } from './dto/create-process.dto';
 import { UpdateProcessStatusDTO } from './dto/update-process-status.dto';
 import { processes } from '@prisma/client';
 import { Req, Query, ForbiddenException } from '@nestjs/common';
+import { UpdateProcessDTO } from './dto/update-process.dto';
 
 @ApiTags('processes')
 @ApiBearerAuth()
@@ -69,6 +70,20 @@ export class ProcessController {
   @ApiOkResponse({ description: 'Process found' })
   async findById(@Param('id') id: string) {
     return this.service.findById(id);
+  }
+  
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Update process fields',
+    description: 'Updates completed, ship_date and/or status for a process',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Process ID',
+  })
+  @ApiBody({ type: UpdateProcessDTO })
+  async update(@Param('id') id: string, @Body() data: UpdateProcessDTO) {
+    return this.service.update(id, data);
   }
 
   @Patch(':id/status')

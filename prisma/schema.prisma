@@ -130,7 +130,8 @@ model processes {
   transports         transports[]
 
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
-  @@index([process_number], map: "IDX_PROCESS_PROCESS_NUMBER")
+  @@index([process_number], map: "IDX_PROCESS_PROCESS_NUMBER")  
+  @@unique([process_number])
 }
 
 model currencies {

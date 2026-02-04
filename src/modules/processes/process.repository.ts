@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProcessDTO } from './dto/create-process.dto';
-import { processes } from '@prisma/client';
+
+// IMPORTANT: use type-only import and alias to avoid conflicts with runtime variables.
+import type { processes, events as EventRow } from '@prisma/client';
 
 @Injectable()
 export class ProcessRepository {
@@ -24,7 +26,7 @@ export class ProcessRepository {
         },
       });
     } catch (error) {
-      this.logger.error('Error creating process:', error);
+      this.logger.error('Error creating process:', error as any);
       throw error;
     }
   }
@@ -37,6 +39,7 @@ export class ProcessRepository {
       include: {
         companies: true,
         process_types: true,
+        transports: true,
         users: {
           select: {
             id: true,
@@ -57,6 +60,7 @@ export class ProcessRepository {
       include: {
         companies: true,
         process_types: true,
+        transports: true,
         users: {
           select: {
             id: true,
@@ -77,6 +81,7 @@ export class ProcessRepository {
       include: {
         companies: true,
         process_types: true,
+        transports: true,
         users: {
           select: {
             id: true,
@@ -118,6 +123,70 @@ export class ProcessRepository {
     return await this.prisma.processes.update({
       where: { id },
       data: { deleted_at: new Date() },
+    });
+  }
+
+  /**
+   * Returns events for one or multiple processes.
+   * We support both related_table values: 'process' and 'processes' (legacy).
+   */
+  async findEventsByProcessIds(processIds: string[]): Promise<EventRow[]> {
+    if (!processIds || processIds.length === 0) return [];
+
+    return this.prisma.events.findMany({
+      where: {
+        related_id: { in: processIds },
+        related_table: { in: ['process', 'processes'] },
+      },
+      orderBy: {
+        start_time: 'desc',
+      },
+    });
+  }
+  async update(
+    id: string,
+    data: { completed?: number; status?: number; ship_date?: string | Date | null }
+  ): Promise<processes> {
+    const updateData: any = {};
+
+    if (data.completed !== undefined) updateData.completed = data.completed;
+    if (data.status !== undefined) updateData.status = data.status;
+
+    if (data.ship_date !== undefined) {
+      updateData.ship_date = data.ship_date == null ? null : new Date(data.ship_date);
+    }
+
+    return await this.prisma.processes.update({
+      where: { id },
+      data: updateData,
+    });
+  }
+
+  public async createWithAutoNumber(data: any) {
+    return this.prisma.$transaction(async (tx) => {
+      // Get next sequence value
+      const rows = await tx.$queryRaw<Array<{ seq: bigint }>>`
+        SELECT nextval('process_number_seq') AS seq
+      `;
+
+      const seq = rows?.[0]?.seq;
+      if (seq == null) {
+        throw new Error('Failed to generate process number sequence.');
+      }
+
+      // Build PROC-000001 format (6 digits)
+      const numeric = String(seq);
+      const processNumber = `PROC-${numeric.padStart(6, '0')}`;
+
+      // Create process with the generated number
+      const created = await tx.processes.create({
+        data: {
+          ...data,
+          process_number: processNumber,
+        },
+      });
+
+      return created;
     });
   }
 }
