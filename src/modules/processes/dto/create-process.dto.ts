@@ -1,14 +1,23 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsString, IsInt, IsOptional, IsDateString, IsUUID } from 'class-validator';
 import { ProcessStatus } from '../enums/process-status.enum';
 
 export class CreateProcessDTO {
   @ApiProperty({
-    description: 'Process number',
+    description: 'Process number (optional). If omitted, the backend can auto-generate it.',
     example: 'PROC-2025-001',
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  process_number: string;
+  @Transform(({ value }) => {
+    // Normalize: undefined/null/empty-string => undefined
+    if (value == null) return undefined;
+    const trimmed = String(value).trim();
+    return trimmed.length ? trimmed : undefined;
+  })
+  process_number?: string;
 
   @ApiProperty({
     description: 'Process status',
@@ -48,18 +57,19 @@ export class CreateProcessDTO {
   process_type_id: string;
 
   @ApiProperty({
-    description: 'Shipment date',
+    description: 'Shipment date (ISO 8601 string)',
     example: '2025-12-30T10:00:00Z',
     required: false,
   })
   @IsOptional()
   @IsDateString()
-  ship_date?: Date;
+  ship_date?: string;
 
   @ApiProperty({
     description: 'Completion percentage (0-100)',
     example: 0,
     default: 0,
+    required: false,
   })
   @IsOptional()
   @IsInt()

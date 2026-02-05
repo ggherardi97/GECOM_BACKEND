@@ -150,7 +150,6 @@ export class InvoiceLineService {
       line_subtotal: lineSubtotal,
       line_total: lineTotal,
 
-      updated_at: new Date(),
     });
   }
 

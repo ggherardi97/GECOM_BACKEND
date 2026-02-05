@@ -23,8 +23,8 @@ export class UserRepository {
           full_name: data.full_name,
           email: data.email,
           password: data.password ?? '',
-          role: data.role || user_role_enum.USER,
-          status: data.status || user_status_enum.ACTIVE,
+          role: (data.role as unknown as user_role_enum) ?? user_role_enum.USER,
+          status: (data.status as unknown as user_status_enum) ?? user_status_enum.ACTIVE,
           phonenumber: data.phonenumber ?? null,
           first_access: data.first_access ?? true,
           company_id: data.company_id ?? null,
@@ -45,7 +45,7 @@ export class UserRepository {
   async findAllCustomers() {
     try {
       return await this.prisma.users.findMany({
-        where: { role: user_role_enum.CUSTOMER as user_role_enum },
+        where: { role: user_role_enum.USER },
         omit: { password: true },
       });
     } catch (error) {
@@ -82,15 +82,20 @@ export class UserRepository {
     });
   }
 
-  async update(id: string, data: UpdateUserDTO): Promise<users> {
-    return await this.prisma.users.update({
-      where: { id },
-      data: {
-        ...data,
-        updated_at: new Date().toISOString(),
-      },
-    });
-  }
+async update(id: string, data: UpdateUserDTO): Promise<users> {
+  // Prisma in your project does not accept company_id via usersUpdateInput
+  const { company_id, role, status, ...rest } = data as any;
+
+  return await this.prisma.users.update({
+    where: { id },
+    data: {
+      ...rest,
+      ...(role !== undefined ? { role: role as unknown as user_role_enum } : {}),
+      ...(status !== undefined ? { status: status as unknown as user_status_enum } : {}),
+      updated_at: new Date(),
+    },
+  });
+}
 
   async resetPassword(id: string, newPassword: string): Promise<users> {
     const hashed_password = await this.cryptoService.hash(newPassword);

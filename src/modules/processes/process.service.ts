@@ -18,42 +18,33 @@ export class ProcessService {
   ) {}
 
   async create(data: CreateProcessDTO): Promise<processes> {
-    const providedProcessNumber = String((data as any)?.process_number || '').trim();
+    const providedProcessNumber = String(data.process_number ?? '').trim();
 
-    // If user provided a number, keep the existing uniqueness validation + normal create.
+    let createdProcess: processes;
+
+    // If user provided a number, validate uniqueness and create normally.
     if (providedProcessNumber) {
       const existingProcess = await this.repository.findByProcessNumber(providedProcessNumber);
       if (existingProcess) {
         throw new BadRequestException(`Process with number ${providedProcessNumber} already exists`);
       }
 
-      const createdProcess = await this.repository.create({
+      createdProcess = await this.repository.create({
         ...data,
         process_number: providedProcessNumber,
       });
-
-      await this.eventService.create({
-        related_table: 'processes',
-        related_id: createdProcess.id,
-        title: 'Processo Iniciado',
-        status: 0,
-        description: `Processo ${createdProcess.process_number} iniciado em ${createdProcess.created_on}`,
-        type: EventType.SYSTEM_LOG,
-        start_time: new Date(),
-        end_time: new Date(),
-        finished: true,
-        document_related: false,
-      } as any);
-
-      return createdProcess;
+    } else {
+      // Otherwise: auto-generate (PROC-000001...) in the repository using a DB sequence.
+      createdProcess = await this.repository.createWithAutoNumber({
+        status: data.status,
+        invoice: data.invoice,
+        company_id: data.company_id,
+        process_type_id: data.process_type_id,
+        primary_contact_id: data.primary_contact_id,
+        ship_date: data.ship_date,
+        completed: data.completed,
+      });
     }
-
-    // Otherwise: auto-generate (PROC-000001...) in the repository using a DB sequence.
-    const createdProcess = await this.repository.createWithAutoNumber({
-      ...data,
-      // Ensure we don't pass empty string to Prisma
-      process_number: undefined as any,
-    });
 
     await this.eventService.create({
       related_table: 'processes',
@@ -94,6 +85,7 @@ export class ProcessService {
     const list = await this.repository.findByCompanyId(companyId);
     return await this.attachEvents(list);
   }
+
   async update(id: string, data: UpdateProcessDTO): Promise<processes> {
     // Ensure process exists
     await this.findById(id);
@@ -145,29 +137,6 @@ export class ProcessService {
     return updatedProcess;
   }
 
-  private async attachEvents(list: processes[]): Promise<any[]> {
-    if (!list || list.length === 0) return list as any[];
-
-    const ids = list.map((p) => p.id);
-
-    // IMPORTANT: do not name this variable 'events' to avoid TS confusion with Prisma types.
-    const eventRows = await this.repository.findEventsByProcessIds(ids);
-
-    const byRelatedId = new Map<string, EventRow[]>();
-
-    for (const ev of eventRows) {
-      const key = ev.related_id;
-      const current = byRelatedId.get(key) ?? [];
-      current.push(ev);
-      byRelatedId.set(key, current);
-    }
-
-    return list.map((p) => ({
-      ...(p as any),
-      events: byRelatedId.get(p.id) ?? [],
-    }));
-  }
-
   async updateCompleted(id: string, completed: number): Promise<processes> {
     if (completed < 0 || completed > 100) {
       throw new BadRequestException('Completion percentage must be between 0 and 100');
@@ -200,6 +169,29 @@ export class ProcessService {
     } as any);
 
     return deletedProcess;
+  }
+
+  private async attachEvents(list: processes[]): Promise<any[]> {
+    if (!list || list.length === 0) return list as any[];
+
+    const ids = list.map((p) => p.id);
+
+    // IMPORTANT: do not name this variable 'events' to avoid TS confusion with Prisma types.
+    const eventRows = await this.repository.findEventsByProcessIds(ids);
+
+    const byRelatedId = new Map<string, EventRow[]>();
+
+    for (const ev of eventRows) {
+      const key = ev.related_id;
+      const current = byRelatedId.get(key) ?? [];
+      current.push(ev);
+      byRelatedId.set(key, current);
+    }
+
+    return list.map((p) => ({
+      ...(p as any),
+      events: byRelatedId.get(p.id) ?? [],
+    }));
   }
 
   private getStatusName(status: number): string {

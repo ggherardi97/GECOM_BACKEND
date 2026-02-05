@@ -5,19 +5,26 @@ import { CreateProcessDTO } from './dto/create-process.dto';
 // IMPORTANT: use type-only import and alias to avoid conflicts with runtime variables.
 import type { processes, events as EventRow } from '@prisma/client';
 
+type CreateProcessInput = Omit<CreateProcessDTO, 'process_number'> & {
+  process_number: string; // Prisma requires it
+};
+
 @Injectable()
 export class ProcessRepository {
   private logger = new Logger(ProcessRepository.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(data: CreateProcessDTO): Promise<processes> {
+  /**
+   * Creates a process when process_number is already resolved (required).
+   */
+  async create(data: CreateProcessInput): Promise<processes> {
     try {
       return await this.prisma.processes.create({
         data: {
           process_number: data.process_number,
           status: data.status,
-          invoice: data.invoice,
+          invoice: data.invoice ?? null,
           company_id: data.company_id,
           process_type_id: data.process_type_id,
           primary_contact_id: data.primary_contact_id,
@@ -143,6 +150,7 @@ export class ProcessRepository {
       },
     });
   }
+
   async update(
     id: string,
     data: { completed?: number; status?: number; ship_date?: string | Date | null }
@@ -162,9 +170,12 @@ export class ProcessRepository {
     });
   }
 
-  public async createWithAutoNumber(data: any) {
+  /**
+   * Creates a process with an auto-generated process_number using DB sequence `process_number_seq`.
+   * Format: PROC-000001 (6 digits)
+   */
+  async createWithAutoNumber(data: Omit<CreateProcessDTO, 'process_number'>): Promise<processes> {
     return this.prisma.$transaction(async (tx) => {
-      // Get next sequence value
       const rows = await tx.$queryRaw<Array<{ seq: bigint }>>`
         SELECT nextval('process_number_seq') AS seq
       `;
@@ -174,19 +185,21 @@ export class ProcessRepository {
         throw new Error('Failed to generate process number sequence.');
       }
 
-      // Build PROC-000001 format (6 digits)
       const numeric = String(seq);
       const processNumber = `PROC-${numeric.padStart(6, '0')}`;
 
-      // Create process with the generated number
-      const created = await tx.processes.create({
+      return tx.processes.create({
         data: {
-          ...data,
           process_number: processNumber,
+          status: data.status,
+          invoice: data.invoice ?? null,
+          company_id: data.company_id,
+          process_type_id: data.process_type_id,
+          primary_contact_id: data.primary_contact_id,
+          ship_date: data.ship_date ? new Date(data.ship_date) : null,
+          completed: data.completed ?? 0,
         },
       });
-
-      return created;
     });
   }
 }

@@ -19,6 +19,7 @@ import { ProcessTypeModule } from './modules/process-type/process-type.module';
 import { TransportsModule } from './modules/transports/transports.module';
 import { TransportTypesModule } from "./modules/transport-types/transport-types.module";
 import { TransportStatusesModule } from "./modules/transport-statuses/transport-statuses.module";
+import { DocumentsModule } from './modules/documents/documents.module';
 
 @Module({
   imports: [
@@ -43,7 +44,7 @@ import { TransportStatusesModule } from "./modules/transport-statuses/transport-
     PasswordResetModule,
     ProcessModule,
     ProcessTypeModule,
-    EventModule,
+    EventModule,DocumentsModule,
     InvoiceModule,
     ProductModule,
     CurrencyModule,
