@@ -14,8 +14,10 @@ type FindEventsFilter = {
 export class EventRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findMany(filter: FindEventsFilter): Promise<events[]> {
-    const where: Prisma.eventsWhereInput = {};
+  async findMany(filter: FindEventsFilter, tenantId: string): Promise<events[]> {
+    const where: Prisma.eventsWhereInput = {
+      tenant_id: tenantId,
+    };
 
     if (Number.isFinite(filter.type)) {
       where.type = filter.type;
@@ -43,19 +45,46 @@ export class EventRepository {
     });
   }
 
-  async findById(id: string): Promise<events | null> {
-    return this.prisma.events.findUnique({ where: { id } });
+  async findById(id: string, tenantId: string): Promise<events | null> {
+    return this.prisma.events.findFirst({
+      where: { id, tenant_id: tenantId } as any,
+    });
   }
 
-  async create(data: Prisma.eventsCreateInput): Promise<events> {
-    return this.prisma.events.create({ data });
+  async create(data: Prisma.eventsCreateInput, tenantId: string): Promise<events> {
+    // IMPORTANT: set tenant explicitly (do not rely on middleware)
+    return this.prisma.events.create({
+      data: {
+        ...(data as any),
+        tenant_id: tenantId,
+      },
+    });
   }
 
-  async updateById(id: string, data: Prisma.eventsUpdateInput): Promise<events> {
-    return this.prisma.events.update({ where: { id }, data });
+  async updateById(
+    id: string,
+    data: Prisma.eventsUpdateManyMutationInput,
+    tenantId: string
+  ): Promise<events | null> {
+    const result = await this.prisma.events.updateMany({
+      where: { id, tenant_id: tenantId } as any,
+      data: {
+        ...(data as any),
+        tenant_id: undefined, // never allow tenant change
+        id: undefined,        // never allow id change
+      },
+    });
+
+    if (!result || result.count === 0) return null;
+
+    return this.findById(id, tenantId);
   }
 
-  async deleteById(id: string): Promise<events> {
-    return this.prisma.events.delete({ where: { id } });
+  async deleteById(id: string, tenantId: string): Promise<boolean> {
+    const result = await this.prisma.events.deleteMany({
+      where: { id, tenant_id: tenantId } as any,
+    });
+
+    return !!result && result.count > 0;
   }
 }

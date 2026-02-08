@@ -6,7 +6,7 @@ import { CreateProcessDTO } from './dto/create-process.dto';
 import type { processes, events as EventRow } from '@prisma/client';
 
 type CreateProcessInput = Omit<CreateProcessDTO, 'process_number'> & {
-  process_number: string; // Prisma requires it
+  process_number: string;
 };
 
 @Injectable()
@@ -15,13 +15,11 @@ export class ProcessRepository {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Creates a process when process_number is already resolved (required).
-   */
-  async create(data: CreateProcessInput): Promise<processes> {
+  async create(data: CreateProcessInput, tenantId: string): Promise<processes> {
     try {
       return await this.prisma.processes.create({
         data: {
+          tenant_id: tenantId,
           process_number: data.process_number,
           status: data.status,
           invoice: data.invoice ?? null,
@@ -38,11 +36,12 @@ export class ProcessRepository {
     }
   }
 
-  async findAll(): Promise<processes[]> {
-    return await this.prisma.processes.findMany({
+  async findAll(tenantId: string): Promise<processes[]> {
+    return this.prisma.processes.findMany({
       where: {
+        tenant_id: tenantId,
         deleted_at: null,
-      },
+      } as any,
       include: {
         companies: true,
         process_types: true,
@@ -61,9 +60,9 @@ export class ProcessRepository {
     });
   }
 
-  async findById(id: string): Promise<processes | null> {
-    return await this.prisma.processes.findUnique({
-      where: { id },
+  async findById(id: string, tenantId: string): Promise<processes | null> {
+    return this.prisma.processes.findFirst({
+      where: { id, tenant_id: tenantId } as any,
       include: {
         companies: true,
         process_types: true,
@@ -79,12 +78,13 @@ export class ProcessRepository {
     });
   }
 
-  async findByCompanyId(companyId: string): Promise<processes[]> {
-    return await this.prisma.processes.findMany({
+  async findByCompanyId(companyId: string, tenantId: string): Promise<processes[]> {
+    return this.prisma.processes.findMany({
       where: {
+        tenant_id: tenantId,
         company_id: companyId,
         deleted_at: null,
-      },
+      } as any,
       include: {
         companies: true,
         process_types: true,
@@ -103,58 +103,51 @@ export class ProcessRepository {
     });
   }
 
-  async findByProcessNumber(processNumber: string): Promise<processes | null> {
-    return await this.prisma.processes.findFirst({
+  async findByProcessNumber(processNumber: string, tenantId: string): Promise<processes | null> {
+    return this.prisma.processes.findFirst({
       where: {
+        tenant_id: tenantId,
         process_number: processNumber,
         deleted_at: null,
-      },
+      } as any,
     });
   }
 
-  async updateStatus(id: string, status: number): Promise<processes> {
-    return await this.prisma.processes.update({
-      where: { id },
+  async updateStatus(id: string, tenantId: string, status: number): Promise<processes | null> {
+    const result = await this.prisma.processes.updateMany({
+      where: { id, tenant_id: tenantId } as any,
       data: { status },
     });
+
+    if (!result || result.count === 0) return null;
+    return this.findById(id, tenantId);
   }
 
-  async updateCompleted(id: string, completed: number): Promise<processes> {
-    return await this.prisma.processes.update({
-      where: { id },
+  async updateCompleted(id: string, tenantId: string, completed: number): Promise<processes | null> {
+    const result = await this.prisma.processes.updateMany({
+      where: { id, tenant_id: tenantId } as any,
       data: { completed },
     });
+
+    if (!result || result.count === 0) return null;
+    return this.findById(id, tenantId);
   }
 
-  async softDelete(id: string): Promise<processes> {
-    return await this.prisma.processes.update({
-      where: { id },
+  async softDelete(id: string, tenantId: string): Promise<processes | null> {
+    const result = await this.prisma.processes.updateMany({
+      where: { id, tenant_id: tenantId } as any,
       data: { deleted_at: new Date() },
     });
-  }
 
-  /**
-   * Returns events for one or multiple processes.
-   * We support both related_table values: 'process' and 'processes' (legacy).
-   */
-  async findEventsByProcessIds(processIds: string[]): Promise<EventRow[]> {
-    if (!processIds || processIds.length === 0) return [];
-
-    return this.prisma.events.findMany({
-      where: {
-        related_id: { in: processIds },
-        related_table: { in: ['process', 'processes'] },
-      },
-      orderBy: {
-        start_time: 'desc',
-      },
-    });
+    if (!result || result.count === 0) return null;
+    return this.findById(id, tenantId);
   }
 
   async update(
     id: string,
+    tenantId: string,
     data: { completed?: number; status?: number; ship_date?: string | Date | null }
-  ): Promise<processes> {
+  ): Promise<processes | null> {
     const updateData: any = {};
 
     if (data.completed !== undefined) updateData.completed = data.completed;
@@ -164,9 +157,31 @@ export class ProcessRepository {
       updateData.ship_date = data.ship_date == null ? null : new Date(data.ship_date);
     }
 
-    return await this.prisma.processes.update({
-      where: { id },
+    const result = await this.prisma.processes.updateMany({
+      where: { id, tenant_id: tenantId } as any,
       data: updateData,
+    });
+
+    if (!result || result.count === 0) return null;
+    return this.findById(id, tenantId);
+  }
+
+  /**
+   * Returns events for one or multiple processes.
+   * We support both related_table values: 'process' and 'processes' (legacy).
+   */
+  async findEventsByProcessIds(processIds: string[], tenantId: string): Promise<EventRow[]> {
+    if (!processIds || processIds.length === 0) return [];
+
+    return this.prisma.events.findMany({
+      where: {
+        tenant_id: tenantId,
+        related_id: { in: processIds },
+        related_table: { in: ['process', 'processes'] },
+      } as any,
+      orderBy: {
+        start_time: 'desc',
+      },
     });
   }
 
@@ -174,8 +189,8 @@ export class ProcessRepository {
    * Creates a process with an auto-generated process_number using DB sequence `process_number_seq`.
    * Format: PROC-000001 (6 digits)
    */
-  async createWithAutoNumber(data: Omit<CreateProcessDTO, 'process_number'>): Promise<processes> {
-    return this.prisma.$transaction(async (tx) => {
+  async createWithAutoNumber(data: Omit<CreateProcessDTO, 'process_number'>, tenantId: string): Promise<processes> {
+    return this.prisma.transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ seq: bigint }>>`
         SELECT nextval('process_number_seq') AS seq
       `;
@@ -190,6 +205,7 @@ export class ProcessRepository {
 
       return tx.processes.create({
         data: {
+          tenant_id: tenantId,
           process_number: processNumber,
           status: data.status,
           invoice: data.invoice ?? null,

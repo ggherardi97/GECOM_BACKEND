@@ -1,0 +1,184 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class LockdownTenantIdAndUniques1770000000300 implements MigrationInterface {
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // ---------------- Safety checks (fail fast) ----------------
+    const nullCounts: Array<any> = await queryRunner.query(`
+      SELECT
+        (SELECT COUNT(*) FROM users WHERE tenant_id IS NULL)           AS users_null,
+        (SELECT COUNT(*) FROM companies WHERE tenant_id IS NULL)       AS companies_null,
+        (SELECT COUNT(*) FROM processes WHERE tenant_id IS NULL)       AS processes_null,
+        (SELECT COUNT(*) FROM transports WHERE tenant_id IS NULL)      AS transports_null,
+        (SELECT COUNT(*) FROM invoices WHERE tenant_id IS NULL)        AS invoices_null,
+        (SELECT COUNT(*) FROM invoice_lines WHERE tenant_id IS NULL)   AS invoice_lines_null,
+        (SELECT COUNT(*) FROM products WHERE tenant_id IS NULL)        AS products_null,
+        (SELECT COUNT(*) FROM documents WHERE tenant_id IS NULL)       AS documents_null,
+        (SELECT COUNT(*) FROM events WHERE tenant_id IS NULL)          AS events_null,
+        (SELECT COUNT(*) FROM sessions WHERE tenant_id IS NULL)        AS sessions_null,
+        (SELECT COUNT(*) FROM password_resets WHERE tenant_id IS NULL) AS password_resets_null
+    `);
+
+    const row = nullCounts?.[0] ?? nullCounts;
+    const hasNull =
+      Number(row.users_null) > 0 ||
+      Number(row.companies_null) > 0 ||
+      Number(row.processes_null) > 0 ||
+      Number(row.transports_null) > 0 ||
+      Number(row.invoices_null) > 0 ||
+      Number(row.invoice_lines_null) > 0 ||
+      Number(row.products_null) > 0 ||
+      Number(row.documents_null) > 0 ||
+      Number(row.events_null) > 0 ||
+      Number(row.sessions_null) > 0 ||
+      Number(row.password_resets_null) > 0;
+
+    if (hasNull) {
+      throw new Error(`Lockdown aborted: NULL tenant_id found. Counts: ${JSON.stringify(row)}`);
+    }
+
+    // ---------------- Make tenant_id NOT NULL ----------------
+    // Core tables
+    await queryRunner.query(`ALTER TABLE users ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE companies ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE processes ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE transports ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE invoices ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE invoice_lines ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE products ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE documents ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE events ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE sessions ALTER COLUMN tenant_id SET NOT NULL`);
+    await queryRunner.query(`ALTER TABLE password_resets ALTER COLUMN tenant_id SET NOT NULL`);
+
+    // ---------------- Unique constraints: convert to (tenant_id, X) ----------------
+    // USERS: email used to be unique globally
+    await queryRunner.query(`
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'UQ_97672ac88f789774dd47f7c8be3') THEN
+    ALTER TABLE users DROP CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3";
+  END IF;
+END$$;
+`);
+    await queryRunner.query(`
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_users_tenant_email') THEN
+    ALTER TABLE users
+    ADD CONSTRAINT uq_users_tenant_email UNIQUE (tenant_id, email);
+  END IF;
+END$$;
+`);
+
+    // PRODUCTS: product_code used to be unique globally
+    await queryRunner.query(`
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_products_product_code') THEN
+    ALTER TABLE products DROP CONSTRAINT uq_products_product_code;
+  END IF;
+END$$;
+`);
+    await queryRunner.query(`
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_products_tenant_product_code') THEN
+    ALTER TABLE products
+    ADD CONSTRAINT uq_products_tenant_product_code UNIQUE (tenant_id, product_code);
+  END IF;
+END$$;
+`);
+
+    // INVOICES: invoice_number used to be unique globally
+    await queryRunner.query(`
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'UQ_d8f8d3788694e1b3f96c42c36fb') THEN
+    ALTER TABLE invoices DROP CONSTRAINT "UQ_d8f8d3788694e1b3f96c42c36fb";
+  END IF;
+END$$;
+`);
+    await queryRunner.query(`
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_invoices_tenant_invoice_number') THEN
+    ALTER TABLE invoices
+    ADD CONSTRAINT uq_invoices_tenant_invoice_number UNIQUE (tenant_id, invoice_number);
+  END IF;
+END$$;
+`);
+
+    // PROCESSES: process_number was unique globally (in your schema it's @@unique([process_number]))
+    // Constraint name is unknown in DB (could be autogenerated). We drop by probing the index/constraint.
+    // We'll drop any UNIQUE constraint that is exactly on (process_number).
+    await queryRunner.query(`
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'processes'::regclass
+      AND contype = 'u'
+  LOOP
+    -- If this unique constraint is on exactly one column and that column is process_number, drop it.
+    IF (
+      SELECT array_agg(att.attname ORDER BY att.attnum)
+      FROM unnest((SELECT conkey FROM pg_constraint WHERE conname = r.conname)) AS k(attnum)
+      JOIN pg_attribute att ON att.attrelid = 'processes'::regclass AND att.attnum = k.attnum
+    ) = ARRAY['process_number'] THEN
+      EXECUTE format('ALTER TABLE processes DROP CONSTRAINT %I', r.conname);
+    END IF;
+  END LOOP;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_processes_tenant_process_number') THEN
+    ALTER TABLE processes
+    ADD CONSTRAINT uq_processes_tenant_process_number UNIQUE (tenant_id, process_number);
+  END IF;
+END$$;
+`);
+
+    // ---------------- Helpful composite indexes (tenant filter first) ----------------
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_users_tenant_role" ON "users" ("tenant_id", "role")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_companies_tenant_deleted" ON "companies" ("tenant_id", "deleted_at")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_processes_tenant_company" ON "processes" ("tenant_id", "company_id")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_invoices_tenant_company_status" ON "invoices" ("tenant_id", "company_id", "status")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_products_tenant_active" ON "products" ("tenant_id", "is_active")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_documents_tenant_account" ON "documents" ("tenant_id", "account_id")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_events_tenant_type" ON "events" ("tenant_id", "type")`);
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Reverse composite indexes (safe)
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_events_tenant_type"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_documents_tenant_account"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_products_tenant_active"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_invoices_tenant_company_status"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_processes_tenant_company"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_companies_tenant_deleted"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_users_tenant_role"`);
+
+    // Revert unique constraints (best effort)
+    await queryRunner.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS uq_users_tenant_email;`);
+    await queryRunner.query(`ALTER TABLE products DROP CONSTRAINT IF EXISTS uq_products_tenant_product_code;`);
+    await queryRunner.query(`ALTER TABLE invoices DROP CONSTRAINT IF EXISTS uq_invoices_tenant_invoice_number;`);
+    await queryRunner.query(`ALTER TABLE processes DROP CONSTRAINT IF EXISTS uq_processes_tenant_process_number;`);
+
+    // NOTE: We do not restore the original constraint names automatically,
+    // because some were autogenerated. You can add them back if you truly need.
+
+    // Make tenant_id nullable again
+    await queryRunner.query(`ALTER TABLE password_resets ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE sessions ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE events ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE documents ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE products ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE invoice_lines ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE invoices ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE transports ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE processes ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE companies ALTER COLUMN tenant_id DROP NOT NULL`);
+    await queryRunner.query(`ALTER TABLE users ALTER COLUMN tenant_id DROP NOT NULL`);
+  }
+}

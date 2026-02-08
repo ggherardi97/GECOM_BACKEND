@@ -1,4 +1,18 @@
-import { Body, Controller, Get, Param, Post, Patch, Delete, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Patch,
+  Delete,
+  UseGuards,
+  Req,
+  Query,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiTags,
   ApiBody,
@@ -13,8 +27,6 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { ProcessService } from './process.service';
 import { CreateProcessDTO } from './dto/create-process.dto';
 import { UpdateProcessStatusDTO } from './dto/update-process-status.dto';
-import { processes } from '@prisma/client';
-import { Req, Query, ForbiddenException } from '@nestjs/common';
 import { UpdateProcessDTO } from './dto/update-process.dto';
 
 @ApiTags('processes')
@@ -24,6 +36,22 @@ import { UpdateProcessDTO } from './dto/update-process.dto';
 export class ProcessController {
   constructor(private readonly service: ProcessService) {}
 
+  private getTenantId(req: Request): string {
+    const tenantId = String((req as any)?.user?.tenant_id ?? (req as any)?.user?.tenantId ?? '').trim();
+    if (!tenantId) throw new BadRequestException('tenant_id is missing from authenticated user.');
+    return tenantId;
+  }
+
+  private getCompanyId(req: Request): string | null {
+    const companyId = (req as any)?.user?.company_id ?? (req as any)?.user?.companyId ?? null;
+    return companyId ? String(companyId) : null;
+  }
+
+  private isAdmin(req: Request): boolean {
+    const role = String((req as any)?.user?.role ?? '').toUpperCase();
+    return role === 'ADMIN' || (req as any)?.user?.isAdmin === true;
+  }
+
   @Post()
   @ApiOperation({
     summary: 'Create a new process',
@@ -31,107 +59,152 @@ export class ProcessController {
   })
   @ApiBody({ type: CreateProcessDTO })
   @ApiCreatedResponse({ description: 'Process successfully created' })
-  async create(@Body() data: CreateProcessDTO): Promise<processes> {
-    return this.service.create(data);
+  async create(@Req() req: Request, @Body() data: CreateProcessDTO) {
+    const tenantId = this.getTenantId(req);
+
+    // Non-admin must create only for their own company_id
+    if (!this.isAdmin(req)) {
+      const companyId = this.getCompanyId(req);
+      if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
+      if (String(data.company_id ?? '') !== companyId) {
+        throw new ForbiddenException('Você não tem permissão para criar processos para outra empresa.');
+      }
+    }
+
+    return this.service.create(data, tenantId);
   }
 
   @Get()
   @ApiOperation({
-    summary: 'List all processes',
-    description: 'Returns a list of all active processes',
+    summary: 'List processes',
+    description: 'ADMIN: all processes (optionally filter by company_id). Non-admin: only processes from user company.',
   })
   @ApiOkResponse({ description: 'List of processes' })
-  async findAll(
-    @Req() req: any,
-    @Query('company_id') companyIdQuery?: string
-  ): Promise<processes[]> {
-    const role = String(req?.user?.role || '').toUpperCase();
+  async findAll(@Req() req: Request, @Query('company_id') companyIdQuery?: string) {
+    const tenantId = this.getTenantId(req);
 
-    if (role === 'ADMIN') {
-      if (companyIdQuery && String(companyIdQuery).trim().length > 0) {
-        return this.service.findByCompanyId(String(companyIdQuery).trim());
-      }
-      return this.service.findAll();
+    if (this.isAdmin(req)) {
+      const companyId = companyIdQuery && String(companyIdQuery).trim().length > 0 ? String(companyIdQuery).trim() : undefined;
+      return this.service.findAll({ company_id: companyId }, tenantId);
     }
 
-    return this.service.findByCompanyId(String(companyIdQuery));
+    const companyId = this.getCompanyId(req);
+    if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
+
+    return this.service.findAll({ company_id: companyId }, tenantId);
   }
 
   @Get(':id')
   @ApiOperation({
     summary: 'Get process by ID',
-    description: 'Returns a specific process by its ID',
+    description: 'Returns a specific process by its ID (tenant-safe).',
   })
-  @ApiParam({
-    name: 'id',
-    description: 'Process ID',
-    example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
-  })
+  @ApiParam({ name: 'id', description: 'Process ID' })
   @ApiOkResponse({ description: 'Process found' })
-  async findById(@Param('id') id: string) {
-    return this.service.findById(id);
+  async findById(@Req() req: Request, @Param('id') id: string) {
+    const tenantId = this.getTenantId(req);
+    const process = await this.service.findById(id, tenantId);
+
+    // Non-admin must match company
+    if (!this.isAdmin(req)) {
+      const companyId = this.getCompanyId(req);
+      if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
+
+      if (String((process as any)?.company_id ?? '') !== companyId) {
+        throw new ForbiddenException('Você não tem acesso a este processo.');
+      }
+    }
+
+    return process;
   }
-  
+
   @Patch(':id')
   @ApiOperation({
     summary: 'Update process fields',
-    description: 'Updates completed, ship_date and/or status for a process',
+    description: 'Updates completed, ship_date and/or status for a process (tenant-safe).',
   })
-  @ApiParam({
-    name: 'id',
-    description: 'Process ID',
-  })
+  @ApiParam({ name: 'id', description: 'Process ID' })
   @ApiBody({ type: UpdateProcessDTO })
-  async update(@Param('id') id: string, @Body() data: UpdateProcessDTO) {
-    return this.service.update(id, data);
+  async update(@Req() req: Request, @Param('id') id: string, @Body() data: UpdateProcessDTO) {
+    const tenantId = this.getTenantId(req);
+
+    // Authorization check via existing record (tenant-safe)
+    const existing = await this.service.findById(id, tenantId);
+    if (!this.isAdmin(req)) {
+      const companyId = this.getCompanyId(req);
+      if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
+      if (String((existing as any)?.company_id ?? '') !== companyId) {
+        throw new ForbiddenException('Você não tem permissão para alterar este processo.');
+      }
+    }
+
+    return this.service.update(id, tenantId, data);
   }
 
   @Patch(':id/status')
   @ApiOperation({
     summary: 'Update process status',
-    description: 'Updates the status of a process and creates a status change event',
+    description: 'Updates the status of a process and creates a status change event (tenant-safe).',
   })
-  @ApiParam({
-    name: 'id',
-    description: 'Process ID',
-    example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
-  })
+  @ApiParam({ name: 'id', description: 'Process ID' })
   @ApiBody({ type: UpdateProcessStatusDTO })
   @ApiOkResponse({ description: 'Process status updated' })
-  async updateStatus(
-    @Param('id') id: string,
-    @Body() data: UpdateProcessStatusDTO
-  ): Promise<processes> {
-    return this.service.updateStatus(id, data.status);
+  async updateStatus(@Req() req: Request, @Param('id') id: string, @Body() data: UpdateProcessStatusDTO) {
+    const tenantId = this.getTenantId(req);
+
+    const existing = await this.service.findById(id, tenantId);
+    if (!this.isAdmin(req)) {
+      const companyId = this.getCompanyId(req);
+      if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
+      if (String((existing as any)?.company_id ?? '') !== companyId) {
+        throw new ForbiddenException('Você não tem permissão para alterar este processo.');
+      }
+    }
+
+    return this.service.updateStatus(id, tenantId, data.status);
   }
 
   @Get(':id/events')
   @ApiOperation({
     summary: 'Get process events',
-    description: 'Returns all events related to a specific process',
+    description: 'Returns all events related to a specific process (tenant-safe).',
   })
-  @ApiParam({
-    name: 'id',
-    description: 'Process ID',
-    example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
-  })
+  @ApiParam({ name: 'id', description: 'Process ID' })
   @ApiOkResponse({ description: 'List of process events' })
-  async getProcessEvents(@Param('id') id: string) {
-    return this.service.getProcessEvents(id);
+  async getProcessEvents(@Req() req: Request, @Param('id') id: string) {
+    const tenantId = this.getTenantId(req);
+
+    const existing = await this.service.findById(id, tenantId);
+    if (!this.isAdmin(req)) {
+      const companyId = this.getCompanyId(req);
+      if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
+      if (String((existing as any)?.company_id ?? '') !== companyId) {
+        throw new ForbiddenException('Você não tem acesso a este processo.');
+      }
+    }
+
+    return this.service.getProcessEvents(id, tenantId);
   }
 
   @Delete(':id')
   @ApiOperation({
     summary: 'Delete a process',
-    description: 'Soft deletes a process and creates a deletion event',
+    description: 'Soft deletes a process and creates a deletion event (tenant-safe).',
   })
-  @ApiParam({
-    name: 'id',
-    description: 'Process ID',
-    example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
-  })
+  @ApiParam({ name: 'id', description: 'Process ID' })
   @ApiOkResponse({ description: 'Process deleted' })
-  async remove(@Param('id') id: string): Promise<processes> {
-    return this.service.softDelete(id);
+  async remove(@Req() req: Request, @Param('id') id: string) {
+    const tenantId = this.getTenantId(req);
+
+    const existing = await this.service.findById(id, tenantId);
+    if (!this.isAdmin(req)) {
+      const companyId = this.getCompanyId(req);
+      if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
+      if (String((existing as any)?.company_id ?? '') !== companyId) {
+        throw new ForbiddenException('Você não tem permissão para excluir este processo.');
+      }
+    }
+
+    return this.service.softDelete(id, tenantId);
   }
 }

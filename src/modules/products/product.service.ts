@@ -21,8 +21,8 @@ export class ProductService {
     });
   }
 
-  async findById(id: string) {
-    const product = await this.repository.findById(id);
+  async findById(id: string, tenantId: string) {
+    const product = await this.repository.findById(id, tenantId);
     if (!product) throw new NotFoundException('Product not found');
     return product;
   }
@@ -55,8 +55,8 @@ export class ProductService {
     return created;
   }
 
-  async update(id: string, data: UpdateProductDTO) {
-    const existing = await this.repository.findById(id);
+  async update(id: string, tenantId: string, data: UpdateProductDTO) {
+    const existing = await this.repository.findById(id, tenantId);
     if (!existing) throw new NotFoundException('Product not found');
 
     if (data.default_tax_rate !== undefined) {
@@ -66,30 +66,36 @@ export class ProductService {
       }
     }
 
-    return this.repository.update(id, {
-      product_code: data.product_code !== undefined ? data.product_code : undefined,
-      name: data.name !== undefined ? data.name : undefined,
-      brand: data.brand !== undefined ? data.brand ?? null : undefined,
-      unit: data.unit !== undefined ? data.unit ?? null : undefined,
-      description: data.description !== undefined ? data.description ?? null : undefined,
+const updated = await this.repository.update(id, tenantId, {
+  product_code: data.product_code !== undefined ? data.product_code : undefined,
+  name: data.name !== undefined ? data.name : undefined,
+  brand: data.brand !== undefined ? data.brand ?? null : undefined,
+  unit: data.unit !== undefined ? data.unit ?? null : undefined,
+  description: data.description !== undefined ? data.description ?? null : undefined,
 
-      currencies: data.currency_id !== undefined ? { connect: { id: data.currency_id } } : undefined,
+  // ✅ FK direto (UncheckedUpdateInput permite)
+  currency_id: data.currency_id !== undefined ? data.currency_id : undefined,
 
-      default_unit_price:
-        data.default_unit_price !== undefined ? new Prisma.Decimal(data.default_unit_price) : undefined,
+  default_unit_price: data.default_unit_price !== undefined ? new Prisma.Decimal(data.default_unit_price) : undefined,
+  default_tax_rate: data.default_tax_rate !== undefined ? new Prisma.Decimal(data.default_tax_rate) : undefined,
 
-      default_tax_rate:
-        data.default_tax_rate !== undefined ? new Prisma.Decimal(data.default_tax_rate) : undefined,
+  is_active: data.is_active !== undefined ? data.is_active : undefined,
+  updated_at: new Date(),
+});
 
-      is_active: data.is_active !== undefined ? data.is_active : undefined,
 
-      updated_at: new Date(),
-    });
+
+    if (!updated) throw new NotFoundException('Product not found');
+    return updated;
   }
 
-  async remove(id: string) {
-    const existing = await this.repository.findById(id);
+  async remove(id: string, tenantId: string) {
+    const existing = await this.repository.findById(id, tenantId);
     if (!existing) throw new NotFoundException('Product not found');
-    return this.repository.remove(id);
+
+    const removed = await this.repository.remove(id, tenantId);
+    if (!removed) throw new NotFoundException('Product not found');
+
+    return removed;
   }
 }

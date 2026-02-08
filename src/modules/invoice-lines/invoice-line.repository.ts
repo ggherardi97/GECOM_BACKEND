@@ -9,9 +9,10 @@ export class InvoiceLineRepository {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(params?: { invoice_id?: string; product_id?: string }) {
+  async findAll(tenantId: string, params?: { invoice_id?: string; product_id?: string }) {
     try {
       const where: Prisma.invoice_linesWhereInput = {
+        tenant_id: tenantId,
         ...(params?.invoice_id ? { invoice_id: params.invoice_id } : {}),
         ...(params?.product_id ? { product_id: params.product_id } : {}),
       };
@@ -29,10 +30,10 @@ export class InvoiceLineRepository {
     }
   }
 
-  async findById(id: string) {
+  async findById(id: string, tenantId: string) {
     try {
-      return await this.prisma.invoice_lines.findUnique({
-        where: { id },
+      return await this.prisma.invoice_lines.findFirst({
+        where: { id, tenant_id: tenantId } as any,
         include: {
           invoices: true,
           products: true,
@@ -43,10 +44,31 @@ export class InvoiceLineRepository {
     }
   }
 
-  async create(data: Prisma.invoice_linesCreateInput) {
+  async invoiceExists(invoiceId: string, tenantId: string): Promise<boolean> {
+    const found = await this.prisma.invoices.findFirst({
+      where: { id: invoiceId, tenant_id: tenantId } as any,
+      select: { id: true },
+    });
+
+    return !!found;
+  }
+
+  async productExists(productId: string, tenantId: string): Promise<boolean> {
+    const found = await this.prisma.products.findFirst({
+      where: { id: productId, tenant_id: tenantId } as any,
+      select: { id: true },
+    });
+
+    return !!found;
+  }
+
+  async create(tenantId: string, data: Prisma.invoice_linesUncheckedCreateInput) {
     try {
       return await this.prisma.invoice_lines.create({
-        data,
+        data: {
+          ...data,
+          tenant_id: tenantId, // ✅ explicit, don't rely on middleware
+        },
         include: {
           invoices: true,
           products: true,
@@ -58,24 +80,33 @@ export class InvoiceLineRepository {
     }
   }
 
-  async update(id: string, data: Prisma.invoice_linesUpdateInput) {
+  async update(id: string, tenantId: string, data: Prisma.invoice_linesUncheckedUpdateInput) {
     try {
-      return await this.prisma.invoice_lines.update({
-        where: { id },
-        data,
-        include: {
-          invoices: true,
-          products: true,
+      // IMPORTANT: updateMany allows filtering by tenant_id
+      const result = await this.prisma.invoice_lines.updateMany({
+        where: { id, tenant_id: tenantId } as any,
+        data: {
+          ...(data as any),
+          id: undefined,        // never allow id change
+          tenant_id: undefined, // never allow tenant change
         },
       });
+
+      if (!result || result.count === 0) return null;
+
+      return await this.findById(id, tenantId);
     } catch (error) {
       handlePrismaError(error, 'updating invoice line');
     }
   }
 
-  async remove(id: string) {
+  async remove(id: string, tenantId: string) {
     try {
-      return await this.prisma.invoice_lines.delete({ where: { id } });
+      const result = await this.prisma.invoice_lines.deleteMany({
+        where: { id, tenant_id: tenantId } as any,
+      });
+
+      return !!result && result.count > 0;
     } catch (error) {
       handlePrismaError(error, 'deleting invoice line');
     }

@@ -9,7 +9,10 @@ import {
   UseGuards,
   Query,
   UseInterceptors,
+  Req,
+  BadRequestException,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiTags,
   ApiBody,
@@ -33,6 +36,12 @@ import { InvoiceJsonInterceptor } from './interceptors/invoice-json.interceptor'
 export class InvoiceController {
   constructor(private readonly service: InvoiceService) {}
 
+  private getTenantId(req: Request): string {
+    const tenantId = String((req as any)?.user?.tenant_id ?? (req as any)?.user?.tenantId ?? '').trim();
+    if (!tenantId) throw new BadRequestException('tenant_id is missing from authenticated user.');
+    return tenantId;
+  }
+
   @Get()
   @ApiOkResponse({ description: 'List of invoices' })
   @ApiOperation({
@@ -40,35 +49,41 @@ export class InvoiceController {
     description: 'Optional filters: company_id, status',
   })
   async findAll(
+    @Req() req: Request,
     @Query('company_id') company_id?: string,
     @Query('status') status?: string
   ) {
-    return this.service.findAll({ company_id, status });
+    const tenantId = this.getTenantId(req);
+    return this.service.findAll({ company_id, status }, tenantId);
   }
 
   @Get(':id')
   @ApiOkResponse({ description: 'Invoice found' })
-  async findById(@Param('id') id: string) {
-    return this.service.findById(id);
+  async findById(@Req() req: Request, @Param('id') id: string) {
+    const tenantId = this.getTenantId(req);
+    return this.service.findById(id, tenantId);
   }
 
   @Post()
   @ApiBody({ type: CreateInvoiceDTO })
   @ApiCreatedResponse({ description: 'Invoice successfully created' })
-  async create(@Body() data: CreateInvoiceDTO) {
-    return this.service.create(data);
+  async create(@Req() req: Request, @Body() data: CreateInvoiceDTO) {
+    const tenantId = this.getTenantId(req);
+    return this.service.create(data, tenantId);
   }
 
   @Patch(':id')
   @ApiBody({ type: UpdateInvoiceDTO })
   @ApiOkResponse({ description: 'Invoice updated' })
-  async update(@Param('id') id: string, @Body() data: UpdateInvoiceDTO) {
-    return this.service.update(id, data);
+  async update(@Req() req: Request, @Param('id') id: string, @Body() data: UpdateInvoiceDTO) {
+    const tenantId = this.getTenantId(req);
+    return this.service.update(id, tenantId, data);
   }
 
   @Delete(':id')
   @ApiOkResponse({ description: 'Invoice removed' })
-  async remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  async remove(@Req() req: Request, @Param('id') id: string) {
+    const tenantId = this.getTenantId(req);
+    return this.service.remove(id, tenantId);
   }
 }

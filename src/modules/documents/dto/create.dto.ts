@@ -1,21 +1,70 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  IsInt,
+  IsNumber,
+  Min,
+} from 'class-validator';
 
 export class CreateDocumentDTO {
-  @ApiProperty({ description: 'Company id (tenant)', example: 'c0a8012e-7e6f-4e50-ae46-44f9a5d8db88' })
+  // Tenant / ownership
+  @ApiProperty({ description: 'Account/Company id (tenant)', example: 'c0a8012e-7e6f-4e50-ae46-44f9a5d8db88' })
   @IsUUID()
-  company_id: string;
+  account_id: string;
 
-  @ApiPropertyOptional({ description: 'Parent folder document id (null for root)', example: 'b8f9b6a4-3e5d-4c9e-9b6a-1d9e7a3f2c11' })
+  @ApiPropertyOptional({ description: 'Created by user id', example: 'f41de48b-f66c-4dfa-a295-7cf4996b802d' })
   @IsOptional()
   @IsUUID()
-  path?: string;
+  created_by_user_id?: string;
 
-  @ApiProperty({ description: 'Display name (and also filename for files)', example: 'Contrato.pdf' })
+  // Hierarchy
+  @ApiPropertyOptional({ description: 'Parent folder document id (null for root)', example: null })
+  @IsOptional()
+  @IsUUID()
+  parent_id?: string | null;
+
+  // Metadata
+  @ApiProperty({ description: 'Drive item type', example: 'FILE' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(30)
+  item_type: 'FILE' | 'FOLDER' | 'LINK';
+
+  @ApiProperty({ description: 'Display name', example: 'Contrato.pdf' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
-  file_name: string;
+  name: string;
+
+  // Optional file metadata (filled by presign endpoint or during create)
+  @ApiPropertyOptional({ description: 'Original file name (for files)', example: 'Contrato.pdf' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  filename?: string;
+
+  @ApiPropertyOptional({ description: 'File extension', example: 'pdf' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  ext?: string;
+
+  @ApiPropertyOptional({ description: 'Mime type', example: 'application/pdf' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  mime_type?: string;
+
+  @ApiPropertyOptional({ description: 'File size in bytes', example: 12345 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  size_bytes?: number;
 
   @ApiPropertyOptional({ description: 'Description', example: 'Documento do processo' })
   @IsOptional()
@@ -23,39 +72,63 @@ export class CreateDocumentDTO {
   @MaxLength(500)
   description?: string;
 
-  @ApiPropertyOptional({ description: 'Object type (legacy int)', example: 0 })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  object_type?: number;
-
-  @ApiPropertyOptional({ description: 'Related process id', example: '3d0c2b8f-2b3b-49ee-8f75-5f8df8dfe111' })
-  @IsOptional()
-  @IsUUID()
-  process_id?: string;
-
-  @ApiPropertyOptional({ description: 'File bytes (optional - not recommended for big files)', example: null })
-  @IsOptional()
-  object_file?: any;
-
-  @ApiPropertyOptional({ description: 'External link (R2 key, URL etc.)', example: 'r2://bucket/key' })
+  @ApiPropertyOptional({ description: 'External key (link / r2 key / etc)', example: 'accounts/<id>/documents/<docId>/Contrato.pdf' })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
-  object_link?: string;
+  @MaxLength(1000)
+  external_key?: string;
 
-  @ApiPropertyOptional({ description: 'True if this record represents a link', example: false })
+  @ApiPropertyOptional({ description: 'Read only flag', example: false })
   @IsOptional()
   @IsBoolean()
-  is_link?: boolean;
+  readonly?: boolean;
 
-  @ApiPropertyOptional({ description: 'True if this record is a folder', example: true })
+  // Optional polymorphic relation
+  @ApiPropertyOptional({ description: 'Related table name', example: 'processes' })
   @IsOptional()
-  @IsBoolean()
-  is_folder?: boolean;
+  @IsString()
+  @MaxLength(50)
+  related_table?: string;
 
-  @ApiPropertyOptional({ description: 'Created by user id', example: 'f41de48b-f66c-4dfa-a295-7cf4996b802d' })
+  @ApiPropertyOptional({ description: 'Related entity id', example: '3d0c2b8f-2b3b-49ee-8f75-5f8df8dfe111' })
   @IsOptional()
   @IsUUID()
-  created_by?: string;
+  related_id?: string;
+
+  // Optional storage fields (can be set by presign endpoint)
+  @ApiPropertyOptional({ description: 'Storage provider', example: 'CLOUDFLARE_R2' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  storage_provider?: string;
+
+  @ApiPropertyOptional({ description: 'Bucket', example: 'gecom-documents' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  bucket?: string;
+
+  @ApiPropertyOptional({ description: 'Object key in bucket', example: 'accounts/<id>/documents/<docId>/Contrato.pdf' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  object_key?: string;
+
+  @ApiPropertyOptional({ description: 'ETag', example: '"8f5a..."' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  etag?: string;
+
+  @ApiPropertyOptional({ description: 'Upload status', example: 'PENDING' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  upload_status?: string;
+
+  @ApiPropertyOptional({ description: 'Version', example: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  version?: number;
 }

@@ -8,24 +8,25 @@ import { UpdateInvoiceDTO } from './dto/update.dto';
 export class InvoiceService {
   constructor(private readonly repository: InvoiceRepository) {}
 
-  async findAll(query?: { company_id?: string; status?: string }) {
-    const status = query?.status != null && String(query.status).trim().length > 0 ? Number(query.status) : undefined;
+  async findAll(query: { company_id?: string; status?: string } | undefined, tenantId: string) {
+    const statusRaw = query?.status != null && String(query.status).trim().length > 0 ? Number(query.status) : undefined;
+    const status = Number.isNaN(statusRaw as any) ? undefined : statusRaw;
+
     return this.repository.findAll({
+      tenantId,
       company_id: query?.company_id,
-      status: Number.isNaN(status as any) ? undefined : status,
+      status,
     });
   }
 
-  async findById(id: string) {
-    const invoice = await this.repository.findById(id);
+  async findById(id: string, tenantId: string) {
+    const invoice = await this.repository.findById(id, tenantId);
     if (!invoice) throw new NotFoundException('Invoice not found');
     return invoice;
   }
 
-  async create(data: CreateInvoiceDTO) {
-    // ✅ Wizard-friendly: allow creating invoice without lines
-    const headerDiscountPercent = data.discount_percent ?? 0;
-
+  async create(data: CreateInvoiceDTO, tenantId: string) {
+    const headerDiscountPercent = this.normalizePercent(data.discount_percent ?? 0);
     const hasLines = Array.isArray(data.lines) && data.lines.length > 0;
 
     const computed = hasLines
@@ -33,7 +34,8 @@ export class InvoiceService {
       : {
           subtotal: new Prisma.Decimal(0),
           taxTotal: new Prisma.Decimal(0),
-          discountAmount: new Prisma.Decimal(0),
+          headerDiscountAmount: new Prisma.Decimal(0),
+          lineDiscountTotal: new Prisma.Decimal(0),
           total: new Prisma.Decimal(0),
           linesToCreate: [],
         };
@@ -46,27 +48,29 @@ export class InvoiceService {
       currencies: { connect: { id: data.currency_id } },
 
       quote_at: data.quote_at ? new Date(data.quote_at) : undefined,
-      exchange_rate: data.exchange_rate ?? new Prisma.Decimal(1),
+      due_at: data.due_at ? new Date(data.due_at) : undefined,
+
+      exchange_rate: data.exchange_rate != null ? new Prisma.Decimal(data.exchange_rate) : new Prisma.Decimal(1),
       version: data.version ?? 1,
 
-      billing_address_line1: data.billing_address_line1,
-      billing_address_line2: data.billing_address_line2,
-      billing_address_city: data.billing_address_city,
-      billing_address_state: data.billing_address_state,
-      billing_address_postal_code: data.billing_address_postal_code,
-      billing_address_country: data.billing_address_country,
+      billing_address_line1: data.billing_address_line1 ?? null,
+      billing_address_line2: data.billing_address_line2 ?? null,
+      billing_address_city: data.billing_address_city ?? null,
+      billing_address_state: data.billing_address_state ?? null,
+      billing_address_postal_code: data.billing_address_postal_code ?? null,
+      billing_address_country: data.billing_address_country ?? null,
 
-      status: data.status ?? 0,
+      status: (data.status as any) ?? 0,
 
       subtotal: computed.subtotal,
       discount_percent: headerDiscountPercent,
-      discount_amount: computed.discountAmount,
+      discount_amount: computed.headerDiscountAmount,
       tax_total: computed.taxTotal,
       fee_total: new Prisma.Decimal(0),
       total: computed.total,
 
-      notes: data.notes,
-      terms: data.terms,
+      notes: data.notes ?? null,
+      terms: data.terms ?? null,
 
       ...(hasLines
         ? {
@@ -94,21 +98,30 @@ export class InvoiceService {
     return created;
   }
 
-  async update(id: string, data: UpdateInvoiceDTO) {
-    const existing = await this.repository.findById(id);
+  async update(id: string, tenantId: string, data: UpdateInvoiceDTO) {
+    const existing = await this.repository.findById(id, tenantId);
     if (!existing) throw new NotFoundException('Invoice not found');
 
-    const patch: Prisma.invoicesUpdateInput = {
+    const patch: Prisma.invoicesUpdateManyMutationInput = {
       updated_at: new Date(),
     };
 
+    // Basic fields
     if (data.invoice_number !== undefined) patch.invoice_number = data.invoice_number ?? '';
-    if (data.status !== undefined) patch.status = data.status;
+    if (data.status !== undefined) patch.status = data.status as any;
     if (data.version !== undefined) patch.version = data.version;
 
+    // Dates
     if (data.quote_at !== undefined) patch.quote_at = data.quote_at ? new Date(data.quote_at) : null;
-    if (data.exchange_rate !== undefined) patch.exchange_rate = new Prisma.Decimal(data.exchange_rate);
+    if (data.due_at !== undefined) patch.due_at = data.due_at ? new Date(data.due_at) : null;
 
+    // Exchange rate (non-null column in schema)
+    if (data.exchange_rate !== undefined) {
+      const raw = String(data.exchange_rate ?? '').trim();
+      patch.exchange_rate = raw ? new Prisma.Decimal(raw) : new Prisma.Decimal(1);
+    }
+
+    // Billing
     if (data.billing_address_line1 !== undefined) patch.billing_address_line1 = data.billing_address_line1 ?? null;
     if (data.billing_address_line2 !== undefined) patch.billing_address_line2 = data.billing_address_line2 ?? null;
     if (data.billing_address_city !== undefined) patch.billing_address_city = data.billing_address_city ?? null;
@@ -116,38 +129,44 @@ export class InvoiceService {
     if (data.billing_address_postal_code !== undefined) patch.billing_address_postal_code = data.billing_address_postal_code ?? null;
     if (data.billing_address_country !== undefined) patch.billing_address_country = data.billing_address_country ?? null;
 
+    // Notes/terms
     if (data.notes !== undefined) patch.notes = data.notes ?? null;
     if (data.terms !== undefined) patch.terms = data.terms ?? null;
 
     // ✅ If lines were provided -> recompute totals and replace lines
     if (Array.isArray(data.lines)) {
+      const headerDiscountPercent = this.normalizePercent(
+        data.discount_percent ?? (existing.discount_percent as any) ?? 0
+      );
+
       if (data.lines.length === 0) {
-        // If caller explicitly sends empty lines, we allow it (wizard/partial use-cases).
-        // Totals will be set to 0 and lines cleared.
         patch.subtotal = new Prisma.Decimal(0);
-        patch.discount_percent = data.discount_percent ?? existing.discount_percent ?? 0;
+        patch.discount_percent = headerDiscountPercent;
         patch.discount_amount = new Prisma.Decimal(0);
         patch.tax_total = new Prisma.Decimal(0);
         patch.total = new Prisma.Decimal(0);
 
-        await this.repository.update(id, patch);
-        await this.repository.replaceLines(id, []); // clears all lines
-        return this.findById(id);
+        const updatedHeader = await this.repository.update(id, tenantId, patch);
+        if (!updatedHeader) throw new NotFoundException('Invoice not found');
+
+        await this.repository.replaceLines(id, tenantId, []);
+        return this.findById(id, tenantId);
       }
 
-      const headerDiscountPercent = data.discount_percent ?? existing.discount_percent ?? 0;
       const computed = this.computeTotals(data.lines, headerDiscountPercent);
 
       patch.subtotal = computed.subtotal;
       patch.discount_percent = headerDiscountPercent;
-      patch.discount_amount = computed.discountAmount;
+      patch.discount_amount = computed.headerDiscountAmount;
       patch.tax_total = computed.taxTotal;
       patch.total = computed.total;
 
-      await this.repository.update(id, patch);
+      const updatedHeader = await this.repository.update(id, tenantId, patch);
+      if (!updatedHeader) throw new NotFoundException('Invoice not found');
 
       await this.repository.replaceLines(
         id,
+        tenantId,
         computed.linesToCreate.map((l) => ({
           invoice_id: id,
           line_number: l.line_number,
@@ -162,31 +181,59 @@ export class InvoiceService {
           discount_amount: l.discount_amount,
           line_subtotal: l.line_subtotal,
           line_total: l.line_total,
-          created_at: new Date(),
-          updated_at: new Date(),
         }))
       );
 
-      return this.findById(id);
+      return this.findById(id, tenantId);
     }
 
-    // If header discount changed but no lines passed, we do NOT auto-recalc totals (avoids hidden changes).
-    if (data.discount_percent !== undefined) patch.discount_percent = data.discount_percent;
+    // If header discount changed but no lines passed, do not auto-recalc totals
+    if (data.discount_percent !== undefined) patch.discount_percent = this.normalizePercent(data.discount_percent);
 
-    return this.repository.update(id, patch);
+    const updated = await this.repository.update(id, tenantId, patch);
+    if (!updated) throw new NotFoundException('Invoice not found');
+    return updated;
   }
 
-  async remove(id: string) {
-    const existing = await this.repository.findById(id);
+  async remove(id: string, tenantId: string) {
+    const existing = await this.repository.findById(id, tenantId);
     if (!existing) throw new NotFoundException('Invoice not found');
-    return this.repository.remove(id);
+
+    const removed = await this.repository.remove(id, tenantId);
+    if (!removed) throw new NotFoundException('Invoice not found');
+
+    return removed;
   }
 
+  // -------------------------
+  // Helpers
+  // -------------------------
+  private normalizePercent(value: any): number {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.trunc(n)));
+  }
+
+  private assertIntegerDecimal(qty: Prisma.Decimal, message: string) {
+    const mod = qty.mod(new Prisma.Decimal(1));
+    if (!mod.equals(new Prisma.Decimal(0))) {
+      throw new BadRequestException(message);
+    }
+  }
+
+  /**
+   * Totals logic aligned with the FRONT:
+   * - subtotal = sum(line_subtotal) [gross]
+   * - lineDiscountTotal = sum(discount_amount)
+   * - headerDiscountAmount = subtotal * headerDiscountPercent / 100
+   * - total = (subtotal - lineDiscountTotal - headerDiscountAmount) + taxTotal
+   */
   private computeTotals(lines: CreateInvoiceDTO['lines'] | undefined, headerDiscountPercent: number) {
-  const safeLines = lines ?? [];
+    const safeLines = lines ?? [];
 
     let subtotal = new Prisma.Decimal(0);
     let taxTotal = new Prisma.Decimal(0);
+    let lineDiscountTotal = new Prisma.Decimal(0);
 
     const linesToCreate: Array<{
       line_number: number;
@@ -206,56 +253,57 @@ export class InvoiceService {
     safeLines.forEach((l, index) => {
       const lineNumber = index + 1;
 
-      const unitPrice = new Prisma.Decimal(l.unit_price);
-      const quantity = new Prisma.Decimal(l.quantity);
+      const unitPrice = new Prisma.Decimal(String(l.unit_price ?? '0'));
+      const quantity = new Prisma.Decimal(String(l.quantity ?? '0'));
 
       if (unitPrice.isNegative() || quantity.isNegative()) {
         throw new BadRequestException('unit_price and quantity must be >= 0');
       }
 
-      const taxRate = l.tax_rate != null ? new Prisma.Decimal(l.tax_rate) : new Prisma.Decimal(0);
+      // ✅ quantity must be integer
+      this.assertIntegerDecimal(quantity, 'quantity must be an integer');
+
+      const taxRate = l.tax_rate != null ? new Prisma.Decimal(String(l.tax_rate)) : new Prisma.Decimal(0);
       if (taxRate.isNegative() || taxRate.greaterThan(1)) {
         throw new BadRequestException('tax_rate must be between 0 and 1');
       }
 
-      const lineDiscountPercent = l.discount_percent ?? 0;
-      if (lineDiscountPercent < 0 || lineDiscountPercent > 100) {
-        throw new BadRequestException('discount_percent must be between 0 and 100');
-      }
+      const discountPercent = this.normalizePercent(l.discount_percent ?? 0);
 
-      const lineSubtotal = unitPrice.mul(quantity);
-      const lineDiscountAmount = lineSubtotal.mul(new Prisma.Decimal(lineDiscountPercent)).div(100);
-      const taxableBase = Prisma.Decimal.max(new Prisma.Decimal(0), lineSubtotal.sub(lineDiscountAmount));
+      const gross = unitPrice.mul(quantity);
+      const discountAmount = gross.mul(new Prisma.Decimal(discountPercent)).div(new Prisma.Decimal(100));
+      const taxableBase = Prisma.Decimal.max(new Prisma.Decimal(0), gross.sub(discountAmount));
+      const taxAmount = taxableBase.mul(taxRate);
+      const lineTotal = taxableBase.add(taxAmount);
 
-      const lineTaxAmount = taxableBase.mul(taxRate);
-      const lineTotal = taxableBase.add(lineTaxAmount);
-
-      subtotal = subtotal.add(lineSubtotal);
-      taxTotal = taxTotal.add(lineTaxAmount);
+      subtotal = subtotal.add(gross);
+      taxTotal = taxTotal.add(taxAmount);
+      lineDiscountTotal = lineDiscountTotal.add(discountAmount);
 
       linesToCreate.push({
         line_number: lineNumber,
-        product_id: l.product_id,
-        description: l.description,
-        unit: l.unit,
+        product_id: l.product_id ?? undefined,
+        description: l.description ?? undefined,
+        unit: l.unit ?? undefined,
         unit_price: unitPrice,
-        quantity: quantity,
+        quantity,
         tax_rate: taxRate,
-        tax_amount: lineTaxAmount,
-        discount_percent: lineDiscountPercent,
-        discount_amount: lineDiscountAmount,
-        line_subtotal: lineSubtotal,
+        tax_amount: taxAmount,
+        discount_percent: discountPercent,
+        discount_amount: discountAmount,
+        line_subtotal: gross,
         line_total: lineTotal,
       });
     });
 
-    const headerDiscountAmount = subtotal.mul(new Prisma.Decimal(headerDiscountPercent)).div(100);
-    const total = Prisma.Decimal.max(new Prisma.Decimal(0), subtotal.sub(headerDiscountAmount)).add(taxTotal);
+    const headerDiscountAmount = subtotal.mul(new Prisma.Decimal(headerDiscountPercent)).div(new Prisma.Decimal(100));
+    const total = Prisma.Decimal.max(new Prisma.Decimal(0), subtotal.sub(lineDiscountTotal).sub(headerDiscountAmount).add(taxTotal));
 
     return {
       subtotal,
       taxTotal,
-      discountAmount: headerDiscountAmount,
+      headerDiscountAmount,
+      lineDiscountTotal,
       total,
       linesToCreate,
     };

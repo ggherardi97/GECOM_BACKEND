@@ -8,8 +8,8 @@ import { companies } from '@prisma/client';
 export class CompanyService {
   constructor(private readonly repository: CompanyRepository) {}
 
-  async create(data: CreateCompanyDTO): Promise<companies> {
-    const company = await this.repository.create(data);
+  async create(data: CreateCompanyDTO, tenantId: string): Promise<companies> {
+    const company = await this.repository.create(data as any, tenantId);
 
     if (!company) {
       throw new BadRequestException('Failed to create company');
@@ -18,31 +18,33 @@ export class CompanyService {
     return company;
   }
 
-  async findAll(): Promise<companies[]> {
-    return this.repository.findAll();
+  async findAll(tenantId: string): Promise<companies[]> {
+    return this.repository.findAll(tenantId);
   }
 
-  async findById(id: string): Promise<companies> {
-    const company = await this.repository.findById(id);
+  async findById(id: string, tenantId: string): Promise<companies> {
+    const company = await this.repository.findById(id, tenantId);
     if (!company) throw new NotFoundException('Company not found');
     return company;
   }
 
-  async findByUserId(userId: string): Promise<companies[]> {
-    return this.repository.findByUserId(userId);
+  async findByUserId(userId: string, tenantId: string): Promise<companies[]> {
+    return this.repository.findByUserId(userId, tenantId);
   }
 
-  async update(id: string, data: UpdateCompanyDTO): Promise<companies> {
-    const company = await this.repository.findById(id);
-    if (!company) throw new NotFoundException('Company not found');
-
-    return this.repository.update(id, data);
+  async update(id: string, data: UpdateCompanyDTO, tenantId: string) {
+    const updated = await this.repository.update(id, tenantId, data as any);
+    if (!updated) throw new NotFoundException('Empresa não encontrada.');
+    return updated;
   }
 
-  async remove(id: string): Promise<companies> {
-    const company = await this.repository.findById(id);
+  async remove(id: string, tenantId: string) {
+    const company = await this.repository.findById(id, tenantId);
     if (!company) throw new NotFoundException('Company not found');
 
-    return this.repository.remove(id);
+    const ok = await this.repository.remove(id, tenantId);
+    if (!ok) throw new NotFoundException('Company not found');
+
+    return { ok: true };
   }
 }

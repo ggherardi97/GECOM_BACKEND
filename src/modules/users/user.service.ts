@@ -28,41 +28,48 @@ export class UserService {
   }
 
   async create(data: CreateUserDTO): Promise<any> {
-    const emailExists = await this.repository.findByEmail(data.email);
+    const normalizedEmail = (data.email ?? '').trim().toLowerCase();
+    if (!normalizedEmail) throw new BadRequestException('Email is required');
 
-    if (emailExists) {
-      throw new BadRequestException('Email already exists');
-    }
+    const emailExists = await this.repository.findByEmail(normalizedEmail);
+    if (emailExists) throw new BadRequestException('Email already exists');
 
     const rawPassword = (data.password ?? '').trim();
     const passwordToUse = rawPassword.length > 0 ? rawPassword : this.generateTempPassword();
-
     const hash_password = await this.cryptoService.hash(passwordToUse);
 
     const user = await this.repository.create({
       ...data,
+      email: normalizedEmail,
       password: hash_password,
       first_access: data.first_access ?? true,
     });
 
-    if (!user) {
-      throw new BadRequestException('Failed to create user');
+    if (!user) throw new BadRequestException('Failed to create user');
+
+    // If tenant_id is mandatory in your DB, we must ensure it exists.
+    // With approach (2), middleware should inject it.
+    // But your endpoint is @Public, so you might be passing it in the payload.
+    const tenantId = (user as any).tenant_id as string | undefined;
+    if (!tenantId) {
+      throw new BadRequestException('User was created without tenant_id (tenant context missing).');
     }
 
     const token_generated: string = generateToken();
     const token_encrypted = await this.cryptoService.hash(token_generated);
 
     await this.passwordResetService.generateResetToken({
+      tenant_id: tenantId,
       token: token_encrypted,
       user_id: user.id,
-    });
+    } as any);
 
     const template = readFileSync(
       join(__dirname, '..', 'mailer', 'templates', 'reset-password.html'),
       'utf8'
     );
 
-    const url = `${process.env.FRONTEND_URL}/${user.id}/reset-password?token=${token_generated}`;
+    const url = `${process.env.FRONTEND_URL}?userId=${user.id}&token=${token_generated}`;
     const html = template.replace('{{name}}', user.full_name).replace('{{resetLink}}', url);
 
     await this.mailerService.sendWelcomeEmail(user.email, 'Welcome a Gecom!', html);
@@ -88,7 +95,8 @@ export class UserService {
   }
 
   async findByEmail(email: string): Promise<users> {
-    const user = await this.repository.findByEmail(email);
+    const normalizedEmail = (email ?? '').trim().toLowerCase();
+    const user = await this.repository.findByEmail(normalizedEmail);
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
@@ -97,9 +105,10 @@ export class UserService {
    * Safe version for frontend usage (no password).
    */
   async findPublicByEmail(email: string): Promise<Omit<users, 'password'>> {
-    const user = await this.repository.findPublicByEmail(email);
+    const normalizedEmail = (email ?? '').trim().toLowerCase();
+    const user = await this.repository.findPublicByEmail(normalizedEmail);
     if (!user) throw new NotFoundException('User not found');
-    return user;
+    return user as any;
   }
 
   async validateUser(email: string, password: string): Promise<users> {
@@ -126,6 +135,7 @@ export class UserService {
       user_id: string;
       token: string;
       expires_at: Date;
+      tenant_id?: string;
     };
 
     if (!record) throw new BadRequestException('Invalid or expired reset token');
@@ -147,14 +157,14 @@ export class UserService {
     const user = await this.repository.findById(id);
     if (!user) throw new NotFoundException('User not found');
 
-    return this.repository.updateStatus(id, status);
+    return this.repository.updateStatus(id, status as any);
   }
 
   async remove(id: string): Promise<users> {
     const user = await this.repository.findById(id);
     if (!user) throw new NotFoundException('User not found');
 
-    return this.repository.updateStatus(id, UserStatusEnum.DELETED);
+    return this.repository.updateStatus(id, UserStatusEnum.DELETED as any);
   }
 
   async createOrUpdateSession(session: SessionType) {

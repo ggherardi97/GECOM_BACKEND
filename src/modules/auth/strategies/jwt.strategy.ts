@@ -3,7 +3,13 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Request } from 'express';
 
-@Injectable()
+type JwtPayload = {
+  sub: string;
+  email: string;
+  role: string;
+  tenant_id: string;
+};
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor() {
@@ -33,12 +39,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  validate(payload: { sub: string; email: string; role: string }) {
+  validate(payload: JwtPayload) {
     if (!payload) throw new UnauthorizedException('Invalid token payload');
-    return { 
-      user_id: payload.sub, 
+
+    return {
+      user_id: payload.sub,
       email: payload.email,
-      role: payload.role 
+      role: payload.role,
+      tenant_id: payload.tenant_id,
     };
   }
 }

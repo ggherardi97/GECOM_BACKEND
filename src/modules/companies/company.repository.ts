@@ -1,88 +1,35 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { Prisma, companies } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateCompanyDTO } from './dto/create.dto';
-import { UpdateCompanyDTO } from './dto/update.dto';
-import { companies } from '@prisma/client';
 
 @Injectable()
 export class CompanyRepository {
-  private logger = new Logger(CompanyRepository.name);
+  private readonly logger = new Logger(CompanyRepository.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(data: CreateCompanyDTO): Promise<companies | null> {
+  async create(data: Prisma.companiesCreateInput, tenantId: string): Promise<companies | null> {
     try {
+      // IMPORTANT: ensure tenant_id is set explicitly
       return await this.prisma.companies.create({
         data: {
-          company_name: data.company_name,
-          // ✅ agora pode ser null
-          primaryUser: {
-            connect: {
-              id: data.user_id,
-            },
-          },
-
-          phone: data.phone ?? null,
-          company_number: data.company_number ?? null,
-          sector: data.sector ?? null,
-          category: data.category ?? null,
-
-          address_line: data.address_line ?? null,
-          address_street: data.address_street ?? null,
-          address_number: data.address_number ?? null,
-          address_city: data.address_city ?? null,
-          address_country: data.address_country ?? null,
-
-          address_postalcode: data.address_postalcode ?? null,
-          address_state: data.address_state ?? null,
-          number_of_invoices: data.number_of_invoices ?? 0,
-          language: data.language ?? null,
+          ...(data as any),
+          tenant_id: tenantId,
         },
       });
-    } catch (e) {
-      this.logger.error('Error creating company:', e);
+    } catch (error) {
+      this.logger.error('Error creating company:', error as any);
       return null;
     }
   }
 
-  async findAll(): Promise<companies[]> {
-    return await this.prisma.companies.findMany({
+  async findAll(tenantId: string): Promise<companies[]> {
+    return this.prisma.companies.findMany({
       where: {
+        tenant_id: tenantId,
         deleted_at: null,
-      },
-      include: {
-        // Primary contact (companies.user_id -> users.id)
-        primaryUser: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            status: true,
-            phonenumber: true,
-            role: true,
-          },
-        },
-        // Users that belong to the company (users.company_id -> companies.id)
-        users: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            status: true,
-            phonenumber: true,
-            role: true,
-          },
-        },
-      },
-      orderBy: {
-        created_at: 'desc',
-      },
-    });
-  }
-
-  async findById(id: string): Promise<companies | null> {
-    return await this.prisma.companies.findFirst({
-      where: { id, deleted_at: null },
+      } as any,
+      orderBy: { company_name: 'asc' },
       include: {
         primaryUser: {
           select: {
@@ -102,65 +49,165 @@ export class CompanyRepository {
             status: true,
             phonenumber: true,
             role: true,
+            company_id: true,
           },
         },
       },
     });
   }
 
-  async findByUserId(userId: string): Promise<companies[]> {
-    return await this.prisma.companies.findMany({
+  async findById(id: string, tenantId: string): Promise<companies | null> {
+    return this.prisma.companies.findFirst({
       where: {
+        id,
+        tenant_id: tenantId,
+        deleted_at: null,
+      } as any,
+      include: {
+        primaryUser: {
+          select: {
+            id: true,
+            full_name: true,
+            email: true,
+            status: true,
+            phonenumber: true,
+            role: true,
+          },
+        },
+        users: {
+          select: {
+            id: true,
+            full_name: true,
+            email: true,
+            status: true,
+            phonenumber: true,
+            role: true,
+            company_id: true,
+          },
+        },
+      },
+    });
+  }
+
+  async findByUserId(userId: string, tenantId: string): Promise<companies[]> {
+    return this.prisma.companies.findMany({
+      where: {
+        tenant_id: tenantId,
+        deleted_at: null,
         user_id: userId,
-        deleted_at: null,
-      },
-      orderBy: {
-        created_at: 'desc',
+      } as any,
+      orderBy: { company_name: 'asc' },
+      include: {
+        primaryUser: {
+          select: {
+            id: true,
+            full_name: true,
+            email: true,
+            status: true,
+            phonenumber: true,
+            role: true,
+          },
+        },
+        users: {
+          select: {
+            id: true,
+            full_name: true,
+            email: true,
+            status: true,
+            phonenumber: true,
+            role: true,
+            company_id: true,
+          },
+        },
       },
     });
   }
 
-  async update(id: string, data: UpdateCompanyDTO): Promise<companies> {
+  async update(id: string, tenantId: string, data: Prisma.companiesUpdateInput): Promise<companies | null> {
     try {
-      // Avoid forcing user_id if it was not provided
-      const { user_id, ...rest } = data as any;
+      // 1) Ensure the company belongs to the tenant (and is not soft-deleted)
+      const existing = await this.prisma.companies.findFirst({
+        where: {
+          id,
+          tenant_id: tenantId,
+          deleted_at: null,
+        } as any,
+        select: { id: true },
+      });
 
+      if (!existing) return null;
+
+      // 2) Avoid forcing/allowing unsafe fields
+      const {
+        id: _ignoreId,
+        tenant_id: _ignoreTenantId,
+        created_at: _ignoreCreatedAt,
+        deleted_at: _ignoreDeletedAt,
+        user_id,
+        ...rest
+      } = data as any;
+
+      // 3) Build update payload
+      const updateData: Prisma.companiesUpdateInput = {
+        ...rest,
+        updated_at: new Date(),
+        ...(user_id
+          ? {
+              primaryUser: {
+                connect: { id: String(user_id) },
+              },
+            }
+          : {}),
+      };
+
+      // 4) Update by unique id
       return await this.prisma.companies.update({
         where: { id },
-        data: {
-          ...rest,
-          ...(user_id ? { user_id } : {}),
-          updated_at: new Date(),
+        data: updateData,
+        include: {
+          primaryUser: {
+            select: {
+              id: true,
+              full_name: true,
+              email: true,
+              status: true,
+              phonenumber: true,
+              role: true,
+            },
+          },
+          users: {
+            select: {
+              id: true,
+              full_name: true,
+              email: true,
+              status: true,
+              phonenumber: true,
+              role: true,
+              company_id: true,
+            },
+          },
         },
       });
     } catch (error) {
-      this.logger.error('Error updating company:', error);
-      throw new BadRequestException('Error updating company');
+      this.logger.error('Error updating company:', error as any);
+      throw error;
     }
   }
 
-  async remove(id: string): Promise<companies> {
-    try {
-      return await this.prisma.companies.update({
-        where: { id },
-        data: {
-          deleted_at: new Date(),
-        },
-      });
-    } catch (error) {
-      this.logger.error('Error removing company:', error);
-      throw new BadRequestException('Error removing company');
-    }
-  }
+  async remove(id: string, tenantId: string): Promise<boolean> {
+    // Soft delete (mark deleted_at) and tenant-safe
+    const result = await this.prisma.companies.updateMany({
+      where: {
+        id,
+        tenant_id: tenantId,
+        deleted_at: null,
+      } as any,
+      data: {
+        deleted_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
 
-  async hardDelete(id: string): Promise<companies> {
-    try {
-      return await this.prisma.companies.delete({
-        where: { id },
-      });
-    } catch (error) {
-      this.logger.error('Error hard deleting company:', error);
-      throw new BadRequestException('Error hard deleting company');
-    }
+    return !!result && result.count > 0;
   }
 }

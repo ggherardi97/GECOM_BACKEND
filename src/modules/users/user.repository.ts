@@ -20,6 +20,11 @@ export class UserRepository {
     try {
       return await this.prisma.users.create({
         data: {
+          // IMPORTANT:
+          // In the (2) approach, tenant_id should come from Prisma middleware.
+          // However, your endpoint is @Public, so you might still be passing tenant_id in the payload.
+          // Keep this to avoid NOT NULL errors if middleware context is missing here.
+          tenant_id: (data as any).tenant_id,
           full_name: data.full_name,
           email: data.email,
           password: data.password ?? '',
@@ -28,7 +33,7 @@ export class UserRepository {
           phonenumber: data.phonenumber ?? null,
           first_access: data.first_access ?? true,
           company_id: data.company_id ?? null,
-        },
+        } as any,
       });
     } catch (e) {
       this.logger.error(e);
@@ -54,7 +59,10 @@ export class UserRepository {
   }
 
   async findById(id: string) {
-    return this.prisma.users.findUnique({ where: { id }, include: { sessions: true } });
+    return this.prisma.users.findUnique({
+      where: { id },
+      include: { sessions: true },
+    });
   }
 
   async findByEmail(email: string): Promise<users | null> {
@@ -69,6 +77,7 @@ export class UserRepository {
       where: { email },
       select: {
         id: true,
+        tenant_id: true,
         full_name: true,
         email: true,
         role: true,
@@ -82,20 +91,19 @@ export class UserRepository {
     });
   }
 
-async update(id: string, data: UpdateUserDTO): Promise<users> {
-  // Prisma in your project does not accept company_id via usersUpdateInput
-  const { company_id, role, status, ...rest } = data as any;
+  async update(id: string, data: UpdateUserDTO): Promise<users> {
+    const { role, status, ...rest } = data as any;
 
-  return await this.prisma.users.update({
-    where: { id },
-    data: {
-      ...rest,
-      ...(role !== undefined ? { role: role as unknown as user_role_enum } : {}),
-      ...(status !== undefined ? { status: status as unknown as user_status_enum } : {}),
-      updated_at: new Date(),
-    },
-  });
-}
+    return await this.prisma.users.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(role !== undefined ? { role: role as unknown as user_role_enum } : {}),
+        ...(status !== undefined ? { status: status as unknown as user_status_enum } : {}),
+        updated_at: new Date(),
+      },
+    });
+  }
 
   async resetPassword(id: string, newPassword: string): Promise<users> {
     const hashed_password = await this.cryptoService.hash(newPassword);
@@ -115,9 +123,7 @@ async update(id: string, data: UpdateUserDTO): Promise<users> {
   async updateStatus(id: string, newStatus: user_status_enum): Promise<users> {
     return await this.prisma.users.update({
       where: { id },
-      data: {
-        status: newStatus,
-      },
+      data: { status: newStatus },
     });
   }
 
@@ -131,10 +137,10 @@ async update(id: string, data: UpdateUserDTO): Promise<users> {
   async session(session: SessionType) {
     try {
       await this.prisma.sessions.upsert({
-        where: {
-          user_id: session.user_id,
-        },
+        where: { user_id: session.user_id },
         update: {
+          // sessions.tenant_id is NOT NULL - keep consistent
+          tenant_id: session.tenant_id,
           refresh_token: session.refresh_token,
           ip_address: session.ip_address,
           device_info: session.device_info,
@@ -142,6 +148,7 @@ async update(id: string, data: UpdateUserDTO): Promise<users> {
           updated_at: new Date(),
         },
         create: {
+          tenant_id: session.tenant_id,
           user_id: session.user_id,
           refresh_token: session.refresh_token,
           ip_address: session.ip_address,
@@ -150,13 +157,13 @@ async update(id: string, data: UpdateUserDTO): Promise<users> {
         },
       });
     } catch (e) {
-      this.logger.error('Error creating/updating session:', e);
+      this.logger.error('Error creating/updating session:', e as any);
     }
   }
 
   async logoutAll(refresh_token: string) {
     await this.prisma.sessions.deleteMany({
-      where: { refresh_token: refresh_token },
+      where: { refresh_token },
     });
   }
 }

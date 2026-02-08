@@ -13,8 +13,26 @@ model migrations {
   name      String @db.VarChar
 }
 
+model tenants {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String    @db.VarChar(255)
+  slug       String    @db.VarChar(80)
+  company_id String    @unique @db.Uuid
+  status     Int       @default(1) @db.SmallInt
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  company companies @relation(fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([slug], map: "uq_tenants_slug")
+  @@index([status], map: "IDX_tenants_status")
+  @@index([deleted_at], map: "IDX_tenants_deleted_at")
+}
+
 model users {
   id           String           @id(map: "PK_a3ffb1c0c8416b9fc6f907b7433") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id    String          @db.Uuid
   full_name    String           @db.VarChar(255)
   email        String           @unique(map: "UQ_97672ac88f789774dd47f7c8be3") @db.VarChar(255)
   password     String           @db.VarChar(255)
@@ -35,10 +53,12 @@ model users {
   company         companies?       @relation("CompanyUsers", fields: [company_id], references: [id], map: "FK_users_company_id")
 
   @@index([company_id], map: "IDX_users_company_id")
+  @@index([tenant_id], map: "IDX_users_tenant_id")
 }
 
 model sessions {
   id            String    @id(map: "PK_3238ef96f18b355b671619111bc") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String?   @db.Uuid
   user_id       String    @unique(map: "UQ_085d540d9f418cfbdc7bd55bb19") @db.Uuid
   refresh_token String
   device_info   String?   @db.VarChar
@@ -47,6 +67,8 @@ model sessions {
   updated_at    DateTime  @default(now()) @db.Timestamp(6)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
   users         users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_085d540d9f418cfbdc7bd55bb19")
+
+  @@index([tenant_id], map: "IDX_sessions_tenant_id")
 }
 
 model customers {
@@ -61,15 +83,19 @@ model customers {
 
 model password_resets {
   id         String   @id(map: "PK_4816377aa98211c1de34469e742") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String?  @db.Uuid
   user_id    String   @unique(map: "UQ_f7a4c3bc48f24df007936d217be") @db.Uuid
   token      String   @db.VarChar(255)
   expires_at DateTime @db.Timestamp(6)
   created_at DateTime @default(now()) @db.Timestamp(6)
   users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f7a4c3bc48f24df007936d217be")
+
+  @@index([tenant_id], map: "IDX_password_resets_tenant_id")
 }
 
 model companies {
   id                 String    @id(map: "PK_d4bc3e82a314fa9e29f652c2c22") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String?   @db.Uuid
   company_name       String    @db.VarChar
   user_id            String    @db.Uuid
   phone              String?   @db.VarChar
@@ -94,10 +120,16 @@ model companies {
   invoices    invoices[]  @relation("CompanyInvoices")
   processes   processes[] @relation("CompanyProcesses")
   users       users[]     @relation("CompanyUsers")
+
+  // opposite side of tenants.company
+  tenant tenants?
+
+  @@index([tenant_id], map: "IDX_companies_tenant_id")
 }
 
 model events {
   id               String    @id(map: "PK_40731c7151fe4be3116e45ddf73") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String?   @db.Uuid
   related_table    String    @db.VarChar(50)
   related_id       String    @db.Uuid
   status           Int?
@@ -112,10 +144,12 @@ model events {
 
   @@index([related_table, related_id], map: "IDX_EVENTS_RELATED")
   @@index([type], map: "IDX_EVENTS_TYPE")
+  @@index([tenant_id], map: "IDX_events_tenant_id")
 }
 
 model processes {
   id                 String    @id(map: "PK_566885de50f7d20a6df306c12e6") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String?   @db.Uuid
   process_number     String    @db.VarChar(100)
   status             Int
   invoice            String?   @db.VarChar(100)
@@ -135,6 +169,7 @@ model processes {
   @@unique([process_number])
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
   @@index([process_number], map: "IDX_PROCESS_PROCESS_NUMBER")
+  @@index([tenant_id], map: "IDX_processes_tenant_id")
 }
 
 model currencies {
@@ -152,6 +187,7 @@ model currencies {
 
 model products {
   id                 String          @id(map: "PK_0806c755e0aca124e67c0cf6d7d") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String?         @db.Uuid
   product_code       String          @unique(map: "uq_products_product_code") @db.VarChar(80)
   name               String          @db.VarChar(255)
   brand              String?         @db.VarChar(120)
@@ -168,10 +204,12 @@ model products {
 
   @@index([currency_id], map: "idx_products_currency_id")
   @@index([is_active], map: "idx_products_is_active")
+  @@index([tenant_id], map: "IDX_products_tenant_id")
 }
 
 model invoices {
   id                          String          @id(map: "PK_668cef7c22a427fd822cc1be3ce") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                   String?         @db.Uuid
   invoice_seq                 BigInt          @default(autoincrement())
   invoice_number              String          @unique(map: "UQ_d8f8d3788694e1b3f96c42c36fb") @db.VarChar(30)
   company_id                  String          @db.Uuid
@@ -207,10 +245,12 @@ model invoices {
   @@index([company_id, status], map: "idx_invoices_company_status")
   @@index([currency_id], map: "idx_invoices_currency_id")
   @@index([status], map: "idx_invoices_status")
+  @@index([tenant_id], map: "IDX_invoices_tenant_id")
 }
 
 model invoice_lines {
   id               String  @id(map: "PK_3d18eb48142b916f581f0c21a65") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String? @db.Uuid
   invoice_id       String  @db.Uuid
   line_number      Int
   product_id       String? @db.Uuid
@@ -231,10 +271,13 @@ model invoice_lines {
   @@unique([invoice_id, line_number], map: "uq_invoice_lines_invoice_line_number")
   @@index([invoice_id], map: "idx_invoice_lines_invoice_id")
   @@index([product_id], map: "idx_invoice_lines_product_id")
+  @@index([tenant_id], map: "IDX_invoice_lines_tenant_id")
 }
 
 model documents {
   id String @id(map: "PK_documents") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  tenant_id String? @db.Uuid
 
   // Tenant / ownership
   account_id         String  @db.Uuid
@@ -242,47 +285,44 @@ model documents {
 
   // Drive hierarchy
   parent_id String? @db.Uuid
-  path      String  @db.VarChar(1000)
+  path      String  @db.Text
   depth     Int     @default(0)
 
   // Drive item metadata
-  item_type String @db.VarChar(30) // ex: FILE | FOLDER | LINK
-  name      String @db.VarChar(255) // display name
+  item_type DocumentItemType
+  name      String @db.VarChar(255)
 
   filename  String? @db.VarChar(255)
   ext       String? @db.VarChar(20)
-  mime_type String? @db.VarChar(100)
+  mime_type String? @db.VarChar(120)
 
   size_bytes BigInt? @db.BigInt
 
   description  String? @db.VarChar(500)
-  external_key String? @db.VarChar(1000) // link / r2 key / etc
+  external_key String? @db.VarChar(500)
   readonly     Boolean @default(false)
 
-  // Polymorphic relation to domain entities (optional)
+  // Polymorphic relation (optional)
   related_table String? @db.VarChar(50)
   related_id    String? @db.Uuid
 
-  // R2 / storage controls (optional for now)
-  storage_provider String? @db.VarChar(50)
+  // Storage
+  storage_provider String @db.VarChar(20)
   bucket           String? @db.VarChar(255)
-  object_key       String? @db.VarChar(1000)
+  object_key       String? @db.Text
   etag             String? @db.VarChar(255)
-  version          Int?    @default(1)
-  upload_status    String? @db.VarChar(50)
+  version          String? @db.VarChar(255)
+  upload_status    DocumentUploadStatus
 
   // Audit / soft delete
   created_at DateTime  @default(now()) @db.Timestamptz(6)
   updated_at DateTime  @default(now()) @db.Timestamptz(6)
   deleted_at DateTime? @db.Timestamptz(6)
 
-  // =========================
-  // IMPORTANT: opposite relations (fix P1012)
-  // =========================
+  // Relations
   company         companies @relation("CompanyDocuments", fields: [account_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_documents_account_id")
   created_by_user users?    @relation("UserDocumentsCreated", fields: [created_by_user_id], references: [id], onUpdate: NoAction, map: "FK_documents_created_by_user_id")
 
-  // Self relation (folder tree)
   parent   documents?  @relation("documents_children", fields: [parent_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_documents_parent_id")
   children documents[] @relation("documents_children")
 
@@ -291,6 +331,7 @@ model documents {
   @@index([related_table, related_id], map: "IDX_DOCUMENTS_RELATED")
   @@index([item_type], map: "IDX_DOCUMENTS_ITEM_TYPE")
   @@index([deleted_at], map: "IDX_DOCUMENTS_DELETED_AT")
+  @@index([tenant_id], map: "IDX_documents_tenant_id")
   @@map("documents")
 }
 
@@ -320,6 +361,7 @@ model transport_types {
 
 model transports {
   id                  String              @id(map: "PK_f1c7f51afd891fa301da438910e") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String?             @db.Uuid
   transport_company   String              @db.VarChar
   origin              String              @db.VarChar
   destination         String              @db.VarChar
@@ -335,6 +377,8 @@ model transports {
   transport_types     transport_types?    @relation(fields: [transport_type_id], references: [id], onUpdate: NoAction, map: "FK_110fc9c0bc02da7801eb079a295")
   transport_statuses  transport_statuses? @relation(fields: [transport_status_id], references: [id], onUpdate: NoAction, map: "FK_185a53c3b7a6faf5550be54c602")
   processes           processes           @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_9c0f227592aee16d3f035cc846a")
+
+  @@index([tenant_id], map: "IDX_transports_tenant_id")
 }
 
 enum user_role_enum {
@@ -348,4 +392,22 @@ enum user_status_enum {
   INACTIVE
   SUSPENDED
   DELETED
+}
+
+enum DocumentItemType {
+  FILE
+  FOLDER
+  LINK
+
+  @@map("document_item_type")
+}
+
+enum DocumentUploadStatus {
+  NONE
+  PENDING
+  UPLOADED
+  FAILED
+  DELETED
+
+  @@map("document_upload_status")
 }

@@ -26,6 +26,7 @@ export class ProductRepository {
           : {}),
       };
 
+      // tenant_id is injected by Prisma middleware for findMany (per your architecture)
       return await this.prisma.products.findMany({
         where,
         orderBy: { name: 'asc' },
@@ -36,10 +37,11 @@ export class ProductRepository {
     }
   }
 
-  async findById(id: string) {
+  async findById(id: string, tenantId: string) {
     try {
-      return await this.prisma.products.findUnique({
-        where: { id },
+      // IMPORTANT: do not use findUnique here; we must enforce tenant_id
+      return await this.prisma.products.findFirst({
+        where: { id, tenant_id: tenantId } as any,
         include: { currencies: true },
       });
     } catch (error) {
@@ -47,10 +49,12 @@ export class ProductRepository {
     }
   }
 
-  async findByCode(product_code: string) {
+  async findByCode(product_code: string, tenantId: string) {
     try {
-      return await this.prisma.products.findUnique({
-        where: { product_code },
+      // IMPORTANT: product_code may be unique globally in older schema,
+      // but in multi-tenant we must enforce tenant_id
+      return await this.prisma.products.findFirst({
+        where: { product_code, tenant_id: tenantId } as any,
         include: { currencies: true },
       });
     } catch (error) {
@@ -60,6 +64,7 @@ export class ProductRepository {
 
   async create(data: Prisma.productsCreateInput) {
     try {
+      // tenant_id is injected by Prisma middleware in create (per your architecture)
       return await this.prisma.products.create({
         data,
         include: { currencies: true },
@@ -70,21 +75,33 @@ export class ProductRepository {
     }
   }
 
-  async update(id: string, data: Prisma.productsUpdateInput) {
-    try {
-      return await this.prisma.products.update({
-        where: { id },
-        data,
-        include: { currencies: true },
-      });
-    } catch (error) {
-      handlePrismaError(error, 'updating product');
-    }
-  }
+async update(id: string, tenantId: string, data: Prisma.productsUncheckedUpdateInput) {
+  try {
+    const result = await this.prisma.products.updateMany({
+      where: { id, tenant_id: tenantId } as any,
+      data,
+    });
 
-  async remove(id: string) {
+    if (!result || result.count === 0) return null;
+
+    return await this.findById(id, tenantId);
+  } catch (error) {
+    // mantém teu handle
+    throw error;
+  }
+}
+
+  async remove(id: string, tenantId: string) {
     try {
-      return await this.prisma.products.delete({ where: { id } });
+      // Return the deleted entity (same behavior as delete), but tenant-safe
+      const existing = await this.findById(id, tenantId);
+      if (!existing) return null;
+
+      await this.prisma.products.deleteMany({
+        where: { id, tenant_id: tenantId } as any,
+      });
+
+      return existing;
     } catch (error) {
       handlePrismaError(error, 'deleting product');
     }

@@ -63,8 +63,18 @@ export class CreateInvoiceLineDTO {
   @IsString()
   tax_rate?: string;
 
+  // ✅ NEW: discount amount (decimal string)
   @ApiPropertyOptional({
-    description: 'Discount percent for this line (0..100).',
+    description: 'Discount amount for this line (decimal string). Example: "380.00"',
+    example: '380.00',
+  })
+  @IsOptional()
+  @IsString()
+  discount_amount?: string;
+
+  // (Optional) keep for backward compatibility while front migrates
+  @ApiPropertyOptional({
+    description: 'Discount percent for this line (0..100). (Deprecated if using discount_amount)',
     example: 10,
   })
   @IsOptional()
@@ -113,6 +123,15 @@ export class CreateInvoiceDTO {
   @IsInt()
   version?: number;
 
+  // ✅ NEW: due date
+  @ApiPropertyOptional({
+    description: 'Invoice due datetime (ISO string).',
+    example: '2026-02-20T00:00:00.000Z',
+  })
+  @IsOptional()
+  @IsString()
+  due_at?: string;
+
   @ApiPropertyOptional({ description: 'Billing address line 1', example: 'Rua X, 500' })
   @IsOptional()
   @IsString()
@@ -144,7 +163,7 @@ export class CreateInvoiceDTO {
   billing_address_country?: string;
 
   @ApiPropertyOptional({
-    description: 'Invoice status: 0 Active, 1 Expired, 2 Invoiced, 3 Paid',
+    description: 'Invoice status',
     enum: InvoiceStatus,
     example: InvoiceStatus.ACTIVE,
   })
