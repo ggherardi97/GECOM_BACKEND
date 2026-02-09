@@ -43,7 +43,8 @@ model users {
   company_id   String?          @db.Uuid
   phonenumber  String?          @db.VarChar(50)
   first_access Boolean          @default(true)
-
+ profile_picture Bytes?   @db.ByteA
+  acept_terms     Boolean  @default(false)
   primaryForCompanies companies[] @relation("CompanyPrimaryUser")
   documentsCreated    documents[] @relation("UserDocumentsCreated")
 
@@ -114,6 +115,7 @@ model companies {
   address_state      String?   @db.VarChar
   number_of_invoices Int       @default(0)
   language           String?   @db.VarChar
+  company_picture Bytes? @db.ByteA
 
   primaryUser users       @relation("CompanyPrimaryUser", fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
   documents   documents[] @relation("CompanyDocuments")
@@ -305,6 +307,7 @@ model documents {
   // Polymorphic relation (optional)
   related_table String? @db.VarChar(50)
   related_id    String? @db.Uuid
+   related_name String? @db.VarChar(255)
 
   // Storage
   storage_provider String @db.VarChar(20)

@@ -1,6 +1,7 @@
 export enum InvoiceStatus {
-  ACTIVE = 0,
-  EXPIRED = 1,
-  INVOICED = 2,
-  PAID = 3,
+  DRAFT = 1,
+  ACTIVE = 1,
+  EXPIRED = 2,
+  INVOICED = 3,
+  PAID = 4,
 }

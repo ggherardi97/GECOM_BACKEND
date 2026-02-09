@@ -158,12 +158,63 @@ export class DocumentsRepository {
   }
 
   // ---------------------------
+  // Helpers (related_name resolution)
+  // ---------------------------
+  private normalizeRelatedTable(value: any): string | null {
+    const s = this.sanitizeText(value, 50);
+    if (!s) return null;
+    return s.trim().toLowerCase();
+  }
+
+  private async resolveRelatedName(args: {
+    tenantId: string;
+    related_table?: any;
+    related_id?: any;
+  }): Promise<string | null> {
+    const relatedTable = this.normalizeRelatedTable(args.related_table);
+    const relatedId = this.sanitizeText(args.related_id, 100);
+
+    if (!relatedTable || !relatedId) return null;
+
+    try {
+      // ✅ Company -> company_name
+      if (relatedTable === 'company') {
+        const company = await (this.prisma as any).companies?.findFirst?.({
+          where: { id: relatedId, tenant_id: args.tenantId } as any,
+          select: { company_name: true } as any,
+        });
+
+        const name = company?.company_name ?? null;
+        return this.sanitizeText(name, 255);
+      }
+
+      // ✅ Process -> process_number (fallback to name/title if needed)
+      if (relatedTable === 'process') {
+        const proc = await (this.prisma as any).processes?.findFirst?.({
+          where: { id: relatedId, tenant_id: args.tenantId } as any,
+          select: { process_number: true } as any,
+        });
+
+        const name = proc?.process_number ?? null;
+        return this.sanitizeText(name, 255);
+      }
+
+      // Unknown related_table -> no resolution
+      return null;
+    } catch (e) {
+      // We do NOT fail document creation/update just because related name couldn't resolve
+      this.logger.warn(`Failed to resolve related_name for ${relatedTable}:${relatedId}.`);
+      return null;
+    }
+  }
+
+  // ---------------------------
   // Commands
   // ---------------------------
-  async create(data: CreateDocumentDTO, tenantId: string) {
+  async create(data: CreateDocumentDTO, tenantId: string, userId: string | null) {
     try {
       const input: any = data as any;
-
+    delete input.created_by_user_id;
       const accountId: string = input.account_id;
       if (!accountId) throw new BadRequestException('account_id is required');
 
@@ -193,12 +244,22 @@ export class DocumentsRepository {
       const bucketValueRaw: string | null = input.bucket ?? process.env.R2_BUCKET_NAME ?? null;
       const bucketValue = this.sanitizeText(bucketValueRaw, 255);
 
+      // ✅ related fields
+      const relatedTable = this.sanitizeText(input.related_table, 50);
+      const relatedId = input.related_id ?? null;
+
+      // ✅ NEW: related_name computed (unless provided and valid)
+      const relatedNameProvided = this.sanitizeText(input.related_name, 255);
+      const relatedNameComputed =
+        relatedNameProvided ??
+        (await this.resolveRelatedName({ tenantId, related_table: relatedTable, related_id: relatedId }));
+
       const payload = {
         // tenant_id is injected by middleware normally, but we keep it explicit here
         tenant_id: tenantId,
 
         account_id: accountId,
-        created_by_user_id: input.created_by_user_id ?? null,
+        created_by_user_id: userId ?? null,
 
         parent_id: parentId,
 
@@ -219,8 +280,11 @@ export class DocumentsRepository {
 
         readonly: input.readonly ?? false,
 
-        related_table: this.sanitizeText(input.related_table, 50),
-        related_id: input.related_id ?? null,
+        related_table: relatedTable,
+        related_id: relatedId,
+
+        // ✅ NEW
+        related_name: relatedNameComputed,
 
         storage_provider: storageProvider,
         bucket: bucketValue,
@@ -284,6 +348,31 @@ export class DocumentsRepository {
           parent_id: newParentId,
           name: newName,
         });
+      }
+
+      // ✅ NEW: if related_table or related_id changed, compute related_name (unless explicitly provided)
+      const relatedTableChanged = Object.prototype.hasOwnProperty.call(input, 'related_table');
+      const relatedIdChanged = Object.prototype.hasOwnProperty.call(input, 'related_id');
+
+      if (relatedTableChanged || relatedIdChanged) {
+        const current = await this.prisma.documents.findFirst({
+          where: { id, tenant_id: tenantId } as any,
+          select: { related_table: true, related_id: true } as any,
+        });
+
+        if (!current) throw new BadRequestException('Document not found');
+
+        const nextRelatedTable = relatedTableChanged ? input.related_table : current.related_table;
+        const nextRelatedId = relatedIdChanged ? input.related_id : current.related_id;
+
+        const provided = this.sanitizeText(input.related_name, 255);
+        if (!provided) {
+          input.related_name = await this.resolveRelatedName({
+            tenantId,
+            related_table: nextRelatedTable,
+            related_id: nextRelatedId,
+          });
+        }
       }
 
       const payload = {

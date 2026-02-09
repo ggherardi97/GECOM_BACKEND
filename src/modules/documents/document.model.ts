@@ -5,37 +5,33 @@
  */
 export interface DocumentModel {
   id: string;
-  company_id: string;
-  created_by_user_id?: string | null;
+  tenant_id: string;
 
-  name: string;
-  description?: string | null;
-
-  mime_type?: string | null;
-  size_bytes?: number | null;
-
-  external_key?: string | null;
-
-  is_folder: boolean;
-  readonly: boolean;
-
+  account_id: string;
   parent_id?: string | null;
-  parent_path?: string | null;
-  folder_name?: string | null;
+
+  item_type: string;
+  name?: string | null;
+  filename?: string | null;
+  ext?: string | null;
+  mime_type?: string | null;
+
+  storage_provider?: string | null;
+  upload_status?: string | null;
+
+  object_key?: string | null;
+  external_key?: string | null;
+  etag?: string | null;
+
+  size_bytes?: string | number | null;
 
   related_table?: string | null;
   related_id?: string | null;
 
-  r2_bucket?: string | null;
-  r2_key?: string | null;
-  r2_etag?: string | null;
-  r2_version_id?: string | null;
+  // Human-friendly label resolved on create/update (e.g., company_name, process_number)
+  related_name?: string | null;
 
-  checksum_sha256?: string | null;
-
-  uploaded_at?: Date | null;
-
-  created_at: Date;
-  updated_at: Date;
-  deleted_at?: Date | null;
+  created_at: string;
+  updated_at: string;
 }
+

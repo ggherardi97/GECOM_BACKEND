@@ -90,6 +90,13 @@ export class CreateDocumentDTO {
   @MaxLength(50)
   related_table?: string;
 
+  @ApiPropertyOptional({ description: 'Related table name', example: 'processes' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  related_name?: string;
+
+
   @ApiPropertyOptional({ description: 'Related entity id', example: '3d0c2b8f-2b3b-49ee-8f75-5f8df8dfe111' })
   @IsOptional()
   @IsUUID()

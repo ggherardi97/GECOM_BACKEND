@@ -114,6 +114,11 @@ export class DocumentsController {
   @ApiCreatedResponse({ description: 'Document successfully created' })
   async create(@Req() req: Request, @Body() data: CreateDocumentDTO) {
     const tenantId = this.getTenantId(req);
+const userId =
+    (req as any)?.user?.id ||
+    (req as any)?.user?.sub ||
+    (req as any)?.userId ||
+    null;
 
     // Non-admin must always create scoped to their company
     const payload: any = { ...(data as any) };
@@ -125,7 +130,7 @@ export class DocumentsController {
     }
 
     // tenant_id is injected by Prisma middleware in create (per your architecture)
-    return this.service.create(payload, tenantId);
+    return this.service.create(payload, tenantId, userId);
   }
 
   @Get()

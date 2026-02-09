@@ -47,32 +47,86 @@ export class InvoiceRepository {
 
   async create(data: Prisma.invoicesCreateInput) {
     try {
-      // tenant_id is injected by Prisma middleware in create (per your architecture)
-      return await this.prisma.invoices.create({
-        data,
-        include: {
-          invoice_lines: true,
-          currencies: true,
-          companies: true,
-        },
+      return await this.prisma.transaction(async (tx) => {
+        const created = await tx.invoices.create({
+          data,
+          include: {
+            invoice_lines: true,
+            currencies: true,
+            companies: true,
+          },
+        });
+
+        if (created.company_id && created.tenant_id) {
+          await tx.companies.updateMany({
+            where: {
+              id: created.company_id,
+              tenant_id: created.tenant_id,
+            } as any,
+            data: {
+              number_of_invoices: { increment: 1 },
+            },
+          });
+        }
+
+        return created;
       });
     } catch (e) {
       this.logger.error(e);
-      return null;
+      handlePrismaError(e, 'creating invoice');
     }
   }
 
   async update(id: string, tenantId: string, data: Prisma.invoicesUpdateManyMutationInput) {
     try {
-      // IMPORTANT: updateMany supports filtering by tenant_id
-      const result = await this.prisma.invoices.updateMany({
-        where: { id, tenant_id: tenantId } as any,
-        data,
+      return await this.prisma.transaction(async (tx) => {
+        const before = await tx.invoices.findFirst({
+          where: { id, tenant_id: tenantId } as any,
+          select: { company_id: true },
+        });
+
+        if (!before) return null;
+
+        const result = await tx.invoices.updateMany({
+          where: { id, tenant_id: tenantId } as any,
+          data,
+        });
+
+        if (!result || result.count === 0) return null;
+
+        const after = await tx.invoices.findFirst({
+          where: { id, tenant_id: tenantId } as any,
+          select: { company_id: true },
+        });
+
+        if (before.company_id !== after?.company_id) {
+          if (before.company_id) {
+            await tx.companies.updateMany({
+              where: {
+                id: before.company_id,
+                tenant_id: tenantId,
+              } as any,
+              data: {
+                number_of_invoices: { decrement: 1 },
+              },
+            });
+          }
+
+          if (after?.company_id) {
+            await tx.companies.updateMany({
+              where: {
+                id: after.company_id,
+                tenant_id: tenantId,
+              } as any,
+              data: {
+                number_of_invoices: { increment: 1 },
+              },
+            });
+          }
+        }
+
+        return this.findById(id, tenantId);
       });
-
-      if (!result || result.count === 0) return null;
-
-      return await this.findById(id, tenantId);
     } catch (error) {
       handlePrismaError(error, 'updating invoice');
     }
@@ -80,7 +134,6 @@ export class InvoiceRepository {
 
   async replaceLines(invoice_id: string, tenantId: string, lines: any[]) {
     try {
-      // Delete existing lines only for this tenant
       await this.prisma.invoice_lines.deleteMany({
         where: { invoice_id, tenant_id: tenantId } as any,
       });
@@ -88,12 +141,11 @@ export class InvoiceRepository {
       const safeLines: Prisma.invoice_linesCreateManyInput[] = (Array.isArray(lines) ? lines : [])
         .filter(Boolean)
         .map((l: any, idx: number) => {
-          // Remove fields that Prisma doesn't accept for invoice_lines.createMany()
           const { id, created_at, updated_at, ...rest } = l || {};
 
           return {
             ...rest,
-            tenant_id: tenantId, // ✅ IMPORTANT: createMany usually bypasses middleware
+            tenant_id: tenantId,
             invoice_id,
             line_number: Number.isFinite(Number(rest?.line_number)) ? Number(rest.line_number) : idx + 1,
           } as Prisma.invoice_linesCreateManyInput;
@@ -109,15 +161,32 @@ export class InvoiceRepository {
 
   async remove(id: string, tenantId: string) {
     try {
-      // Tenant-safe delete using deleteMany
-      const existing = await this.findById(id, tenantId);
-      if (!existing) return null;
+      return await this.prisma.transaction(async (tx) => {
+        const existing = await tx.invoices.findFirst({
+          where: { id, tenant_id: tenantId } as any,
+          select: { id: true, company_id: true },
+        });
 
-      await this.prisma.invoices.deleteMany({
-        where: { id, tenant_id: tenantId } as any,
+        if (!existing) return null;
+
+        await tx.invoices.deleteMany({
+          where: { id, tenant_id: tenantId } as any,
+        });
+
+        if (existing.company_id) {
+          await tx.companies.updateMany({
+            where: {
+              id: existing.company_id,
+              tenant_id: tenantId,
+            } as any,
+            data: {
+              number_of_invoices: { decrement: 1 },
+            },
+          });
+        }
+
+        return existing;
       });
-
-      return existing;
     } catch (error) {
       handlePrismaError(error, 'deleting invoice');
     }

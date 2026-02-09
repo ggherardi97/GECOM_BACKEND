@@ -36,8 +36,8 @@ export class DocumentsService {
     return value;
   }
 
-  async create(data: CreateDocumentDTO, tenantId: string): Promise<documents> {
-    const doc = await this.repository.create(data, tenantId);
+  async create(data: CreateDocumentDTO, tenantId: string, userId: string | null): Promise<documents> {
+    const doc = await this.repository.create(data, tenantId, userId);
     if (!doc) throw new BadRequestException('Failed to create document');
     return this.jsonSafeDocument(doc);
   }
