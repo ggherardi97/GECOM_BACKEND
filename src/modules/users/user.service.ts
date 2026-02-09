@@ -1,181 +1,118 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { UserRepository } from './user.repository';
+import { Prisma, user_role_enum, user_status_enum, users } from '@prisma/client';
+import { CryptoService } from 'src/modules/crypto/crypto.service';
 import { CreateUserDTO } from './dto/create.dto';
 import { UpdateUserDTO } from './dto/update.dto';
-import { CryptoService } from '../crypto/crypto.service';
-import { UserStatusEnum } from './enums';
-import { users } from '@prisma/client';
-import { SessionType } from './types/session.type';
-import { generateToken } from '../utils/generate-token';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { PasswordResetService } from '../password-reset/password-reset.service';
-import { MailerService } from '../mailer/mailer.service';
+import { UserRole, UserStatusEnum } from './enums';
+import { UserRepository, UserSafe } from './user.repository';
 
 @Injectable()
 export class UserService {
   constructor(
     private readonly repository: UserRepository,
-    private readonly cryptoService: CryptoService,
-    private readonly mailerService: MailerService,
-    private readonly passwordResetService: PasswordResetService
+    private readonly crypto: CryptoService,
   ) {}
 
-  private generateTempPassword(): string {
-    const rand = Math.random().toString(36).slice(2);
-    const rand2 = Math.random().toString(36).slice(2);
-    return `Tmp@${rand}${rand2}9`;
-  }
+  async findAll(tenantId: string, query?: { company_id?: string; role?: string; status?: string }) {
+    const role = query?.role != null && String(query.role).trim().length > 0 ? String(query.role).toUpperCase() : undefined;
+    const status = query?.status != null && String(query.status).trim().length > 0 ? String(query.status).toUpperCase() : undefined;
 
-  async create(data: CreateUserDTO): Promise<any> {
-    const normalizedEmail = (data.email ?? '').trim().toLowerCase();
-    if (!normalizedEmail) throw new BadRequestException('Email is required');
+    const roleEnum = role && (user_role_enum as any)[role] ? ((user_role_enum as any)[role] as user_role_enum) : undefined;
+    const statusEnum = status && (user_status_enum as any)[status] ? ((user_status_enum as any)[status] as user_status_enum) : undefined;
 
-    const emailExists = await this.repository.findByEmail(normalizedEmail);
-    if (emailExists) throw new BadRequestException('Email already exists');
-
-    const rawPassword = (data.password ?? '').trim();
-    const passwordToUse = rawPassword.length > 0 ? rawPassword : this.generateTempPassword();
-    const hash_password = await this.cryptoService.hash(passwordToUse);
-
-    const user = await this.repository.create({
-      ...data,
-      email: normalizedEmail,
-      password: hash_password,
-      first_access: data.first_access ?? true,
-    });
-
-    if (!user) throw new BadRequestException('Failed to create user');
-
-    // If tenant_id is mandatory in your DB, we must ensure it exists.
-    // With approach (2), middleware should inject it.
-    // But your endpoint is @Public, so you might be passing it in the payload.
-    const tenantId = (user as any).tenant_id as string | undefined;
-    if (!tenantId) {
-      throw new BadRequestException('User was created without tenant_id (tenant context missing).');
-    }
-
-    const token_generated: string = generateToken();
-    const token_encrypted = await this.cryptoService.hash(token_generated);
-
-    await this.passwordResetService.generateResetToken({
+    return this.repository.findAll({
       tenant_id: tenantId,
-      token: token_encrypted,
-      user_id: user.id,
-    } as any);
-
-    const template = readFileSync(
-      join(__dirname, '..', 'mailer', 'templates', 'reset-password.html'),
-      'utf8'
-    );
-
-    const url = `${process.env.FRONTEND_URL}?userId=${user.id}&token=${token_generated}`;
-    const html = template.replace('{{name}}', user.full_name).replace('{{resetLink}}', url);
-
-    await this.mailerService.sendWelcomeEmail(user.email, 'Welcome a Gecom!', html);
-
-    return {
-      message: 'User created successfully. Check your email for the reset link.',
-      user_id: user.id,
-    };
+      company_id: query?.company_id,
+      role: roleEnum,
+      status: statusEnum,
+    });
   }
 
-  async findAll(): Promise<Omit<users, 'password'>[]> {
-    return this.repository.findAll();
-  }
-
-  async findAllCustomers() {
-    return this.repository.findAllCustomers();
-  }
-
-  async findById(id: string) {
-    const user = await this.repository.findById(id);
-    if (!user) throw new NotFoundException('User not found');
+  async findById(tenantId: string, id: string, includeSessions = false): Promise<UserSafe> {
+    const user = await this.repository.findById(tenantId, id, includeSessions);
+    if (!user) throw new NotFoundException('User not found.');
     return user;
   }
 
   async findByEmail(email: string): Promise<users> {
-    const normalizedEmail = (email ?? '').trim().toLowerCase();
-    const user = await this.repository.findByEmail(normalizedEmail);
-    if (!user) throw new NotFoundException('User not found');
+    const normalized = String(email ?? '').trim().toLowerCase();
+    const user = await this.repository.findByEmail(normalized);
+    if (!user) throw new NotFoundException('User not found.');
     return user;
   }
 
-  /**
-   * Safe version for frontend usage (no password).
-   */
-  async findPublicByEmail(email: string): Promise<Omit<users, 'password'>> {
-    const normalizedEmail = (email ?? '').trim().toLowerCase();
-    const user = await this.repository.findPublicByEmail(normalizedEmail);
-    if (!user) throw new NotFoundException('User not found');
-    return user as any;
+  async create(tenantId: string, data: CreateUserDTO): Promise<UserSafe> {
+    const email = String(data.email ?? '').trim().toLowerCase();
+    if (!email) throw new BadRequestException('Email is required.');
+
+    const hashedPassword = await this.crypto.hash(data.password);
+
+    return this.repository.create({
+      tenant_id: tenantId,
+      email,
+      password: hashedPassword,
+      full_name: data.full_name,
+      role: ((data.role ?? UserRole.USER) as any) as user_role_enum,
+      status: ((data.status ?? UserStatusEnum.ACTIVE) as any) as user_status_enum,
+      company_id: data.company_id ?? null,
+      phonenumber: data.phonenumber ?? null,
+      first_access: data.first_access ?? true,
+    } satisfies Prisma.usersUncheckedCreateInput);
+  }
+
+  async update(tenantId: string, id: string, data: UpdateUserDTO): Promise<UserSafe> {
+    const patch: Prisma.usersUncheckedUpdateInput = {
+      ...(data.full_name != null ? { full_name: data.full_name } : {}),
+      ...(data.email != null ? { email: String(data.email).trim().toLowerCase() } : {}),
+      ...(data.company_id !== undefined ? { company_id: data.company_id ?? null } : {}),
+      ...(data.phonenumber !== undefined ? { phonenumber: data.phonenumber ?? null } : {}),
+      ...(data.first_access !== undefined ? { first_access: data.first_access } : {}),
+      ...(data.role != null ? { role: (String(data.role).toUpperCase() as any) as user_role_enum } : {}),
+      ...(data.status != null ? { status: (String(data.status).toUpperCase() as any) as user_status_enum } : {}),
+    };
+
+    if (data.password != null && String(data.password).trim().length > 0) {
+      patch.password = await this.crypto.hash(String(data.password));
+    }
+
+    return this.repository.update(tenantId, id, patch);
+  }
+
+  async remove(tenantId: string, id: string): Promise<UserSafe> {
+    return this.repository.remove(tenantId, id);
   }
 
   async validateUser(email: string, password: string): Promise<users> {
-    const user = await this.findByEmail(email);
+    const normalized = String(email ?? '').trim().toLowerCase();
+    const user = await this.repository.findByEmail(normalized);
 
-    const isPasswordValid = await this.cryptoService.verify(password, user.password);
-    if (!isPasswordValid) throw new BadRequestException('Invalid password');
+    if (!user) throw new NotFoundException('Invalid credentials.');
+    if (user.status === user_status_enum.DELETED) throw new NotFoundException('Invalid credentials.');
+    if (user.status !== user_status_enum.ACTIVE) throw new BadRequestException('User is not active.');
+
+    const ok = await this.crypto.verify(password, user.password);
+    if (!ok) throw new NotFoundException('Invalid credentials.');
 
     return user;
   }
 
-  async update(id: string, data: UpdateUserDTO): Promise<users> {
-    const user = await this.repository.findById(id);
-    if (!user) throw new NotFoundException('User not found');
-
-    return this.repository.update(id, data);
+  async createOrUpdateSession(input: {
+    tenant_id: string;
+    user_id: string;
+    refresh_token: string;
+    expires_at: Date;
+    device_info?: string | null;
+    ip_address?: string | null;
+  }): Promise<void> {
+    await this.repository.createOrUpdateSession(input);
   }
 
-  async resetPassword(id: string, token: string, newPassword: string): Promise<any> {
-    const user = await this.repository.findById(id);
-    if (!user) throw new NotFoundException('User not found');
-
-    const record = (await this.passwordResetService.getToken(user.id)) as {
-      user_id: string;
-      token: string;
-      expires_at: Date;
-      tenant_id?: string;
-    };
-
-    if (!record) throw new BadRequestException('Invalid or expired reset token');
-
-    const isValid = await this.cryptoService.verify(token, record.token);
-    if (!isValid) throw new BadRequestException('Invalid reset token');
-
-    if (record.expires_at < new Date()) throw new BadRequestException('Reset token expired');
-
-    await this.passwordResetService.deleteToken(record.user_id);
-
-    const hash = await this.cryptoService.hash(newPassword);
-    await this.repository.resetPassword(id, hash);
-
-    return { message: 'Reset password successful. You can now log in with your new password.' };
+  async logoutAll(tenantId: string, refresh_token: string): Promise<void> {
+    await this.repository.logoutAll(tenantId, refresh_token);
   }
 
-  async updateStatus(id: string, status: UserStatusEnum): Promise<users> {
-    const user = await this.repository.findById(id);
-    if (!user) throw new NotFoundException('User not found');
-
-    return this.repository.updateStatus(id, status as any);
-  }
-
-  async remove(id: string): Promise<users> {
-    const user = await this.repository.findById(id);
-    if (!user) throw new NotFoundException('User not found');
-
-    return this.repository.updateStatus(id, UserStatusEnum.DELETED as any);
-  }
-
-  async createOrUpdateSession(session: SessionType) {
-    await this.repository.session(session);
-  }
-
-  async logoutAll(refresh_token: string) {
-    await this.repository.logoutAll(refresh_token);
-  }
-
-  async updatePassword(id: string, hashedPassword: string): Promise<users> {
-    return this.repository.updatePassword(id, hashedPassword);
+  async updatePassword(tenantId: string, id: string, password: string): Promise<UserSafe> {
+    const hashed = await this.crypto.hash(password);
+    return this.repository.updatePassword(tenantId, id, hashed);
   }
 }

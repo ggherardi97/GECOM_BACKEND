@@ -125,29 +125,18 @@ export class CompanyRepository {
 
   async update(id: string, tenantId: string, data: Prisma.companiesUpdateInput): Promise<companies | null> {
     try {
-      // 1) Ensure the company belongs to the tenant (and is not soft-deleted)
-      const existing = await this.prisma.companies.findFirst({
-        where: {
-          id,
-          tenant_id: tenantId,
-          deleted_at: null,
-        } as any,
-        select: { id: true },
-      });
-
-      if (!existing) return null;
-
-      // 2) Avoid forcing/allowing unsafe fields
+      // 1) Avoid forcing/allowing unsafe fields
       const {
         id: _ignoreId,
         tenant_id: _ignoreTenantId,
         created_at: _ignoreCreatedAt,
         deleted_at: _ignoreDeletedAt,
+        updated_at: _ignoreUpdatedAt,
         user_id,
         ...rest
       } = data as any;
 
-      // 3) Build update payload
+      // 2) Build update payload
       const updateData: Prisma.companiesUpdateInput = {
         ...rest,
         updated_at: new Date(),
@@ -160,34 +149,24 @@ export class CompanyRepository {
           : {}),
       };
 
-      // 4) Update by unique id
-      return await this.prisma.companies.update({
-        where: { id },
-        data: updateData,
-        include: {
-          primaryUser: {
-            select: {
-              id: true,
-              full_name: true,
-              email: true,
-              status: true,
-              phonenumber: true,
-              role: true,
-            },
-          },
-          users: {
-            select: {
-              id: true,
-              full_name: true,
-              email: true,
-              status: true,
-              phonenumber: true,
-              role: true,
-              company_id: true,
-            },
-          },
-        },
+      // 3) Tenant-safe update.
+      // IMPORTANT: prisma.update() only accepts WhereUniqueInput.
+      // To enforce tenant_id in the write path, we use updateMany + count check.
+      const result = await this.prisma.companies.updateMany({
+        where: {
+          id,
+          tenant_id: tenantId,
+          deleted_at: null,
+        } as any,
+        data: updateData as any,
       });
+
+      if (!result || result.count === 0) {
+        return null;
+      }
+
+      // 4) Return updated record with includes
+      return await this.findById(id, tenantId);
     } catch (error) {
       this.logger.error('Error updating company:', error as any);
       throw error;

@@ -1,169 +1,199 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { CreateUserDTO } from './dto/create.dto';
-import { UpdateUserDTO } from './dto/update.dto';
-import { CryptoService } from '../crypto/crypto.service';
-import { users, user_role_enum, user_status_enum } from '@prisma/client';
-import { SessionType } from './types/session.type';
-import { handlePrismaError } from '../utils/errors';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { Prisma, user_role_enum, user_status_enum, users, sessions } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+
+export type UserSafe = Omit<users, 'password'> & { sessions?: sessions | null };
+
+const userSafeSelect = {
+  id: true,
+  tenant_id: true,
+  full_name: true,
+  email: true,
+  role: true,
+  status: true,
+  created_at: true,
+  updated_at: true,
+  company_id: true,
+  phonenumber: true,
+  first_access: true,
+} satisfies Prisma.usersSelect;
+
+function toBadRequestFromPrisma(error: unknown): never {
+  if (error instanceof PrismaClientKnownRequestError) {
+    if (error.code === 'P2002') throw new BadRequestException('Duplicate value (unique constraint).');
+    if (error.code === 'P2025') throw new NotFoundException('Record not found.');
+  }
+  throw error as any;
+}
 
 @Injectable()
 export class UserRepository {
-  private logger = new Logger(UserRepository.name);
+  constructor(private readonly prisma: PrismaService) {}
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly cryptoService: CryptoService
-  ) {}
-
-  async create(data: CreateUserDTO): Promise<users | null> {
+  async findAll(filters: {
+    tenant_id: string;
+    company_id?: string;
+    role?: user_role_enum;
+    status?: user_status_enum;
+  }): Promise<UserSafe[]> {
     try {
-      return await this.prisma.users.create({
-        data: {
-          // IMPORTANT:
-          // In the (2) approach, tenant_id should come from Prisma middleware.
-          // However, your endpoint is @Public, so you might still be passing tenant_id in the payload.
-          // Keep this to avoid NOT NULL errors if middleware context is missing here.
-          tenant_id: (data as any).tenant_id,
-          full_name: data.full_name,
-          email: data.email,
-          password: data.password ?? '',
-          role: (data.role as unknown as user_role_enum) ?? user_role_enum.USER,
-          status: (data.status as unknown as user_status_enum) ?? user_status_enum.ACTIVE,
-          phonenumber: data.phonenumber ?? null,
-          first_access: data.first_access ?? true,
-          company_id: data.company_id ?? null,
-        } as any,
-      });
-    } catch (e) {
-      this.logger.error(e);
-      return null;
-    }
-  }
-
-  async findAll(): Promise<Omit<users, 'password'>[]> {
-    return await this.prisma.users.findMany({
-      omit: { password: true },
-    });
-  }
-
-  async findAllCustomers() {
-    try {
-      return await this.prisma.users.findMany({
-        where: { role: user_role_enum.USER },
-        omit: { password: true },
-      });
+      return (await this.prisma.users.findMany({
+        where: {
+          tenant_id: filters.tenant_id,
+          status: { not: user_status_enum.DELETED },
+          ...(filters.company_id ? { company_id: filters.company_id } : {}),
+          ...(filters.role ? { role: filters.role } : {}),
+          ...(filters.status ? { status: filters.status } : {}),
+        },
+        orderBy: { created_at: 'desc' },
+        select: userSafeSelect,
+      })) as any;
     } catch (error) {
-      handlePrismaError(error, 'fetching customers');
+      toBadRequestFromPrisma(error);
     }
   }
 
-  async findById(id: string) {
-    return this.prisma.users.findUnique({
-      where: { id },
-      include: { sessions: true },
-    });
+  async findById(tenantId: string, id: string, includeSessions = false): Promise<UserSafe | null> {
+    try {
+      if (includeSessions) {
+        const row = await this.prisma.users.findFirst({
+          where: {
+            id,
+            tenant_id: tenantId,
+            status: { not: user_status_enum.DELETED },
+          },
+          include: { sessions: true },
+        });
+
+        if (!row) return null;
+
+        // remove password safely
+        const { password: _password, ...safe } = row as any;
+        return safe as UserSafe;
+      }
+
+      return (await this.prisma.users.findFirst({
+        where: {
+          id,
+          tenant_id: tenantId,
+          status: { not: user_status_enum.DELETED },
+        },
+        select: userSafeSelect,
+      })) as any;
+    } catch (error) {
+      toBadRequestFromPrisma(error);
+    }
   }
 
   async findByEmail(email: string): Promise<users | null> {
-    return await this.prisma.users.findUnique({ where: { email } });
+    try {
+      return await this.prisma.users.findUnique({
+        where: { email },
+      });
+    } catch (error) {
+      toBadRequestFromPrisma(error);
+    }
   }
 
-  /**
-   * Returns a "safe" user payload (no password), ideal for "who am I" / post-login usage.
-   */
-  async findPublicByEmail(email: string): Promise<Omit<users, 'password'> | null> {
-    return await this.prisma.users.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        tenant_id: true,
-        full_name: true,
-        email: true,
-        role: true,
-        status: true,
-        phonenumber: true,
-        first_access: true,
-        company_id: true,
-        created_at: true,
-        updated_at: true,
+  async create(data: Prisma.usersUncheckedCreateInput): Promise<UserSafe> {
+    try {
+      const row = await this.prisma.users.create({
+        data,
+        select: userSafeSelect,
+      });
+
+      return row as any;
+    } catch (error) {
+      toBadRequestFromPrisma(error);
+    }
+  }
+
+  async update(tenantId: string, id: string, data: Prisma.usersUncheckedUpdateInput): Promise<UserSafe> {
+    try {
+      // Prisma update() requires usersWhereUniqueInput (id/email), so we can't include tenant_id there.
+      // For tenant isolation on write-path, use updateMany + count check.
+      const result = await this.prisma.users.updateMany({
+        where: {
+          id,
+          tenant_id: tenantId,
+          status: { not: user_status_enum.DELETED },
+        },
+        data: {
+          ...data,
+          updated_at: new Date(),
+        },
+      });
+
+      if (!result || result.count === 0) {
+        throw new NotFoundException('User not found.');
+      }
+
+      const row = await this.prisma.users.findFirst({
+        where: {
+          id,
+          tenant_id: tenantId,
+          status: { not: user_status_enum.DELETED },
+        },
+        select: userSafeSelect,
+      });
+
+      if (!row) throw new NotFoundException('User not found.');
+
+      return row as any;
+    } catch (error) {
+      toBadRequestFromPrisma(error);
+    }
+  }
+
+  async updatePassword(tenantId: string, id: string, password: string): Promise<UserSafe> {
+    return this.update(tenantId, id, { password });
+  }
+
+  async updateStatus(tenantId: string, id: string, status: user_status_enum): Promise<UserSafe> {
+    return this.update(tenantId, id, { status });
+  }
+
+  async remove(tenantId: string, id: string): Promise<UserSafe> {
+    return this.updateStatus(tenantId, id, user_status_enum.DELETED);
+  }
+
+  async createOrUpdateSession(input: {
+    tenant_id: string;
+    user_id: string;
+    refresh_token: string;
+    expires_at: Date;
+    device_info?: string | null;
+    ip_address?: string | null;
+  }): Promise<void> {
+    await this.prisma.sessions.upsert({
+      where: { user_id: input.user_id },
+      create: {
+        tenant_id: input.tenant_id,
+        user_id: input.user_id,
+        refresh_token: input.refresh_token,
+        expires_at: input.expires_at,
+        device_info: input.device_info ?? null,
+        ip_address: input.ip_address ?? null,
       },
-    });
-  }
-
-  async update(id: string, data: UpdateUserDTO): Promise<users> {
-    const { role, status, ...rest } = data as any;
-
-    return await this.prisma.users.update({
-      where: { id },
-      data: {
-        ...rest,
-        ...(role !== undefined ? { role: role as unknown as user_role_enum } : {}),
-        ...(status !== undefined ? { status: status as unknown as user_status_enum } : {}),
+      update: {
+        tenant_id: input.tenant_id,
+        refresh_token: input.refresh_token,
+        expires_at: input.expires_at,
+        device_info: input.device_info ?? null,
+        ip_address: input.ip_address ?? null,
         updated_at: new Date(),
       },
     });
   }
 
-  async resetPassword(id: string, newPassword: string): Promise<users> {
-    const hashed_password = await this.cryptoService.hash(newPassword);
-    return this.prisma.users.update({
-      where: { id },
-      data: { password: hashed_password },
-    });
-  }
-
-  async updatePassword(id: string, hashedPassword: string): Promise<users> {
-    return this.prisma.users.update({
-      where: { id },
-      data: { password: hashedPassword },
-    });
-  }
-
-  async updateStatus(id: string, newStatus: user_status_enum): Promise<users> {
-    return await this.prisma.users.update({
-      where: { id },
-      data: { status: newStatus },
-    });
-  }
-
-  async remove(id: string): Promise<users> {
-    return this.prisma.users.update({
-      where: { id },
-      data: { status: user_status_enum.DELETED },
-    });
-  }
-
-  async session(session: SessionType) {
-    try {
-      await this.prisma.sessions.upsert({
-        where: { user_id: session.user_id },
-        update: {
-          // sessions.tenant_id is NOT NULL - keep consistent
-          tenant_id: session.tenant_id,
-          refresh_token: session.refresh_token,
-          ip_address: session.ip_address,
-          device_info: session.device_info,
-          expires_at: session.expires_at,
-          updated_at: new Date(),
-        },
-        create: {
-          tenant_id: session.tenant_id,
-          user_id: session.user_id,
-          refresh_token: session.refresh_token,
-          ip_address: session.ip_address,
-          device_info: session.device_info,
-          expires_at: session.expires_at,
-        },
-      });
-    } catch (e) {
-      this.logger.error('Error creating/updating session:', e as any);
-    }
-  }
-
-  async logoutAll(refresh_token: string) {
+  async logoutAll(tenantId: string, refresh_token: string): Promise<void> {
+    // only deletes the session that matches the refresh_token within the tenant
     await this.prisma.sessions.deleteMany({
-      where: { refresh_token },
+      where: {
+        tenant_id: tenantId,
+        refresh_token,
+      },
     });
   }
 }

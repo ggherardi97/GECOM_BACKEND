@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { UserService } from '../users/user.service';
 import { JwtService } from '@nestjs/jwt';
 import { CryptoService } from '../crypto/crypto.service';
@@ -21,11 +21,42 @@ export class AuthService {
     private readonly mailerService: MailerService
   ) {}
 
+  private isAdminRole(role: unknown): boolean {
+    // Keep it simple and safe (avoid enum import changes in this file).
+    return String(role ?? '').toUpperCase() === 'ADMIN';
+  }
+
+  private assertTenantAndCompany(user: any): void {
+    const tenantId = user?.tenant_id as string | undefined;
+    if (!tenantId || String(tenantId).trim().length === 0) {
+      throw new BadRequestException('User is missing tenant_id. Please contact support.');
+    }
+
+    // For non-admin users, company_id must be present
+    const isAdmin = this.isAdminRole(user?.role);
+    if (!isAdmin) {
+      const companyId = user?.company_id as string | undefined;
+      if (!companyId || String(companyId).trim().length === 0) {
+        throw new BadRequestException('User is missing company_id. Please contact support.');
+      }
+    }
+  }
+
   async login(email: string, password: string, req: Request) {
     const user = await this.userService.validateUser(email, password);
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
-    const payload = { sub: user.id, email: user.email, role: user.role, tenant_id: user.tenant_id };
+    // ✅ Ensure tenant_id / company_id rules before issuing tokens
+    this.assertTenantAndCompany(user);
+
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenant_id: user.tenant_id,
+      // ✅ include company_id so req.user has it everywhere
+      company_id: user.company_id ?? null,
+    };
 
     const access_token = this.jwtService.sign(payload, {
       secret: process.env.JWT_SECRET,
@@ -39,17 +70,9 @@ export class AuthService {
 
     const refresh_token_hash = await this.cryptoService.hash(refresh_token);
 
-    const tenantId = user.tenant_id;
-if (!tenantId) {
-  throw new BadRequestException('User is missing tenant_id. Please contact support.');
-}
+    await this.createOrUpdateSession(user.tenant_id, user.id, refresh_token_hash, req);
 
-await this.createOrUpdateSession(tenantId, user.id, refresh_token_hash, req);
-
-    return {
-      access_token,
-      refresh_token,
-    };
+    return { access_token, refresh_token };
   }
 
   async refreshToken(refresh_token: string, req: Request) {
@@ -61,8 +84,11 @@ await this.createOrUpdateSession(tenantId, user.id, refresh_token_hash, req);
       const sub = decoded?.sub as string | undefined;
       if (!sub) throw new UnauthorizedException('Invalid refresh token');
 
-      const user = await this.userService.findById(sub);
-      if (!user) throw new UnauthorizedException('User not found');
+      const tenantId = decoded?.tenant_id as string | undefined;
+      if (!tenantId) throw new UnauthorizedException('Invalid refresh token');
+
+      // include sessions because we need to validate the stored refresh token hash
+      const user = await this.userService.findById(tenantId, sub, true);
 
       const session = user.sessions;
       if (!session) throw new UnauthorizedException('Session not found');
@@ -70,11 +96,16 @@ await this.createOrUpdateSession(tenantId, user.id, refresh_token_hash, req);
       const isValid = await this.cryptoService.verify(refresh_token, session.refresh_token);
       if (!isValid) throw new UnauthorizedException('Invalid refresh token');
 
+      // ✅ enforce multi-tenant/company rules also on refresh
+      this.assertTenantAndCompany(user);
+
       const payload_for_new_tokens = {
         sub: user.id,
         email: user.email,
         role: user.role,
         tenant_id: user.tenant_id,
+        // ✅ keep company_id in refreshed tokens too
+        company_id: user.company_id ?? null,
       };
 
       const new_access_token = this.jwtService.sign(payload_for_new_tokens, {
@@ -91,11 +122,8 @@ await this.createOrUpdateSession(tenantId, user.id, refresh_token_hash, req);
 
       await this.createOrUpdateSession(user.tenant_id, user.id, refresh_token_hash, req);
 
-      return {
-        access_token: new_access_token,
-        refresh_token: new_refresh_token,
-      };
-    } catch (error) {
+      return { access_token: new_access_token, refresh_token: new_refresh_token };
+    } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
@@ -121,7 +149,17 @@ await this.createOrUpdateSession(tenantId, user.id, refresh_token_hash, req);
   }
 
   async logout(refresh_token: string) {
-    await this.userService.logoutAll(refresh_token);
+    // We store refresh_token as a hash in DB. Decode token to get tenant_id and hash the token for lookup.
+    const decoded = await this.jwtService.verify(refresh_token, {
+      secret: process.env.JWT_REFRESH_SECRET,
+    });
+
+    const tenantId = decoded?.tenant_id as string | undefined;
+    if (!tenantId) throw new UnauthorizedException('Invalid refresh token');
+
+    const refresh_token_hash = await this.cryptoService.hash(refresh_token);
+    await this.userService.logoutAll(tenantId, refresh_token_hash);
+
     return { message: 'All sessions terminated' };
   }
 
@@ -167,7 +205,7 @@ await this.createOrUpdateSession(tenantId, user.id, refresh_token_hash, req);
       return {
         message: 'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
       };
-    } catch (error) {
+    } catch {
       return {
         message: 'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
       };
@@ -179,15 +217,15 @@ await this.createOrUpdateSession(tenantId, user.id, refresh_token_hash, req);
       throw new BadRequestException('As senhas não coincidem');
     }
 
-    const user = await this.userService.findById(user_id);
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
-
     const reset_record = await this.passwordResetService.getToken(user_id);
     if (!reset_record) {
       throw new BadRequestException('Token de reset inválido ou expirado');
     }
+
+    const tenantId = (reset_record as any)?.tenant_id as string | undefined;
+    if (!tenantId) throw new BadRequestException('Token de reset inválido ou expirado');
+
+    const user = await this.userService.findById(tenantId, user_id, true);
 
     const isValidToken = await this.cryptoService.verify(token, reset_record.token);
     if (!isValidToken) {
@@ -199,13 +237,14 @@ await this.createOrUpdateSession(tenantId, user.id, refresh_token_hash, req);
       throw new BadRequestException('Token de reset expirado. Solicite um novo reset de senha.');
     }
 
-    const hashedPassword = await this.cryptoService.hash(new_password);
-    await this.userService.updatePassword(user_id, hashedPassword);
+    // UserService hashes internally
+    await this.userService.updatePassword(tenantId, user_id, new_password);
 
     await this.passwordResetService.deleteToken(user_id);
 
     if (user.sessions) {
-      await this.userService.logoutAll(user.sessions.refresh_token);
+      // sessions.refresh_token is already stored as a hash
+      await this.userService.logoutAll(tenantId, user.sessions.refresh_token);
     }
 
     return {

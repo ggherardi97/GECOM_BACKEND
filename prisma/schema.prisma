@@ -385,6 +385,7 @@ enum user_role_enum {
   USER
   ADMIN
   MANAGER
+  CUSTOMER
 }
 
 enum user_status_enum {
