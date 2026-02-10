@@ -26,6 +26,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CompanyService } from './company.service';
 import { CreateCompanyDTO } from './dto/create.dto';
 import { UpdateCompanyDTO } from './dto/update.dto';
+import { UpdateCompanyPictureDTO } from './dto/update-company-picture.dto';
 import { CompanySafe } from './company.repository';
 
 @ApiTags('companies')
@@ -133,10 +134,14 @@ export class CompanyController {
     return this.service.remove(id, tenantId);
   }
 
-  // ✅ Dedicated logo endpoint (fast)
+  // -----------------------------
+  // ✅ Dedicated endpoints (fast)
+  // -----------------------------
+
+  // Existing: returns image bytes (good for <img src="/api/companies/:id/logo">)
   @Get(':id/logo')
   @ApiOperation({
-    summary: 'Get company logo',
+    summary: 'Get company logo (image bytes)',
     description: 'Returns only the company logo bytes (company_picture)',
   })
   async getLogo(@Req() req: Request, @Param('id') id: string, @Res() res: Response) {
@@ -145,9 +150,31 @@ export class CompanyController {
 
     if (!bytes || bytes.length === 0) return res.status(204).send();
 
-    // If you always store PNG, ok. Otherwise store a mime type in DB later.
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'private, max-age=300');
     return res.status(200).send(Buffer.from(bytes));
+  }
+
+  // ✅ New: base64 (easy for JS + localStorage cache)
+  @Get(':id/company-picture')
+  @ApiOperation({
+    summary: 'Get company_picture as base64',
+    description: 'Returns { base64 } for company_picture (logo).',
+  })
+  async getCompanyPictureBase64(@Req() req: Request, @Param('id') id: string) {
+    const tenantId = this.getTenantId(req);
+    return this.service.getCompanyPictureBase64(tenantId, id);
+  }
+
+  // ✅ New: patch only company_picture
+  @Patch(':id/company-picture')
+  @ApiOperation({
+    summary: 'Update company_picture (logo)',
+    description: 'Send base64 or dataURL. Send empty/null to clear.',
+  })
+  @ApiBody({ type: UpdateCompanyPictureDTO })
+  async updateCompanyPicture(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateCompanyPictureDTO) {
+    const tenantId = this.getTenantId(req);
+    return this.service.updateCompanyPicture(tenantId, id, dto);
   }
 }

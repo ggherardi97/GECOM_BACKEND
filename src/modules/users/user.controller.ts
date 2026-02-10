@@ -51,13 +51,36 @@ export class UserController {
     return tenantId;
   }
 
-  private getUserId(req: AuthRequest): string {
-    const userId = req.user?.sub ?? req.user?.id ?? req.user?.userId;
-    if (!userId) {
-      throw new Error('Missing user id in request user (sub/id/userId).');
-    }
-    return userId;
+private getUserId(req: AuthRequest): string {
+  const u: any = req.user ?? {};
+
+  // Common possibilities across different JWT strategies/apps
+  const userId =
+    u.sub ??
+    u.id ??
+    u.userId ??
+    u.user_id ??
+    u.userid ??
+    u.uid ??
+    u.user_id_fk ??
+    u.user?.sub ??
+    u.user?.id ??
+    u.user?.userId ??
+    u.user?.user_id ??
+    u.payload?.sub ??
+    u.payload?.id ??
+    u.payload?.userId ??
+    u.payload?.user_id;
+
+  if (!userId) {
+    // Keep this message very explicit for debugging in logs
+    const keys = Object.keys(u || {});
+    throw new Error(`Missing user id in request user. Available keys: ${keys.join(', ')}`);
   }
+
+  return String(userId);
+}
+
 
   // -----------------------
   // ME endpoints

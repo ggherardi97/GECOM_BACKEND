@@ -42,20 +42,22 @@ export class InvoiceController {
     return tenantId;
   }
 
-  @Get()
-  @ApiOkResponse({ description: 'List of invoices' })
-  @ApiOperation({
-    summary: 'List invoices',
-    description: 'Optional filters: company_id, status',
-  })
-  async findAll(
-    @Req() req: Request,
-    @Query('company_id') company_id?: string,
-    @Query('status') status?: string
-  ) {
-    const tenantId = this.getTenantId(req);
-    return this.service.findAll({ company_id, status }, tenantId);
-  }
+@Get()
+@ApiOkResponse({ description: 'List of invoices' })
+@ApiOperation({
+  summary: 'List invoices',
+  description: 'Optional filters: company_id, status, fields=summary',
+})
+async findAll(
+  @Req() req: Request,
+  @Query('company_id') company_id?: string,
+  @Query('status') status?: string,
+  @Query('fields') fields?: string
+) {
+  const tenantId = this.getTenantId(req);
+  return this.service.findAll({ company_id, status }, tenantId, fields);
+}
+
 
   @Get(':id')
   @ApiOkResponse({ description: 'Invoice found' })

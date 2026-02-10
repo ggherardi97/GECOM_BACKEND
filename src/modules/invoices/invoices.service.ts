@@ -8,16 +8,25 @@ import { UpdateInvoiceDTO } from './dto/update.dto';
 export class InvoiceService {
   constructor(private readonly repository: InvoiceRepository) {}
 
-  async findAll(query: { company_id?: string; status?: string } | undefined, tenantId: string) {
-    const statusRaw = query?.status != null && String(query.status).trim().length > 0 ? Number(query.status) : undefined;
-    const status = Number.isNaN(statusRaw as any) ? undefined : statusRaw;
+async findAll(
+  query: { company_id?: string; status?: string } | undefined,
+  tenantId: string,
+  fields?: string
+) {
+  const statusRaw = query?.status != null && String(query.status).trim().length > 0 ? Number(query.status) : undefined;
+  const status = Number.isNaN(statusRaw as any) ? undefined : statusRaw;
 
-    return this.repository.findAll({
-      tenantId,
-      company_id: query?.company_id,
-      status,
-    });
-  }
+  //const mode: 'summary' | 'full' = String(fields || '').toLowerCase() != 'summary' ? 'full' : 'full';
+
+  console.log("****** fields: " + fields);
+  return this.repository.findAll({
+    tenantId,
+    company_id: query?.company_id,
+    status,
+    fields: fields,
+  });
+}
+
 
   async findById(id: string, tenantId: string) {
     const invoice = await this.repository.findById(id, tenantId);

@@ -3,20 +3,72 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { handlePrismaError } from '../utils/errors';
 import { Prisma } from '@prisma/client';
 
+type InvoiceFindAllParams = {
+  tenantId: string;
+  company_id?: string;
+  status?: number;
+  fields?: string;
+};
+
 @Injectable()
 export class InvoiceRepository {
   private logger = new Logger(InvoiceRepository.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(params: { tenantId: string; company_id?: string; status?: number }) {
+  async findAll(params: InvoiceFindAllParams) {
     try {
+      const where = {
+        tenant_id: params.tenantId,
+        ...(params.company_id ? { company_id: params.company_id } : {}),
+        ...(params.status !== undefined ? { status: params.status } : {}),
+      } as any;
+
+      // ✅ lightweight mode: only what dashboard/client details need
+      if (params.fields === 'summary') {
+        return await this.prisma.invoices.findMany({
+          where,
+          orderBy: { created_at: 'desc' },
+          select: {
+            id: true,
+            total: true,
+            quote_at: true,
+            created_at: true,
+            status: true,
+            company_id: true,
+          },
+        });
+      }
+
+      if (params.fields === 'header') {
+        return await this.prisma.invoices.findMany({
+          where,
+          orderBy: { created_at: 'desc' },
+          select: {
+            id: true,
+            total: true,
+            invoice_number:true,
+            subtotal:true,
+            discount_amount: true,
+            tax_total:true,
+            due_at:true,
+            quote_at: true,
+            created_at: true,
+            status: true,
+            company_id: true,
+            companies: {
+              select:{
+                company_name:true,
+                id:true,
+              }
+            }
+          },
+        });
+      }
+
+      // ✅ full mode (existing behavior)
       return await this.prisma.invoices.findMany({
-        where: {
-          tenant_id: params.tenantId,
-          ...(params.company_id ? { company_id: params.company_id } : {}),
-          ...(params.status !== undefined ? { status: params.status } : {}),
-        } as any,
+        where,
         orderBy: { created_at: 'desc' },
         include: {
           invoice_lines: true,

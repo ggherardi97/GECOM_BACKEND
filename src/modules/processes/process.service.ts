@@ -32,7 +32,7 @@ export class ProcessService {
         {
           ...data,
           process_number: providedProcessNumber,
-        },
+        } as any,
         tenantId
       );
     } else {
@@ -49,31 +49,46 @@ export class ProcessService {
         tenantId
       );
     }
-await this.eventService.create(
-  {
-    related_table: 'processes',
-    related_id: createdProcess.id,
-    title: 'Processo iniciado',
-    status: 0,
-    description: `Processo ${createdProcess.process_number} iniciado em ${createdProcess.created_on}`,
-    type: EventType.SYSTEM_LOG,
-    start_time: new Date(),
-    end_time: new Date(),
-    finished: true,
-    document_related: false,
-  } as any,
-  tenantId
-);
+
+    await this.eventService.create(
+      {
+        related_table: 'processes',
+        related_id: createdProcess.id,
+        title: 'Processo iniciado',
+        status: 0,
+        description: `Processo ${createdProcess.process_number} iniciado em ${createdProcess.created_on}`,
+        type: EventType.SYSTEM_LOG,
+        start_time: new Date(),
+        end_time: new Date(),
+        finished: true,
+        document_related: false,
+      } as any,
+      tenantId
+    );
 
     return createdProcess;
   }
 
+  /**
+   * Default (full) list: includes relations + attaches events.
+   * Keep this as-is to avoid breaking other pages.
+   */
   async findAll(filters: { company_id?: string }, tenantId: string): Promise<any[]> {
     const list = filters.company_id
       ? await this.repository.findByCompanyId(filters.company_id, tenantId)
       : await this.repository.findAll(tenantId);
 
     return this.attachEvents(list, tenantId);
+  }
+
+  /**
+   * Dashboard-optimized list: minimal select, NO heavy includes, NO events.
+   */
+  async findAllDashboard(filters: { company_id?: string }, tenantId: string): Promise<any[]> {
+    if (filters.company_id) {
+      return this.repository.findByCompanyIdDashboard(filters.company_id, tenantId);
+    }
+    return this.repository.findAllDashboard(tenantId);
   }
 
   async findById(id: string, tenantId: string): Promise<any> {
@@ -104,15 +119,11 @@ await this.eventService.create(
       throw new BadRequestException('Status must be a number');
     }
 
-    const updated = await this.repository.update(
-      id,
-      tenantId,
-      {
-        completed: data.completed != null ? Number(data.completed) : undefined,
-        status: data.status != null ? Number(data.status) : undefined,
-        ship_date: data.ship_date === undefined ? undefined : data.ship_date,
-      }
-    );
+    const updated = await this.repository.update(id, tenantId, {
+      completed: data.completed != null ? Number(data.completed) : undefined,
+      status: data.status != null ? Number(data.status) : undefined,
+      ship_date: data.ship_date === undefined ? undefined : data.ship_date,
+    });
 
     if (!updated) throw new NotFoundException('Process not found');
     return updated;
@@ -128,21 +139,21 @@ await this.eventService.create(
     const updatedProcess = await this.repository.updateStatus(id, tenantId, newStatus);
     if (!updatedProcess) throw new NotFoundException('Process not found');
 
-await this.eventService.create(
-  {
-    related_table: 'processes',
-    related_id: process.id,
-    title: 'Status alterado',
-    description: `Status alterado de ${this.getStatusName(process.status)} para ${this.getStatusName(newStatus)}`,
-    type: EventType.STATUS_CHANGE,
-    status: newStatus,
-    start_time: new Date(),
-    end_time: new Date(),
-    finished: true,
-    document_related: false,
-  } as any,
-  tenantId
-);
+    await this.eventService.create(
+      {
+        related_table: 'processes',
+        related_id: process.id,
+        title: 'Status alterado',
+        description: `Status alterado de ${this.getStatusName(process.status)} para ${this.getStatusName(newStatus)}`,
+        type: EventType.STATUS_CHANGE,
+        status: newStatus,
+        start_time: new Date(),
+        end_time: new Date(),
+        finished: true,
+        document_related: false,
+      } as any,
+      tenantId
+    );
 
     return updatedProcess;
   }
@@ -150,7 +161,6 @@ await this.eventService.create(
   async getProcessEvents(id: string, tenantId: string) {
     await this.findById(id, tenantId);
     return this.eventService.listEventsByRelated('processes', id, tenantId);
-
   }
 
   async softDelete(id: string, tenantId: string): Promise<processes> {
@@ -159,21 +169,20 @@ await this.eventService.create(
     const deletedProcess = await this.repository.softDelete(id, tenantId);
     if (!deletedProcess) throw new NotFoundException('Process not found');
 
-await this.eventService.create(
-  {
-    related_table: 'processes',
-    related_id: process.id,
-    title: 'Processo excluído',
-    description: `Processo ${process.process_number} foi excluído`,
-    type: EventType.SYSTEM_LOG,
-    start_time: new Date(),
-    end_time: new Date(),
-    finished: true,
-    document_related: false,
-  } as any,
-  tenantId
-);
-
+    await this.eventService.create(
+      {
+        related_table: 'processes',
+        related_id: process.id,
+        title: 'Processo excluído',
+        description: `Processo ${process.process_number} foi excluído`,
+        type: EventType.SYSTEM_LOG,
+        start_time: new Date(),
+        end_time: new Date(),
+        finished: true,
+        document_related: false,
+      } as any,
+      tenantId
+    );
 
     return deletedProcess;
   }

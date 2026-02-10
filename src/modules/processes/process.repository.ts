@@ -15,6 +15,31 @@ export class ProcessRepository {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  // -------------------- Dashboard select --------------------
+  private static readonly dashboardSelect = {
+    id: true,
+    process_number: true,
+    status: true,
+    completed: true,
+    invoice: true,
+    ship_date: true,
+    created_on: true,
+    companies: {
+      select: {
+        id: true,
+        company_name: true,
+        phone: true,
+      },
+    },
+    users: {
+      select:{
+        id: true,
+        full_name: true,
+        phonenumber:true,
+      }
+    }
+  } as const;
+
   async create(data: CreateProcessInput, tenantId: string): Promise<processes> {
     try {
       return await this.prisma.processes.create({
@@ -36,6 +61,7 @@ export class ProcessRepository {
     }
   }
 
+  // -------------------- Full (existing) --------------------
   async findAll(tenantId: string): Promise<processes[]> {
     return this.prisma.processes.findMany({
       where: {
@@ -97,6 +123,34 @@ export class ProcessRepository {
           },
         },
       },
+      orderBy: {
+        created_on: 'desc',
+      },
+    });
+  }
+
+  // -------------------- Dashboard (new lightweight) --------------------
+  async findAllDashboard(tenantId: string): Promise<any[]> {
+    return this.prisma.processes.findMany({
+      where: {
+        tenant_id: tenantId,
+        deleted_at: null,
+      } as any,
+      select: ProcessRepository.dashboardSelect as any,
+      orderBy: {
+        created_on: 'desc',
+      },
+    });
+  }
+
+  async findByCompanyIdDashboard(companyId: string, tenantId: string): Promise<any[]> {
+    return this.prisma.processes.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        deleted_at: null,
+      } as any,
+      select: ProcessRepository.dashboardSelect as any,
       orderBy: {
         created_on: 'desc',
       },

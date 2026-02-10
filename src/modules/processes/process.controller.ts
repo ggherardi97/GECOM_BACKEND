@@ -77,19 +77,36 @@ export class ProcessController {
   @Get()
   @ApiOperation({
     summary: 'List processes',
-    description: 'ADMIN: all processes (optionally filter by company_id). Non-admin: only processes from user company.',
+    description:
+      'ADMIN: all processes (optionally filter by company_id). Non-admin: only processes from user company. Supports fields=dashboard for lightweight payload.',
   })
   @ApiOkResponse({ description: 'List of processes' })
-  async findAll(@Req() req: Request, @Query('company_id') companyIdQuery?: string) {
+  async findAll(
+    @Req() req: Request,
+    @Query('company_id') companyIdQuery?: string,
+    @Query('fields') fields?: string
+  ) {
     const tenantId = this.getTenantId(req);
+    const fieldsMode = String(fields ?? '').trim().toLowerCase();
+
+    const isDashboard = fieldsMode === 'dashboard';
 
     if (this.isAdmin(req)) {
       const companyId = companyIdQuery && String(companyIdQuery).trim().length > 0 ? String(companyIdQuery).trim() : undefined;
+
+      if (isDashboard) {
+        return this.service.findAllDashboard({ company_id: companyId }, tenantId);
+      }
+
       return this.service.findAll({ company_id: companyId }, tenantId);
     }
 
     const companyId = this.getCompanyId(req);
     if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
+
+    if (isDashboard) {
+      return this.service.findAllDashboard({ company_id: companyId }, tenantId);
+    }
 
     return this.service.findAll({ company_id: companyId }, tenantId);
   }

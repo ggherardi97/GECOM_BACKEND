@@ -56,7 +56,7 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
-      maxAge: 15 * 60 * 1000, // 15 minutos
+      maxAge: 60 * 60 * 1000, // ✅ 1 hora (was 15 minutos)
     });
 
     res.cookie('refresh_token', refresh_token, {
@@ -90,7 +90,7 @@ export class AuthController {
       httpOnly: true,
       secure: !!process.env.NODE_ENV?.startsWith('prod'),
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000,
+       maxAge: 60 * 60 * 1000,
     });
 
     res.cookie('refresh_token', refresh_token, {

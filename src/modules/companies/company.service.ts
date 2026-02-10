@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { CompanyRepository, CompanySafe } from './company.repository';
 import { CreateCompanyDTO } from './dto/create.dto';
 import { UpdateCompanyDTO } from './dto/update.dto';
+import { UpdateCompanyPictureDTO } from './dto/update-company-picture.dto';
 
 @Injectable()
 export class CompanyService {
@@ -47,7 +48,38 @@ export class CompanyService {
     return { ok: true };
   }
 
+  // -----------------------------
+  // Logo / company_picture (fast endpoints)
+  // -----------------------------
+
   async getCompanyLogoBytes(tenantId: string, companyId: string): Promise<Uint8Array | null> {
     return this.repository.getCompanyLogoBytes(tenantId, companyId);
+  }
+
+  async getCompanyPictureBase64(
+    tenantId: string,
+    companyId: string,
+  ): Promise<{ base64: string | null }> {
+    const bytes = await this.repository.getCompanyLogoBytes(tenantId, companyId);
+    if (!bytes || bytes.length === 0) return { base64: null };
+
+    const base64 = Buffer.from(bytes).toString('base64');
+    return { base64 };
+  }
+
+  async updateCompanyPicture(
+    tenantId: string,
+    companyId: string,
+    dto: UpdateCompanyPictureDTO,
+  ): Promise<{ ok: true }> {
+    // We accept dto.base64 = dataURL OR pure base64 OR empty/null to clear
+    const value = dto?.base64;
+
+    const updated = await this.repository.update(companyId, tenantId, {
+      company_picture: value == null || value === '' ? null : (value as any),
+    } as any);
+
+    if (!updated) throw new NotFoundException('Empresa não encontrada.');
+    return { ok: true };
   }
 }

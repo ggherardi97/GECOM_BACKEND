@@ -29,7 +29,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
     PrismaModule, // NEW: needed for RefreshSessionGuard + AuthMeController
     JwtModule.register({
       secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '15m' },
+      signOptions: { expiresIn: '1h' }, // ✅ was 15m
     }),
   ],
   controllers: [
