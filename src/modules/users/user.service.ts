@@ -3,8 +3,26 @@ import { Prisma, user_role_enum, user_status_enum, users } from '@prisma/client'
 import { CryptoService } from 'src/modules/crypto/crypto.service';
 import { CreateUserDTO } from './dto/create.dto';
 import { UpdateUserDTO } from './dto/update.dto';
+import { UpdateMyProfileDTO } from './dto/update-my-profile.dto';
+import { UpdateProfilePictureDTO } from './dto/update-profile-picture.dto';
 import { UserRole, UserStatusEnum } from './enums';
 import { UserRepository, UserSafe } from './user.repository';
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+
+function decodeBase64ToBuffer(input: string): Buffer {
+  const raw = String(input ?? '').trim();
+  if (!raw) throw new BadRequestException('Image base64 is required.');
+
+  const base64 = raw.includes('base64,') ? raw.split('base64,').pop() ?? '' : raw;
+
+  const buf = Buffer.from(base64, 'base64');
+  if (!buf || buf.length === 0) throw new BadRequestException('Invalid base64 image.');
+  if (buf.length > MAX_IMAGE_BYTES) throw new BadRequestException('Image exceeds 5MB limit.');
+
+  return buf;
+}
+
 
 @Injectable()
 export class UserService {
@@ -57,6 +75,10 @@ export class UserService {
       company_id: data.company_id ?? null,
       phonenumber: data.phonenumber ?? null,
       first_access: data.first_access ?? true,
+
+      // New fields default behavior
+      acept_terms: false,
+      profile_picture: null,
     } satisfies Prisma.usersUncheckedCreateInput);
   }
 
@@ -115,4 +137,59 @@ export class UserService {
     const hashed = await this.crypto.hash(password);
     return this.repository.updatePassword(tenantId, id, hashed);
   }
+
+  // -----------------------
+  // NEW: "My profile" APIs
+  // -----------------------
+
+  async updateMyProfile(tenantId: string, userId: string, dto: UpdateMyProfileDTO): Promise<UserSafe> {
+    const patch: Prisma.usersUncheckedUpdateInput = {
+      ...(dto.full_name != null ? { full_name: dto.full_name } : {}),
+      ...(dto.phonenumber !== undefined ? { phonenumber: dto.phonenumber ?? null } : {}),
+      ...(dto.acept_terms === true ? { acept_terms: true } : {}),
+    };
+
+    if (dto.password != null && String(dto.password).trim().length > 0) {
+      patch.password = await this.crypto.hash(String(dto.password));
+      patch.first_access = false;
+    }
+
+    return this.repository.update(tenantId, userId, patch);
+  }
+
+  async acceptMyTerms(tenantId: string, userId: string): Promise<UserSafe> {
+    return this.repository.acceptTerms(tenantId, userId);
+  }
+async getProfilePicture(userId: string, tenantId: string) {
+  const user = await this.repository.findProfilePictureById(userId, tenantId);
+
+  if (!user) {
+    throw new NotFoundException('User not found');
+  }
+
+  return {
+    profile_picture: user.profile_picture,
+  };
+}
+
+  async updateMyProfilePicture(tenantId: string, userId: string, dto: UpdateProfilePictureDTO): Promise<UserSafe> {
+    if (!dto.base64 || String(dto.base64).trim().length === 0) {
+      // allow "clear" via empty
+      return this.repository.updateProfilePicture(tenantId, userId, null);
+    }
+
+const buffer = decodeBase64ToBuffer(dto.base64);
+return this.repository.updateProfilePicture(tenantId, userId, buffer);
+
+  }
+
+  async getMyProfilePictureBase64(tenantId: string, userId: string): Promise<{ base64: string | null }> {
+  const bytes = await this.repository.getProfilePicture(tenantId, userId);
+if (!bytes) return { base64: null };
+
+const base64 = Buffer.from(bytes).toString('base64');
+return { base64 };
+
+}
+
 }

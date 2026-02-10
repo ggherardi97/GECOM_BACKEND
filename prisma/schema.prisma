@@ -43,8 +43,9 @@ model users {
   company_id   String?          @db.Uuid
   phonenumber  String?          @db.VarChar(50)
   first_access Boolean          @default(true)
- profile_picture Bytes?   @db.ByteA
+ company_picture Bytes?   @db.ByteA
   acept_terms     Boolean  @default(false)
+
   primaryForCompanies companies[] @relation("CompanyPrimaryUser")
   documentsCreated    documents[] @relation("UserDocumentsCreated")
 

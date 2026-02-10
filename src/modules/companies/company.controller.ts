@@ -9,8 +9,9 @@ import {
   UseGuards,
   Req,
   BadRequestException,
+  Res,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import {
   ApiTags,
   ApiBody,
@@ -25,7 +26,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CompanyService } from './company.service';
 import { CreateCompanyDTO } from './dto/create.dto';
 import { UpdateCompanyDTO } from './dto/update.dto';
-import { companies } from '@prisma/client';
+import { CompanySafe } from './company.repository';
 
 @ApiTags('companies')
 @ApiBearerAuth()
@@ -47,7 +48,7 @@ export class CompanyController {
   })
   @ApiBody({ type: CreateCompanyDTO })
   @ApiCreatedResponse({ description: 'Company successfully created' })
-  async create(@Req() req: Request, @Body() data: CreateCompanyDTO): Promise<companies> {
+  async create(@Req() req: Request, @Body() data: CreateCompanyDTO): Promise<CompanySafe> {
     const tenantId = this.getTenantId(req);
     return this.service.create(data, tenantId);
   }
@@ -55,10 +56,10 @@ export class CompanyController {
   @Get()
   @ApiOperation({
     summary: 'List all companies',
-    description: 'Returns a list of all active companies',
+    description: 'Returns a list of all active companies (without company_picture)',
   })
   @ApiOkResponse({ description: 'List of companies' })
-  async findAll(@Req() req: Request): Promise<companies[]> {
+  async findAll(@Req() req: Request): Promise<CompanySafe[]> {
     const tenantId = this.getTenantId(req);
     return this.service.findAll(tenantId);
   }
@@ -66,7 +67,7 @@ export class CompanyController {
   @Get('/user/:userId')
   @ApiOperation({
     summary: 'List companies by user',
-    description: 'Returns all companies associated with a specific user',
+    description: 'Returns all companies associated with a specific user (without company_picture)',
   })
   @ApiParam({
     name: 'userId',
@@ -74,7 +75,7 @@ export class CompanyController {
     example: 'b8f9b6a4-3e5d-4c9e-9b6a-1d9e7a3f2c11',
   })
   @ApiOkResponse({ description: 'List of user companies' })
-  async findByUserId(@Req() req: Request, @Param('userId') userId: string): Promise<companies[]> {
+  async findByUserId(@Req() req: Request, @Param('userId') userId: string): Promise<CompanySafe[]> {
     const tenantId = this.getTenantId(req);
     return this.service.findByUserId(userId, tenantId);
   }
@@ -82,7 +83,7 @@ export class CompanyController {
   @Get(':id')
   @ApiOperation({
     summary: 'Get company by ID',
-    description: 'Returns a specific company by its ID',
+    description: 'Returns a specific company by its ID (without company_picture)',
   })
   @ApiParam({
     name: 'id',
@@ -90,7 +91,7 @@ export class CompanyController {
     example: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',
   })
   @ApiOkResponse({ description: 'Company found' })
-  async findById(@Req() req: Request, @Param('id') id: string): Promise<companies> {
+  async findById(@Req() req: Request, @Param('id') id: string): Promise<CompanySafe> {
     const tenantId = this.getTenantId(req);
     return this.service.findById(id, tenantId);
   }
@@ -98,7 +99,7 @@ export class CompanyController {
   @Patch(':id')
   @ApiOperation({
     summary: 'Update a company',
-    description: 'Updates company information',
+    description: 'Updates company information (company_picture is accepted but not returned in payload)',
   })
   @ApiParam({
     name: 'id',
@@ -111,7 +112,7 @@ export class CompanyController {
     @Req() req: Request,
     @Param('id') id: string,
     @Body() data: UpdateCompanyDTO,
-  ): Promise<companies> {
+  ): Promise<CompanySafe> {
     const tenantId = this.getTenantId(req);
     return this.service.update(id, data, tenantId);
   }
@@ -130,5 +131,23 @@ export class CompanyController {
   async remove(@Req() req: Request, @Param('id') id: string) {
     const tenantId = this.getTenantId(req);
     return this.service.remove(id, tenantId);
+  }
+
+  // ✅ Dedicated logo endpoint (fast)
+  @Get(':id/logo')
+  @ApiOperation({
+    summary: 'Get company logo',
+    description: 'Returns only the company logo bytes (company_picture)',
+  })
+  async getLogo(@Req() req: Request, @Param('id') id: string, @Res() res: Response) {
+    const tenantId = this.getTenantId(req);
+    const bytes = await this.service.getCompanyLogoBytes(tenantId, id);
+
+    if (!bytes || bytes.length === 0) return res.status(204).send();
+
+    // If you always store PNG, ok. Otherwise store a mime type in DB later.
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.status(200).send(Buffer.from(bytes));
   }
 }

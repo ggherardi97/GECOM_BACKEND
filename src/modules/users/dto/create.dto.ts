@@ -39,4 +39,12 @@ export class CreateUserDTO {
   @ApiPropertyOptional({ example: true })
   @IsOptional()
   first_access?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  acept_terms?: boolean;
+
+  @IsOptional()
+  @IsString()
+  profile_picture?: string | null;
 }

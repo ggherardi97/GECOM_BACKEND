@@ -84,4 +84,8 @@ export class CreateCompanyDTO {
   @IsString()
   @IsOptional()
   language?: string;
+
+  @IsOptional()
+  @IsString()
+  company_picture?: string | null;
 }

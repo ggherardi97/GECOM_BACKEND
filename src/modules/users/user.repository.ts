@@ -17,6 +17,14 @@ const userSafeSelect = {
   company_id: true,
   phonenumber: true,
   first_access: true,
+
+  acept_terms: true,
+
+} satisfies Prisma.usersSelect;
+
+const userSafeWithSessionsSelect = {
+  ...userSafeSelect,
+  sessions: true,
 } satisfies Prisma.usersSelect;
 
 function toBadRequestFromPrisma(error: unknown): never {
@@ -57,20 +65,14 @@ export class UserRepository {
   async findById(tenantId: string, id: string, includeSessions = false): Promise<UserSafe | null> {
     try {
       if (includeSessions) {
-        const row = await this.prisma.users.findFirst({
+        return (await this.prisma.users.findFirst({
           where: {
             id,
             tenant_id: tenantId,
             status: { not: user_status_enum.DELETED },
           },
-          include: { sessions: true },
-        });
-
-        if (!row) return null;
-
-        // remove password safely
-        const { password: _password, ...safe } = row as any;
-        return safe as UserSafe;
+          select: userSafeWithSessionsSelect,
+        })) as any;
       }
 
       return (await this.prisma.users.findFirst({
@@ -86,11 +88,31 @@ export class UserRepository {
     }
   }
 
+  /**
+   * ✅ AUTH PURPOSES (returns password hash)
+   * Keep this method returning full users record (includes password).
+   * This preserves the previous behavior for login/crypto.verify.
+   */
   async findByEmail(email: string): Promise<users | null> {
     try {
       return await this.prisma.users.findUnique({
         where: { email },
       });
+    } catch (error) {
+      toBadRequestFromPrisma(error);
+    }
+  }
+
+  /**
+   * ✅ SAFE PURPOSES (no password, includes profile_picture)
+   * Use this in endpoints that return the user to the client.
+   */
+  async findSafeByEmail(email: string): Promise<UserSafe | null> {
+    try {
+      return (await this.prisma.users.findUnique({
+        where: { email },
+        select: userSafeSelect,
+      })) as any;
     } catch (error) {
       toBadRequestFromPrisma(error);
     }
@@ -111,8 +133,6 @@ export class UserRepository {
 
   async update(tenantId: string, id: string, data: Prisma.usersUncheckedUpdateInput): Promise<UserSafe> {
     try {
-      // Prisma update() requires usersWhereUniqueInput (id/email), so we can't include tenant_id there.
-      // For tenant isolation on write-path, use updateMany + count check.
       const result = await this.prisma.users.updateMany({
         where: {
           id,
@@ -157,6 +177,42 @@ export class UserRepository {
   async remove(tenantId: string, id: string): Promise<UserSafe> {
     return this.updateStatus(tenantId, id, user_status_enum.DELETED);
   }
+async findProfilePictureById(userId: string, tenantId: string) {
+  return this.prisma.users.findFirst({
+    where: {
+      id: userId,
+      tenant_id: tenantId,
+    },
+    select: {
+      profile_picture: true,
+    },
+  });
+}
+
+  // NEW: update picture (Buffer -> bytea)
+  async updateProfilePicture(tenantId: string, id: string, picture: Buffer | null): Promise<UserSafe> {
+    const bytes = picture ? (new Uint8Array(picture) as Prisma.Bytes) : null;
+    return this.update(tenantId, id, { profile_picture: bytes });
+  }
+
+  // NEW: accept terms
+  async acceptTerms(tenantId: string, id: string): Promise<UserSafe> {
+    return this.update(tenantId, id, { acept_terms: true });
+  }
+
+  // NEW: get picture only (avoid big payload everywhere)
+  async getProfilePicture(tenantId: string, id: string): Promise<Uint8Array | null> {
+    const row = await this.prisma.users.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+        status: { not: user_status_enum.DELETED },
+      },
+      select: { profile_picture: true },
+    });
+
+    return (row?.profile_picture as Uint8Array | null) ?? null;
+  }
 
   async createOrUpdateSession(input: {
     tenant_id: string;
@@ -188,7 +244,6 @@ export class UserRepository {
   }
 
   async logoutAll(tenantId: string, refresh_token: string): Promise<void> {
-    // only deletes the session that matches the refresh_token within the tenant
     await this.prisma.sessions.deleteMany({
       where: {
         tenant_id: tenantId,

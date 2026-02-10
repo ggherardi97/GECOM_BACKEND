@@ -1,6 +1,87 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, companies } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+
+/**
+ * Helpers to convert base64/dataURL images into Bytes (bytea) for Prisma.
+ */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
+ * Accepts:
+ * - dataURL: "data:image/png;base64,AAAA..."
+ * - pure base64: "AAAA..."
+ * Returns Uint8Array bytes
+ */
+function base64ToBytes(input: string): Uint8Array {
+  const trimmed = input.trim();
+  const base64 = trimmed.startsWith('data:') ? (trimmed.split(',')[1] ?? '') : trimmed;
+
+  if (!isNonEmptyString(base64)) return new Uint8Array();
+
+  return Uint8Array.from(Buffer.from(base64, 'base64'));
+}
+
+/**
+ * ✅ "Lite" select: includes ALL scalar fields from model companies
+ * EXCEPT company_picture (to keep payload fast).
+ */
+const companySelectLite = {
+  id: true,
+  tenant_id: true,
+  company_name: true,
+  user_id: true,
+  phone: true,
+  company_number: true,
+  sector: true,
+  category: true,
+  address_line: true,
+  address_street: true,
+  address_number: true,
+  address_city: true,
+  address_country: true,
+  created_at: true,
+  updated_at: true,
+  deleted_at: true,
+  address_postalcode: true,
+  address_state: true,
+  number_of_invoices: true,
+  language: true,
+
+  // ❌ intentionally excluded:
+  // company_picture: true,
+} satisfies Prisma.companiesSelect;
+
+const companySelectLiteWithIncludes = {
+  ...companySelectLite,
+  primaryUser: {
+    select: {
+      id: true,
+      full_name: true,
+      email: true,
+      status: true,
+      phonenumber: true,
+      role: true,
+    },
+  },
+  users: {
+    select: {
+      id: true,
+      full_name: true,
+      email: true,
+      status: true,
+      phonenumber: true,
+      role: true,
+      company_id: true,
+    },
+  },
+} satisfies Prisma.companiesSelect;
+
+export type CompanySafe = Prisma.companiesGetPayload<{
+  select: typeof companySelectLiteWithIncludes;
+}>;
 
 @Injectable()
 export class CompanyRepository {
@@ -8,14 +89,14 @@ export class CompanyRepository {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(data: Prisma.companiesCreateInput, tenantId: string): Promise<companies | null> {
+  async create(data: Prisma.companiesCreateInput, tenantId: string): Promise<CompanySafe | null> {
     try {
-      // IMPORTANT: ensure tenant_id is set explicitly
       return await this.prisma.companies.create({
         data: {
           ...(data as any),
           tenant_id: tenantId,
         },
+        select: companySelectLiteWithIncludes,
       });
     } catch (error) {
       this.logger.error('Error creating company:', error as any);
@@ -23,73 +104,29 @@ export class CompanyRepository {
     }
   }
 
-  async findAll(tenantId: string): Promise<companies[]> {
+  async findAll(tenantId: string): Promise<CompanySafe[]> {
     return this.prisma.companies.findMany({
       where: {
         tenant_id: tenantId,
         deleted_at: null,
       } as any,
       orderBy: { company_name: 'asc' },
-      include: {
-        primaryUser: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            status: true,
-            phonenumber: true,
-            role: true,
-          },
-        },
-        users: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            status: true,
-            phonenumber: true,
-            role: true,
-            company_id: true,
-          },
-        },
-      },
+      select: companySelectLiteWithIncludes,
     });
   }
 
-  async findById(id: string, tenantId: string): Promise<companies | null> {
+  async findById(id: string, tenantId: string): Promise<CompanySafe | null> {
     return this.prisma.companies.findFirst({
       where: {
         id,
         tenant_id: tenantId,
         deleted_at: null,
       } as any,
-      include: {
-        primaryUser: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            status: true,
-            phonenumber: true,
-            role: true,
-          },
-        },
-        users: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            status: true,
-            phonenumber: true,
-            role: true,
-            company_id: true,
-          },
-        },
-      },
+      select: companySelectLiteWithIncludes,
     });
   }
 
-  async findByUserId(userId: string, tenantId: string): Promise<companies[]> {
+  async findByUserId(userId: string, tenantId: string): Promise<CompanySafe[]> {
     return this.prisma.companies.findMany({
       where: {
         tenant_id: tenantId,
@@ -97,33 +134,11 @@ export class CompanyRepository {
         user_id: userId,
       } as any,
       orderBy: { company_name: 'asc' },
-      include: {
-        primaryUser: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            status: true,
-            phonenumber: true,
-            role: true,
-          },
-        },
-        users: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            status: true,
-            phonenumber: true,
-            role: true,
-            company_id: true,
-          },
-        },
-      },
+      select: companySelectLiteWithIncludes,
     });
   }
 
-  async update(id: string, tenantId: string, data: Prisma.companiesUpdateInput): Promise<companies | null> {
+  async update(id: string, tenantId: string, data: Prisma.companiesUpdateInput): Promise<CompanySafe | null> {
     try {
       // 1) Avoid forcing/allowing unsafe fields
       const {
@@ -136,36 +151,60 @@ export class CompanyRepository {
         ...rest
       } = data as any;
 
-      // 2) Build update payload
-      const updateData: Prisma.companiesUpdateInput = {
-        ...rest,
-        updated_at: new Date(),
-        ...(user_id
-          ? {
-              primaryUser: {
-                connect: { id: String(user_id) },
-              },
-            }
-          : {}),
-      };
+      // 1.1) Normalize company_picture: allow base64/dataURL string, persist as Bytes (bytea)
+      const normalizedRest: any = { ...rest };
 
-      // 3) Tenant-safe update.
-      // IMPORTANT: prisma.update() only accepts WhereUniqueInput.
-      // To enforce tenant_id in the write path, we use updateMany + count check.
+      if (Object.prototype.hasOwnProperty.call(rest as any, 'company_picture')) {
+        const value = (rest as any).company_picture;
+
+        if (value == null || value === '') {
+          normalizedRest.company_picture = null;
+        } else if (typeof value === 'string') {
+          const bytes = base64ToBytes(value);
+          normalizedRest.company_picture = bytes.length > 0 ? (bytes as unknown as Prisma.Bytes) : null;
+        } else if (value instanceof Uint8Array) {
+          normalizedRest.company_picture = value as unknown as Prisma.Bytes;
+        } else {
+          throw new Error('company_picture must be a base64/dataURL string, Uint8Array, or null.');
+        }
+      }
+
+      // 2) Build update payload
+      // IMPORTANT: updateMany does NOT allow nested relation updates.
+      // So we separate primaryUser connect from updateMany.
+      const updateData: Prisma.companiesUpdateManyMutationInput = {
+        ...normalizedRest,
+        updated_at: new Date(),
+      } as any;
+
+      // 3) Tenant-safe update (updateMany + count check)
       const result = await this.prisma.companies.updateMany({
         where: {
           id,
           tenant_id: tenantId,
           deleted_at: null,
         } as any,
-        data: updateData as any,
+        data: updateData,
       });
 
-      if (!result || result.count === 0) {
-        return null;
+      if (!result || result.count === 0) return null;
+
+      // 3.1) If user_id was provided, connect primary user using a second call (tenant-safe)
+      if (user_id) {
+        await this.prisma.companies.updateMany({
+          where: {
+            id,
+            tenant_id: tenantId,
+            deleted_at: null,
+          } as any,
+          data: {
+            user_id: String(user_id),
+            updated_at: new Date(),
+          } as any,
+        });
       }
 
-      // 4) Return updated record with includes
+      // 4) Return updated record (lite, without company_picture)
       return await this.findById(id, tenantId);
     } catch (error) {
       this.logger.error('Error updating company:', error as any);
@@ -173,8 +212,23 @@ export class CompanyRepository {
     }
   }
 
+  /**
+   * ✅ Dedicated endpoint use: returns ONLY the logo bytes (fast & safe)
+   */
+  async getCompanyLogoBytes(tenantId: string, companyId: string): Promise<Uint8Array | null> {
+    const row = await this.prisma.companies.findFirst({
+      where: {
+        id: companyId,
+        tenant_id: tenantId,
+        deleted_at: null,
+      } as any,
+      select: { company_picture: true },
+    });
+
+    return (row?.company_picture as Uint8Array | null) ?? null;
+  }
+
   async remove(id: string, tenantId: string): Promise<boolean> {
-    // Soft delete (mark deleted_at) and tenant-safe
     const result = await this.prisma.companies.updateMany({
       where: {
         id,
