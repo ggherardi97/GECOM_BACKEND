@@ -26,6 +26,7 @@ import { CurrencyModule } from './modules/currencies/currency.module';
 import { TransportsModule } from './modules/transports/transports.module';
 import { TransportTypesModule } from './modules/transport-types/transport-types.module';
 import { TransportStatusesModule } from './modules/transport-statuses/transport-statuses.module';
+import { SavedViewsModule } from './modules/saved-views/saved-views.module';
 
 @Module({
   imports: [
@@ -53,7 +54,7 @@ import { TransportStatusesModule } from './modules/transport-statuses/transport-
     EventModule,
     DocumentsModule,
     InvoiceModule,
-    ProductModule,
+    ProductModule,SavedViewsModule,
     CurrencyModule,
     InvoiceLineModule,
     TransportTypesModule,

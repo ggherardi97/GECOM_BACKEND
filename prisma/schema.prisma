@@ -48,6 +48,9 @@ model users {
 
   primaryForCompanies companies[] @relation("CompanyPrimaryUser")
   documentsCreated    documents[] @relation("UserDocumentsCreated")
+    savedViewsOwned   saved_views[]        @relation("UserSavedViewsOwned")
+  defaultViews      user_default_views[] @relation("UserDefaultViews")
+
 
   password_resets password_resets?
   processes       processes[]
@@ -385,6 +388,67 @@ model transports {
   @@index([tenant_id], map: "IDX_transports_tenant_id")
 }
 
+model saved_views {
+  id                   String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String              @db.Uuid
+  entity_name          String              @db.VarChar(100)
+  name                 String              @db.VarChar(255)
+  description          String?
+  owner_user_id        String              @db.Uuid
+
+  visibility           view_visibility_enum @default(PRIVATE)
+  shared_with_user_ids Json?
+  shared_with_role_ids Json?
+
+  definition_json      Json
+
+  is_system            Boolean             @default(false)
+  is_active            Boolean             @default(true)
+
+  source               view_source_enum    @default(MANUAL)
+  ai_prompt            String?
+
+  created_at           DateTime            @default(now()) @db.Timestamp(6)
+  updated_at           DateTime            @default(now()) @db.Timestamp(6)
+
+  owner_user           users               @relation("UserSavedViewsOwned", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "FK_saved_views_owner_user_id")
+
+  // opposite side of user_default_views.saved_view
+  default_for_users    user_default_views[] @relation("SavedViewDefaultForUsers")
+
+  @@index([tenant_id], map: "IDX_saved_views_tenant_id")
+  @@index([entity_name], map: "IDX_saved_views_entity_name")
+  @@index([owner_user_id], map: "IDX_saved_views_owner_user_id")
+  @@index([visibility], map: "IDX_saved_views_visibility")
+  @@index([is_active], map: "IDX_saved_views_is_active")
+  @@index([tenant_id, entity_name], map: "IDX_saved_views_tenant_entity")
+
+  // matches the unique index we created in the migration:
+  @@unique([tenant_id, entity_name, owner_user_id, name], map: "UQ_saved_views_owner_name")
+
+  @@map("saved_views")
+}
+
+model user_default_views {
+  id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String      @db.Uuid
+  user_id       String      @db.Uuid
+  entity_name   String      @db.VarChar(100)
+  saved_view_id String      @db.Uuid
+
+  created_at    DateTime    @default(now()) @db.Timestamp(6)
+  updated_at    DateTime    @default(now()) @db.Timestamp(6)
+
+  user          users       @relation("UserDefaultViews", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_user_default_views_user_id")
+  saved_view    saved_views @relation("SavedViewDefaultForUsers", fields: [saved_view_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_user_default_views_saved_view_id")
+
+  @@unique([tenant_id, user_id, entity_name], map: "UQ_user_default_views_user_entity")
+  @@index([tenant_id], map: "IDX_user_default_views_tenant_id")
+  @@index([saved_view_id], map: "IDX_user_default_views_saved_view_id")
+
+  @@map("user_default_views")
+}
+
 enum user_role_enum {
   USER
   ADMIN
@@ -415,4 +479,14 @@ enum DocumentUploadStatus {
   DELETED
 
   @@map("document_upload_status")
+}
+enum view_visibility_enum {
+  PRIVATE
+  SHARED
+  PUBLIC
+}
+
+enum view_source_enum {
+  MANUAL
+  AI
 }

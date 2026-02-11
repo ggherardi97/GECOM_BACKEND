@@ -28,6 +28,8 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly process_types: PrismaClient['process_types'];
   public readonly transport_types: PrismaClient['transport_types'];
   public readonly transport_statuses: PrismaClient['transport_statuses'];
+    public readonly saved_views: PrismaClient['saved_views'];
+  public readonly user_default_views: PrismaClient['user_default_views'];
 
   // Models that MUST be tenant-scoped
   private static readonly tenantModels = new Set<string>([
@@ -40,7 +42,8 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'products',
     'documents',
     'events',
-    'sessions',
+    'sessions', 'saved_views',
+    'user_default_views',
     'password_resets',
     // add others that have tenant_id
   ]);
@@ -150,6 +153,8 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.process_types = this.client.process_types;
     this.transport_types = this.client.transport_types;
     this.transport_statuses = this.client.transport_statuses;
+     this.saved_views = this.client.saved_views;
+    this.user_default_views = this.client.user_default_views;
   }
 
   async onModuleInit() {
