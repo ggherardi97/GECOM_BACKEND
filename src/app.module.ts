@@ -27,6 +27,7 @@ import { TransportsModule } from './modules/transports/transports.module';
 import { TransportTypesModule } from './modules/transport-types/transport-types.module';
 import { TransportStatusesModule } from './modules/transport-statuses/transport-statuses.module';
 import { SavedViewsModule } from './modules/saved-views/saved-views.module';
+import { NotificationModule } from './modules/notification/notification.module';
 
 @Module({
   imports: [
@@ -59,7 +60,7 @@ import { SavedViewsModule } from './modules/saved-views/saved-views.module';
     InvoiceLineModule,
     TransportTypesModule,
     TransportStatusesModule,
-    TransportsModule,
+    TransportsModule,NotificationModule,
   ],
   controllers: [AppController],
   providers: [

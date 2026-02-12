@@ -59,15 +59,24 @@ export class SavedViewsRepository {
   }
 
   async update(params: { id: string; tenantId: string; data: Prisma.saved_viewsUpdateInput }) {
-    return this.prisma.saved_views.update({
-      where: { id: params.id },
-      data: params.data,
+    const result = await this.prisma.saved_views.updateMany({
+      where: {
+        id: params.id,
+        tenant_id: params.tenantId,
+      },
+      data: params.data as any,
     });
+
+    if (!result || result.count === 0) return null;
+    return this.findById({ id: params.id, tenantId: params.tenantId });
   }
 
   async softDelete(params: { id: string; tenantId: string }) {
-    return this.prisma.saved_views.update({
-      where: { id: params.id },
+    return this.prisma.saved_views.updateMany({
+      where: {
+        id: params.id,
+        tenant_id: params.tenantId,
+      },
       data: { is_active: false, updated_at: new Date() } as any,
     });
   }

@@ -51,6 +51,8 @@ model users {
     savedViewsOwned   saved_views[]        @relation("UserSavedViewsOwned")
   defaultViews      user_default_views[] @relation("UserDefaultViews")
 
+  created_notifications notifications[]     @relation("NotificationCreatedBy")
+  notification_reads    notification_reads[]
 
   password_resets password_resets?
   processes       processes[]
@@ -88,21 +90,23 @@ model customers {
 
 model password_resets {
   id         String   @id(map: "PK_4816377aa98211c1de34469e742") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id  String?  @db.Uuid
-  user_id    String   @unique(map: "UQ_f7a4c3bc48f24df007936d217be") @db.Uuid
+  tenant_id  String   @db.Uuid
+  user_id    String   @unique(map: "UQ_password_resets_user_id") @db.Uuid
   token      String   @db.VarChar(255)
   expires_at DateTime @db.Timestamp(6)
   created_at DateTime @default(now()) @db.Timestamp(6)
+
   users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f7a4c3bc48f24df007936d217be")
 
   @@index([tenant_id], map: "IDX_password_resets_tenant_id")
 }
 
+
 model companies {
   id                 String    @id(map: "PK_d4bc3e82a314fa9e29f652c2c22") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id          String?   @db.Uuid
   company_name       String    @db.VarChar
-  user_id            String    @db.Uuid
+  user_id            String?    @db.Uuid
   phone              String?   @db.VarChar
   company_number     String?   @db.VarChar
   sector             String?   @db.VarChar
@@ -121,11 +125,13 @@ model companies {
   language           String?   @db.VarChar
   company_picture Bytes? @db.ByteA
 
-  primaryUser users       @relation("CompanyPrimaryUser", fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
+  primaryUser users?       @relation("CompanyPrimaryUser", fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
   documents   documents[] @relation("CompanyDocuments")
   invoices    invoices[]  @relation("CompanyInvoices")
   processes   processes[] @relation("CompanyProcesses")
   users       users[]     @relation("CompanyUsers")
+    notifications notifications[] @relation("CompanyNotifications")
+
 
   // opposite side of tenants.company
   tenant tenants?
@@ -429,6 +435,47 @@ model saved_views {
   @@map("saved_views")
 }
 
+model notifications {
+  id                 String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String                    @db.Uuid
+  company_id         String                    @db.Uuid
+  title              String?                   @db.VarChar(150)
+  message            String                    @db.Text
+  severity           notification_severity_enum @default(INFO)
+  starts_at          DateTime?                 @db.Timestamp(6)
+  expires_at         DateTime?                 @db.Timestamp(6)
+  is_active          Boolean                   @default(true)
+  created_by_user_id String?                   @db.Uuid
+  created_at         DateTime                  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime                  @default(now()) @db.Timestamp(6)
+
+  company   companies @relation("CompanyNotifications", fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdBy users?    @relation("NotificationCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  reads notification_reads[]
+
+  @@index([tenant_id, company_id, is_active], map: "IDX_notifications_tenant_company_active")
+  @@index([tenant_id, company_id, expires_at], map: "IDX_notifications_tenant_company_expires")
+  @@index([tenant_id, company_id, starts_at], map: "IDX_notifications_tenant_company_starts")
+}
+
+model notification_reads {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String   @db.Uuid
+  notification_id String   @db.Uuid
+  user_id         String   @db.Uuid
+  read_at         DateTime? @db.Timestamp(6)
+  created_at      DateTime @default(now()) @db.Timestamp(6)
+
+  notification notifications @relation(fields: [notification_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user         users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([notification_id, user_id], map: "UQ_notification_reads_notification_user")
+  @@index([tenant_id, user_id, read_at], map: "IDX_notification_reads_tenant_user_readat")
+  @@index([tenant_id, notification_id], map: "IDX_notification_reads_tenant_notification")
+}
+
+
 model user_default_views {
   id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id     String      @db.Uuid
@@ -469,6 +516,11 @@ enum DocumentItemType {
   LINK
 
   @@map("document_item_type")
+}
+enum notification_severity_enum {
+  INFO
+  WARNING
+  CRITICAL
 }
 
 enum DocumentUploadStatus {

@@ -121,6 +121,7 @@ export class SavedViewsService {
     };
 
     const updated = await this.repository.update({ id: params.id, tenantId: params.tenantId, data });
+    if (!updated) throw new NotFoundException('View not found.');
 
     if (dto.set_as_default === true) {
       await this.repository.upsertUserDefault({

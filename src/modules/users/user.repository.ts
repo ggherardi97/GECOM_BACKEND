@@ -19,6 +19,12 @@ const userSafeSelect = {
   first_access: true,
 
   acept_terms: true,
+  company:{
+    select:{
+      company_name:true,
+      id:true,
+    }
+  }
 
 } satisfies Prisma.usersSelect;
 

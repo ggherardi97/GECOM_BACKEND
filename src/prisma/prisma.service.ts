@@ -26,6 +26,8 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly password_resets: PrismaClient['password_resets'];
   public readonly currencies: PrismaClient['currencies'];
   public readonly process_types: PrismaClient['process_types'];
+  public readonly notifications: PrismaClient['notifications'];
+public readonly notification_reads: PrismaClient['notification_reads'];
   public readonly transport_types: PrismaClient['transport_types'];
   public readonly transport_statuses: PrismaClient['transport_statuses'];
     public readonly saved_views: PrismaClient['saved_views'];
@@ -44,7 +46,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'events',
     'sessions', 'saved_views',
     'user_default_views',
-    'password_resets',
+    'password_resets','notifications',
+'notification_reads',
+
     // add others that have tenant_id
   ]);
 
@@ -88,11 +92,6 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
             // Ensure args exists
             args = args ?? {};
 
-            // findUnique can't be safely AND-filtered by Prisma. Convert to findFirst.
-            if (operation === 'findUnique') {
-              operation = 'findFirst';
-            }
-
             const actionsWithWhere = new Set([
               'findFirst',
               'findMany',
@@ -100,7 +99,6 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
               'updateMany',
               'delete',
               'deleteMany',
-              'upsert',
               'count',
               'aggregate',
               'groupBy',
@@ -123,7 +121,6 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
             }
 
             if (operation === 'upsert') {
-              args.where = andTenantWhere(args.where, tenantId);
               args.create = applyTenantToData(args.create, tenantId);
               // update path: protected by where
             }
@@ -155,6 +152,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.transport_statuses = this.client.transport_statuses;
      this.saved_views = this.client.saved_views;
     this.user_default_views = this.client.user_default_views;
+    this.notifications = this.client.notifications;
+this.notification_reads = this.client.notification_reads;
+
   }
 
   async onModuleInit() {

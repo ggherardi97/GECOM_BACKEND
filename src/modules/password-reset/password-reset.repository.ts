@@ -9,21 +9,27 @@ export class PasswordResetRepository {
 
   async generateResetToken(input: GenerateResetTokenType): Promise<GenerateResetTokenType> {
     console.log(input);
+
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
     try {
       return await this.prisma.password_resets.upsert({
         where: { user_id: input.user_id },
         update: {
+          tenant_id: input.tenant_id, // <-- FIX
           token: input.token,
-          expires_at: new Date(Date.now() + 60 * 60 * 1000), // 1 hora
+          expires_at: expiresAt,
         },
         create: {
+          tenant_id: input.tenant_id, // <-- FIX
           user_id: input.user_id,
           token: input.token,
-          expires_at: new Date(Date.now() + 60 * 60 * 1000), // 1 hora
+          expires_at: expiresAt,
         },
       });
     } catch (error) {
       handlePrismaError(error, 'generate reset token');
+      throw error;
     }
   }
 
