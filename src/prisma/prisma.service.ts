@@ -27,7 +27,15 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly currencies: PrismaClient['currencies'];
   public readonly process_types: PrismaClient['process_types'];
   public readonly notifications: PrismaClient['notifications'];
-public readonly notification_reads: PrismaClient['notification_reads'];
+  public readonly notification_reads: PrismaClient['notification_reads'];
+  public readonly boards: PrismaClient['boards'];
+  public readonly board_columns: PrismaClient['board_columns'];
+  public readonly board_cards: PrismaClient['board_cards'];
+  public readonly board_tags: PrismaClient['board_tags'];
+  public readonly board_card_tags: PrismaClient['board_card_tags'];
+  public readonly board_card_comments: PrismaClient['board_card_comments'];
+  public readonly board_card_audit: PrismaClient['board_card_audit'];
+  public readonly board_card_assignees: PrismaClient['board_card_assignees'];
   public readonly transport_types: PrismaClient['transport_types'];
   public readonly transport_statuses: PrismaClient['transport_statuses'];
     public readonly saved_views: PrismaClient['saved_views'];
@@ -46,8 +54,17 @@ public readonly notification_reads: PrismaClient['notification_reads'];
     'events',
     'sessions', 'saved_views',
     'user_default_views',
-    'password_resets','notifications',
-'notification_reads',
+    'password_resets',
+    'notifications',
+    'notification_reads',
+    'boards',
+    'board_columns',
+    'board_cards',
+    'board_tags',
+    'board_card_tags',
+    'board_card_comments',
+    'board_card_audit',
+    'board_card_assignees',
 
     // add others that have tenant_id
   ]);
@@ -153,7 +170,15 @@ public readonly notification_reads: PrismaClient['notification_reads'];
      this.saved_views = this.client.saved_views;
     this.user_default_views = this.client.user_default_views;
     this.notifications = this.client.notifications;
-this.notification_reads = this.client.notification_reads;
+    this.notification_reads = this.client.notification_reads;
+    this.boards = this.client.boards;
+    this.board_columns = this.client.board_columns;
+    this.board_cards = this.client.board_cards;
+    this.board_tags = this.client.board_tags;
+    this.board_card_tags = this.client.board_card_tags;
+    this.board_card_comments = this.client.board_card_comments;
+    this.board_card_audit = this.client.board_card_audit;
+    this.board_card_assignees = this.client.board_card_assignees;
 
   }
 

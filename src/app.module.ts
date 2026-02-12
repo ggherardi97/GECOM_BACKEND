@@ -28,6 +28,7 @@ import { TransportTypesModule } from './modules/transport-types/transport-types.
 import { TransportStatusesModule } from './modules/transport-statuses/transport-statuses.module';
 import { SavedViewsModule } from './modules/saved-views/saved-views.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { KanbanModule } from './modules/kanban/kanban.module';
 
 @Module({
   imports: [
@@ -55,12 +56,15 @@ import { NotificationModule } from './modules/notification/notification.module';
     EventModule,
     DocumentsModule,
     InvoiceModule,
-    ProductModule,SavedViewsModule,
+    ProductModule,
+    SavedViewsModule,
     CurrencyModule,
     InvoiceLineModule,
     TransportTypesModule,
     TransportStatusesModule,
-    TransportsModule,NotificationModule,
+    TransportsModule,
+    NotificationModule,
+    KanbanModule,
   ],
   controllers: [AppController],
   providers: [

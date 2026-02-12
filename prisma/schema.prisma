@@ -54,6 +54,13 @@ model users {
   created_notifications notifications[]     @relation("NotificationCreatedBy")
   notification_reads    notification_reads[]
 
+  owned_boards               boards[]               @relation("BoardOwner")
+  created_board_cards        board_cards[]          @relation("BoardCardCreatedBy")
+  assigned_board_cards       board_cards[]          @relation("BoardCardAssignedTo")
+  board_card_comments        board_card_comments[]
+  board_card_audit_entries   board_card_audit[]     @relation("BoardCardAuditCreatedBy")
+  board_card_assignments     board_card_assignees[]
+
   password_resets password_resets?
   processes       processes[]
   sessions        sessions?
@@ -131,6 +138,8 @@ model companies {
   processes   processes[] @relation("CompanyProcesses")
   users       users[]     @relation("CompanyUsers")
     notifications notifications[] @relation("CompanyNotifications")
+    boards        boards[]        @relation("BoardCompany")
+    board_cards   board_cards[]   @relation("BoardCardCompany")
 
 
   // opposite side of tenants.company
@@ -177,6 +186,8 @@ model processes {
   companies     companies      @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
   process_types process_types? @relation(fields: [process_type_id], references: [id], onUpdate: NoAction, map: "FK_ded16035eaef6f141a36aea73b3")
   transports    transports[]
+  boards        boards[]      @relation("BoardProcess")
+  board_cards   board_cards[] @relation("BoardCardProcess")
 
   @@unique([process_number])
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
@@ -252,6 +263,8 @@ model invoices {
   invoice_lines               invoice_lines[]
   companies                   companies       @relation("CompanyInvoices", fields: [company_id], references: [id], onUpdate: NoAction, map: "fk_invoices_company")
   currencies                  currencies      @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_invoices_currency")
+  boards                      boards[]        @relation("BoardInvoice")
+  board_cards                 board_cards[]   @relation("BoardCardInvoice")
 
   @@index([company_id], map: "idx_invoices_company_id")
   @@index([company_id, status], map: "idx_invoices_company_status")
@@ -435,6 +448,174 @@ model saved_views {
   @@map("saved_views")
 }
 
+model boards {
+  id            String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String                 @db.Uuid
+  name          String                 @db.VarChar(255)
+  description   String?
+  entity_type   board_entity_type_enum @default(NONE)
+  company_id    String?                @db.Uuid
+  process_id    String?                @db.Uuid
+  invoice_id    String?                @db.Uuid
+  owner_user_id String                 @db.Uuid
+  visibility    view_visibility_enum   @default(PRIVATE)
+  is_active     Boolean                @default(true)
+  created_at    DateTime               @default(now()) @db.Timestamp(6)
+  updated_at    DateTime               @default(now()) @db.Timestamp(6)
+
+  owner_user users      @relation("BoardOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_boards_owner_user")
+  company    companies? @relation("BoardCompany", fields: [company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_boards_company")
+  process    processes? @relation("BoardProcess", fields: [process_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_boards_process")
+  invoice    invoices?  @relation("BoardInvoice", fields: [invoice_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_boards_invoice")
+
+  columns board_columns[]
+  cards   board_cards[]
+
+  @@index([tenant_id], map: "IDX_boards_tenant_id")
+  @@index([owner_user_id], map: "IDX_boards_owner_user")
+  @@index([tenant_id, is_active], map: "IDX_boards_tenant_active")
+  @@index([tenant_id, entity_type, company_id, process_id, invoice_id], map: "IDX_boards_tenant_context")
+}
+
+model board_columns {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  board_id   String   @db.Uuid
+  name       String   @db.VarChar(150)
+  wip_limit  Int?
+  sort_order Int      @default(0)
+  color      String?  @db.VarChar(30)
+  is_done    Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+
+  board boards @relation(fields: [board_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_columns_board")
+  cards board_cards[]
+
+  audit_from board_card_audit[] @relation("BoardCardAuditFromColumn")
+  audit_to   board_card_audit[] @relation("BoardCardAuditToColumn")
+
+  @@unique([board_id, sort_order], map: "uq_board_columns_board_order")
+  @@index([tenant_id], map: "IDX_board_columns_tenant_id")
+  @@index([board_id], map: "IDX_board_columns_board_id")
+}
+
+model board_cards {
+  id                  String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String                  @db.Uuid
+  board_id            String                  @db.Uuid
+  column_id           String                  @db.Uuid
+  title               String                  @db.VarChar(255)
+  description         String?
+  priority            board_card_priority_enum @default(MEDIUM)
+  due_date            DateTime?               @db.Timestamp(6)
+  start_date          DateTime?               @db.Timestamp(6)
+  sort_order          Int                     @default(0)
+  created_by_user_id  String                  @db.Uuid
+  assigned_to_user_id String?                 @db.Uuid
+  company_id          String?                 @db.Uuid
+  process_id          String?                 @db.Uuid
+  invoice_id          String?                 @db.Uuid
+  related_table       String?                 @db.VarChar(50)
+  related_id          String?                 @db.Uuid
+  created_at          DateTime                @default(now()) @db.Timestamp(6)
+  updated_at          DateTime                @default(now()) @db.Timestamp(6)
+  completed_at        DateTime?               @db.Timestamp(6)
+
+  board    boards        @relation(fields: [board_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_cards_board")
+  column   board_columns @relation(fields: [column_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_board_cards_column")
+
+  created_by_user users  @relation("BoardCardCreatedBy", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_board_cards_created_by")
+  assigned_to_user users? @relation("BoardCardAssignedTo", fields: [assigned_to_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_cards_assigned_to")
+
+  company companies? @relation("BoardCardCompany", fields: [company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_cards_company")
+  process processes? @relation("BoardCardProcess", fields: [process_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_cards_process")
+  invoice invoices?  @relation("BoardCardInvoice", fields: [invoice_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_cards_invoice")
+
+  tags      board_card_tags[]
+  comments  board_card_comments[]
+  audit     board_card_audit[]
+  assignees board_card_assignees[]
+
+  @@index([tenant_id, board_id, column_id, sort_order], map: "IDX_board_cards_tenant_board_column_order")
+  @@index([tenant_id, assigned_to_user_id], map: "IDX_board_cards_assigned_to")
+  @@index([tenant_id, due_date], map: "IDX_board_cards_due_date")
+}
+
+model board_tags {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(100)
+  color      String?  @db.VarChar(30)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  cards board_card_tags[]
+
+  @@unique([tenant_id, name], map: "uq_board_tags_tenant_name")
+  @@index([tenant_id, name], map: "IDX_board_tags_tenant_name")
+}
+
+model board_card_tags {
+  tenant_id  String   @db.Uuid
+  card_id    String   @db.Uuid
+  tag_id     String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  card board_cards @relation(fields: [card_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_card_tags_card")
+  tag  board_tags  @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_card_tags_tag")
+
+  @@id([tenant_id, card_id, tag_id], map: "pk_board_card_tags")
+  @@index([card_id], map: "IDX_board_card_tags_card")
+  @@index([tag_id], map: "IDX_board_card_tags_tag")
+}
+
+model board_card_comments {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  card_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  comment    String
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  card board_cards @relation(fields: [card_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_card_comments_card")
+  user users       @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_board_card_comments_user")
+
+  @@index([tenant_id, card_id, created_at], map: "IDX_board_card_comments_tenant_card_created")
+}
+
+model board_card_audit {
+  id                 String                      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String                      @db.Uuid
+  card_id            String                      @db.Uuid
+  action             board_card_audit_action_enum
+  from_column_id     String?                     @db.Uuid
+  to_column_id       String?                     @db.Uuid
+  meta_json          Json?
+  created_by_user_id String                      @db.Uuid
+  created_at         DateTime                    @default(now()) @db.Timestamp(6)
+
+  card            board_cards    @relation(fields: [card_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_card_audit_card")
+  from_column     board_columns? @relation("BoardCardAuditFromColumn", fields: [from_column_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_card_audit_from_column")
+  to_column       board_columns? @relation("BoardCardAuditToColumn", fields: [to_column_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_card_audit_to_column")
+  created_by_user users          @relation("BoardCardAuditCreatedBy", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_board_card_audit_user")
+
+  @@index([tenant_id, card_id, created_at], map: "IDX_board_card_audit_tenant_card_created")
+  @@index([tenant_id, action], map: "IDX_board_card_audit_action")
+}
+
+model board_card_assignees {
+  tenant_id  String   @db.Uuid
+  card_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  card board_cards @relation(fields: [card_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_card_assignees_card")
+  user users       @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_card_assignees_user")
+
+  @@id([tenant_id, card_id, user_id], map: "pk_board_card_assignees")
+  @@index([tenant_id, user_id], map: "IDX_board_card_assignees_tenant_user")
+}
+
 model notifications {
   id                 String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id          String                    @db.Uuid
@@ -541,4 +722,28 @@ enum view_visibility_enum {
 enum view_source_enum {
   MANUAL
   AI
+}
+
+enum board_entity_type_enum {
+  NONE
+  COMPANY
+  PROCESS
+  INVOICE
+}
+
+enum board_card_priority_enum {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum board_card_audit_action_enum {
+  CREATED
+  MOVED
+  UPDATED
+  COMMENTED
+  DELETED
+  ASSIGNEES_UPDATED
+  TAGS_UPDATED
 }

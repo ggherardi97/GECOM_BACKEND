@@ -5,11 +5,18 @@ import { CreateNotificationDTO, NotificationSeverityEnum } from './dto/create.dt
 import { UpdateNotificationDTO } from './dto/update.dto';
 
 type AuthUser = {
-  id: string;
+  id?: string;
+  user_id?: string;
   tenant_id: string;
   company_id?: string | null;
   role?: user_role_enum | string | null;
 };
+
+function getAuthUserId(user: AuthUser): string {
+  const id = (user.id ?? user.user_id ?? '').trim();
+  if (!id) throw new BadRequestException('Authenticated user id is missing');
+  return id;
+}
 
 function assertAdmin(user: AuthUser) {
   const role = String(user?.role || '').toUpperCase();
@@ -30,6 +37,7 @@ export class NotificationService {
   constructor(private readonly repository: NotificationRepository) {}
 
   async findMy(user: AuthUser, query?: { unread_only?: string }) {
+    const userId = getAuthUserId(user);
     const companyId = user.company_id ? String(user.company_id) : '';
     if (!companyId) throw new BadRequestException('User does not have a company_id');
 
@@ -40,7 +48,7 @@ export class NotificationService {
 
     return this.repository.findMyActive({
       companyId,
-      userId: user.id,
+      userId,
       unreadOnly,
     });
   }
@@ -68,6 +76,7 @@ export class NotificationService {
 
   async create(user: AuthUser, dto: CreateNotificationDTO) {
     assertAdmin(user);
+    const userId = getAuthUserId(user);
 
     if (dto.expires_at && dto.starts_at) {
       const startsAt = new Date(dto.starts_at);
@@ -86,7 +95,7 @@ const created = await this.repository.create({
   starts_at: dto.starts_at ? new Date(dto.starts_at) : null,
   expires_at: dto.expires_at ? new Date(dto.expires_at) : null,
   is_active: dto.is_active ?? true,
-  createdBy: { connect: { id: user.id } },
+  createdBy: { connect: { id: userId } },
 });
 
 
@@ -131,13 +140,14 @@ const created = await this.repository.create({
   }
 
   async markRead(user: AuthUser, id: string) {
+    const userId = getAuthUserId(user);
     const existing = await this.repository.findById(id, user.tenant_id);
     if (!existing) throw new NotFoundException('Notification not found');
 
     return this.repository.markRead({
       notificationId: id,
       tenantId: user.tenant_id,
-      userId: user.id,
+      userId,
     });
   }
 }
