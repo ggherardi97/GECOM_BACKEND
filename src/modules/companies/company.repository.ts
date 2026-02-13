@@ -83,6 +83,42 @@ export type CompanySafe = Prisma.companiesGetPayload<{
   select: typeof companySelectLiteWithIncludes;
 }>;
 
+const companySelectSummary = {
+  id: true,
+  tenant_id: true,
+  company_name: true,
+  user_id: true,
+  phone: true,
+  company_number: true,
+  sector: true,
+  category: true,
+  number_of_invoices: true,
+  created_at: true,
+  primaryUser: {
+    select: {
+      id: true,
+      full_name: true,
+      email: true,
+      status: true,
+      phonenumber: true,
+      role: true,
+    },
+  },
+} satisfies Prisma.companiesSelect;
+
+export type CompanySummary = Prisma.companiesGetPayload<{
+  select: typeof companySelectSummary;
+}>;
+
+const companySelectIdName = {
+  id: true,
+  company_name: true,
+} satisfies Prisma.companiesSelect;
+
+export type CompanyIdName = Prisma.companiesGetPayload<{
+  select: typeof companySelectIdName;
+}>;
+
 @Injectable()
 export class CompanyRepository {
   private readonly logger = new Logger(CompanyRepository.name);
@@ -104,7 +140,31 @@ export class CompanyRepository {
     }
   }
 
-  async findAll(tenantId: string): Promise<CompanySafe[]> {
+  async findAll(tenantId: string, fields?: string): Promise<CompanySafe[] | CompanySummary[] | CompanyIdName[]> {
+    const mode = String(fields ?? '').toLowerCase();
+
+    if (mode === 'select') {
+      return this.prisma.companies.findMany({
+        where: {
+          tenant_id: tenantId,
+          deleted_at: null,
+        } as any,
+        orderBy: { company_name: 'asc' },
+        select: companySelectIdName,
+      });
+    }
+
+    if (mode === 'summary') {
+      return this.prisma.companies.findMany({
+        where: {
+          tenant_id: tenantId,
+          deleted_at: null,
+        } as any,
+        orderBy: { company_name: 'asc' },
+        select: companySelectSummary,
+      });
+    }
+
     return this.prisma.companies.findMany({
       where: {
         tenant_id: tenantId,

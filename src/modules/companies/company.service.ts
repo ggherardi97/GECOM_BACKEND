@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CompanyRepository, CompanySafe } from './company.repository';
+import { CompanyIdName, CompanyRepository, CompanySafe, CompanySummary } from './company.repository';
 import { CreateCompanyDTO } from './dto/create.dto';
 import { UpdateCompanyDTO } from './dto/update.dto';
 import { UpdateCompanyPictureDTO } from './dto/update-company-picture.dto';
@@ -18,8 +18,8 @@ export class CompanyService {
     return company;
   }
 
-  async findAll(tenantId: string): Promise<CompanySafe[]> {
-    return this.repository.findAll(tenantId);
+  async findAll(tenantId: string, fields?: string): Promise<CompanySafe[] | CompanySummary[] | CompanyIdName[]> {
+    return this.repository.findAll(tenantId, fields);
   }
 
   async findById(id: string, tenantId: string): Promise<CompanySafe> {

@@ -36,6 +36,12 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly board_card_comments: PrismaClient['board_card_comments'];
   public readonly board_card_audit: PrismaClient['board_card_audit'];
   public readonly board_card_assignees: PrismaClient['board_card_assignees'];
+  public readonly lead_pipeline_stages: PrismaClient['lead_pipeline_stages'];
+  public readonly leads: PrismaClient['leads'];
+  public readonly lead_stage_history: PrismaClient['lead_stage_history'];
+  public readonly lead_activities: PrismaClient['lead_activities'];
+  public readonly lead_tags: PrismaClient['lead_tags'];
+  public readonly lead_tag_links: PrismaClient['lead_tag_links'];
   public readonly transport_types: PrismaClient['transport_types'];
   public readonly transport_statuses: PrismaClient['transport_statuses'];
     public readonly saved_views: PrismaClient['saved_views'];
@@ -65,6 +71,12 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'board_card_comments',
     'board_card_audit',
     'board_card_assignees',
+    'lead_pipeline_stages',
+    'leads',
+    'lead_stage_history',
+    'lead_activities',
+    'lead_tags',
+    'lead_tag_links',
 
     // add others that have tenant_id
   ]);
@@ -179,6 +191,12 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.board_card_comments = this.client.board_card_comments;
     this.board_card_audit = this.client.board_card_audit;
     this.board_card_assignees = this.client.board_card_assignees;
+    this.lead_pipeline_stages = this.client.lead_pipeline_stages;
+    this.leads = this.client.leads;
+    this.lead_stage_history = this.client.lead_stage_history;
+    this.lead_activities = this.client.lead_activities;
+    this.lead_tags = this.client.lead_tags;
+    this.lead_tag_links = this.client.lead_tag_links;
 
   }
 

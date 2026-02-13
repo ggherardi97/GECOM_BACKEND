@@ -8,6 +8,7 @@ import {
   Delete,
   UseGuards,
   Req,
+  Query,
   BadRequestException,
   Res,
 } from '@nestjs/common';
@@ -27,7 +28,7 @@ import { CompanyService } from './company.service';
 import { CreateCompanyDTO } from './dto/create.dto';
 import { UpdateCompanyDTO } from './dto/update.dto';
 import { UpdateCompanyPictureDTO } from './dto/update-company-picture.dto';
-import { CompanySafe } from './company.repository';
+import { CompanyIdName, CompanySafe, CompanySummary } from './company.repository';
 
 @ApiTags('companies')
 @ApiBearerAuth()
@@ -57,12 +58,15 @@ export class CompanyController {
   @Get()
   @ApiOperation({
     summary: 'List all companies',
-    description: 'Returns a list of all active companies (without company_picture)',
+    description: 'Returns a list of all active companies (supports fields=summary)',
   })
   @ApiOkResponse({ description: 'List of companies' })
-  async findAll(@Req() req: Request): Promise<CompanySafe[]> {
+  async findAll(
+    @Req() req: Request,
+    @Query('fields') fields?: string,
+  ): Promise<CompanySafe[] | CompanySummary[] | CompanyIdName[]> {
     const tenantId = this.getTenantId(req);
-    return this.service.findAll(tenantId);
+    return this.service.findAll(tenantId, fields);
   }
 
   @Get('/user/:userId')

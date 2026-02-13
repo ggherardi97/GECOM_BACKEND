@@ -60,6 +60,10 @@ model users {
   board_card_comments        board_card_comments[]
   board_card_audit_entries   board_card_audit[]     @relation("BoardCardAuditCreatedBy")
   board_card_assignments     board_card_assignees[]
+  owned_leads                leads[]                @relation("LeadOwner")
+  lead_stage_history_changes lead_stage_history[]   @relation("LeadStageChangedBy")
+  lead_activities_created    lead_activities[]      @relation("LeadActivityCreatedBy")
+  lead_activities_assigned   lead_activities[]      @relation("LeadActivityAssignedTo")
 
   password_resets password_resets?
   processes       processes[]
@@ -140,6 +144,7 @@ model companies {
     notifications notifications[] @relation("CompanyNotifications")
     boards        boards[]        @relation("BoardCompany")
     board_cards   board_cards[]   @relation("BoardCardCompany")
+    converted_leads leads[]       @relation("LeadConvertedCompany")
 
 
   // opposite side of tenants.company
@@ -616,6 +621,130 @@ model board_card_assignees {
   @@index([tenant_id, user_id], map: "IDX_board_card_assignees_tenant_user")
 }
 
+model lead_pipeline_stages {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(150)
+  sort_order Int      @default(0)
+  is_won     Boolean  @default(false)
+  is_lost    Boolean  @default(false)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+
+  leads        leads[]
+  history_from lead_stage_history[] @relation("LeadStageHistoryFrom")
+  history_to   lead_stage_history[] @relation("LeadStageHistoryTo")
+
+  @@unique([tenant_id, name], map: "uq_lead_pipeline_stages_tenant_name")
+  @@unique([tenant_id, sort_order], map: "uq_lead_pipeline_stages_tenant_order")
+  @@index([tenant_id, sort_order], map: "IDX_lead_pipeline_stages_tenant_order")
+}
+
+model leads {
+  id                   String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String           @db.Uuid
+  name                 String           @db.VarChar(255)
+  type                 lead_type_enum
+  company_name         String?          @db.VarChar(255)
+  first_name           String?          @db.VarChar(150)
+  last_name            String?          @db.VarChar(150)
+  email                String?          @db.VarChar(255)
+  phone                String?          @db.VarChar(50)
+  website              String?          @db.VarChar(255)
+  source               lead_source_enum @default(MANUAL)
+  owner_user_id        String           @db.Uuid
+  status               lead_status_enum @default(NEW)
+  stage_id             String?          @db.Uuid
+  disqualify_reason    String?
+  converted_company_id String?          @db.Uuid
+  converted_contact_id String?          @db.Uuid
+  converted_at         DateTime?        @db.Timestamp(6)
+  estimated_value      Decimal?         @db.Decimal(19, 4)
+  currency_code        String?          @db.VarChar(3)
+  notes                String?
+  created_at           DateTime         @default(now()) @db.Timestamp(6)
+  updated_at           DateTime         @default(now()) @db.Timestamp(6)
+
+  owner_user         users                 @relation("LeadOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_leads_owner_user")
+  stage              lead_pipeline_stages? @relation(fields: [stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_leads_stage")
+  converted_company  companies?            @relation("LeadConvertedCompany", fields: [converted_company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_leads_converted_company")
+
+  stage_history lead_stage_history[]
+  activities    lead_activities[]
+  tags          lead_tag_links[]
+
+  @@index([tenant_id, status], map: "IDX_leads_tenant_status")
+  @@index([tenant_id, owner_user_id], map: "IDX_leads_tenant_owner")
+  @@index([tenant_id, stage_id], map: "IDX_leads_tenant_stage")
+}
+
+model lead_stage_history {
+  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String   @db.Uuid
+  lead_id            String   @db.Uuid
+  from_stage_id      String?  @db.Uuid
+  to_stage_id        String   @db.Uuid
+  changed_by_user_id String   @db.Uuid
+  changed_at         DateTime @default(now()) @db.Timestamp(6)
+  note               String?
+
+  lead            leads                 @relation(fields: [lead_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lead_stage_history_lead")
+  from_stage      lead_pipeline_stages? @relation("LeadStageHistoryFrom", fields: [from_stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_lead_stage_history_from_stage")
+  to_stage        lead_pipeline_stages  @relation("LeadStageHistoryTo", fields: [to_stage_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_lead_stage_history_to_stage")
+  changed_by_user users                 @relation("LeadStageChangedBy", fields: [changed_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_lead_stage_history_user")
+
+  @@index([tenant_id, lead_id, changed_at(sort: Desc)], map: "IDX_lead_stage_history_tenant_lead_changed")
+}
+
+model lead_activities {
+  id                  String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String                  @db.Uuid
+  lead_id             String                  @db.Uuid
+  type                lead_activity_type_enum
+  subject             String                  @db.VarChar(255)
+  description         String?
+  due_date            DateTime?               @db.Timestamp(6)
+  completed_at        DateTime?               @db.Timestamp(6)
+  created_by_user_id  String                  @db.Uuid
+  assigned_to_user_id String?                 @db.Uuid
+  created_at          DateTime                @default(now()) @db.Timestamp(6)
+  updated_at          DateTime                @default(now()) @db.Timestamp(6)
+
+  lead             leads  @relation(fields: [lead_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lead_activities_lead")
+  created_by_user  users  @relation("LeadActivityCreatedBy", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_lead_activities_created_by")
+  assigned_to_user users? @relation("LeadActivityAssignedTo", fields: [assigned_to_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_lead_activities_assigned_to")
+
+  @@index([tenant_id, lead_id, due_date], map: "IDX_lead_activities_tenant_lead_due")
+  @@index([tenant_id, assigned_to_user_id], map: "IDX_lead_activities_tenant_assigned")
+}
+
+model lead_tags {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(100)
+  color      String?  @db.VarChar(30)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  links lead_tag_links[]
+
+  @@unique([tenant_id, name], map: "uq_lead_tags_tenant_name")
+  @@index([tenant_id, name], map: "IDX_lead_tags_tenant_name")
+}
+
+model lead_tag_links {
+  tenant_id  String   @db.Uuid
+  lead_id    String   @db.Uuid
+  tag_id     String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  lead leads     @relation(fields: [lead_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lead_tag_links_lead")
+  tag  lead_tags @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_lead_tag_links_tag")
+
+  @@id([tenant_id, lead_id, tag_id], map: "pk_lead_tag_links")
+  @@index([lead_id], map: "IDX_lead_tag_links_lead")
+}
+
 model notifications {
   id                 String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id          String                    @db.Uuid
@@ -746,4 +875,34 @@ enum board_card_audit_action_enum {
   DELETED
   ASSIGNEES_UPDATED
   TAGS_UPDATED
+}
+
+enum lead_type_enum {
+  COMPANY
+  PERSON
+}
+
+enum lead_source_enum {
+  MANUAL
+  WEBSITE
+  INDICATION
+  IMPORT
+  OTHER
+}
+
+enum lead_status_enum {
+  NEW
+  WORKING
+  QUALIFIED
+  DISQUALIFIED
+  CONVERTED
+}
+
+enum lead_activity_type_enum {
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+  WHATSAPP
+  TASK
 }

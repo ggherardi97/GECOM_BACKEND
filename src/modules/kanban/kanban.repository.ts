@@ -190,15 +190,60 @@ export class KanbanRepository {
   }
 
   async updateColumn(params: { tenantId: string; columnId: string; data: Prisma.board_columnsUncheckedUpdateInput }) {
-    const updated = await this.prisma.board_columns.updateMany({
-      where: { id: params.columnId, tenant_id: params.tenantId },
-      data: params.data,
-    });
+    const requestedOrder =
+      typeof (params.data as any)?.sort_order === 'number' ? Number((params.data as any).sort_order) : null;
 
-    if (updated.count === 0) return null;
+    if (requestedOrder === null) {
+      const updated = await this.prisma.board_columns.updateMany({
+        where: { id: params.columnId, tenant_id: params.tenantId },
+        data: params.data,
+      });
 
-    return this.prisma.board_columns.findFirst({
-      where: { id: params.columnId, tenant_id: params.tenantId },
+      if (updated.count === 0) return null;
+
+      return this.prisma.board_columns.findFirst({
+        where: { id: params.columnId, tenant_id: params.tenantId },
+      });
+    }
+
+    return this.prisma.transaction(async (tx) => {
+      const db = tx as any;
+
+      const current = await db.board_columns.findFirst({
+        where: { id: params.columnId, tenant_id: params.tenantId },
+      });
+      if (!current) return null;
+
+      const columns: Array<{ id: string }> = await db.board_columns.findMany({
+        where: { tenant_id: params.tenantId, board_id: current.board_id },
+        orderBy: [{ sort_order: 'asc' }],
+        select: { id: true },
+      });
+
+      const withoutCurrent = columns.filter((c) => c.id !== params.columnId);
+      const boundedOrder = Math.max(0, Math.min(requestedOrder, withoutCurrent.length));
+      withoutCurrent.splice(boundedOrder, 0, { id: params.columnId });
+
+      // Phase 1: assign temporary distinct orders to avoid UNIQUE(board_id, sort_order) collisions.
+      for (let i = 0; i < withoutCurrent.length; i += 1) {
+        await db.board_columns.updateMany({
+          where: { id: withoutCurrent[i].id, tenant_id: params.tenantId },
+          data: { sort_order: 100000 + i },
+        });
+      }
+
+      // Phase 2: assign final normalized order. Apply payload only to the target column.
+      for (let i = 0; i < withoutCurrent.length; i += 1) {
+        const isTarget = withoutCurrent[i].id === params.columnId;
+        await db.board_columns.updateMany({
+          where: { id: withoutCurrent[i].id, tenant_id: params.tenantId },
+          data: isTarget ? { ...params.data, sort_order: i } : { sort_order: i, updated_at: new Date() },
+        });
+      }
+
+      return db.board_columns.findFirst({
+        where: { id: params.columnId, tenant_id: params.tenantId },
+      });
     });
   }
 

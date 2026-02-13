@@ -19,6 +19,12 @@ export class NotificationController {
     return this.service.adminList(req.user, query);
   }
 
+  // GET /notifications/:id
+  @Get('notifications/:id')
+  async findById(@Req() req: any, @Param('id') id: string) {
+    return this.service.findById(req.user, id);
+  }
+
   // POST /notifications (ADMIN/MANAGER)
   @Post('notifications')
   async create(@Req() req: any, @Body() body: CreateNotificationDTO) {

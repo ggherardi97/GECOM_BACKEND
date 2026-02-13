@@ -25,6 +25,11 @@ function assertAdmin(user: AuthUser) {
   }
 }
 
+function isAdmin(user: AuthUser): boolean {
+  const role = String(user?.role || '').toUpperCase();
+  return role === 'ADMIN' || role === 'MANAGER';
+}
+
 function parseDateOrNull(value?: string | null): Date | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -35,6 +40,21 @@ function parseDateOrNull(value?: string | null): Date | null | undefined {
 @Injectable()
 export class NotificationService {
   constructor(private readonly repository: NotificationRepository) {}
+
+  async findById(user: AuthUser, id: string) {
+    const notification = await this.repository.findById(id, user.tenant_id);
+    if (!notification) throw new NotFoundException('Notification not found');
+
+    if (isAdmin(user)) return notification;
+
+    const companyId = String(user.company_id ?? '').trim();
+    if (!companyId) throw new BadRequestException('User does not have a company_id');
+    if (notification.company_id !== companyId) {
+      throw new ForbiddenException('You do not have access to this notification');
+    }
+
+    return notification;
+  }
 
   async findMy(user: AuthUser, query?: { unread_only?: string }) {
     const userId = getAuthUserId(user);

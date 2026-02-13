@@ -29,6 +29,8 @@ import { TransportStatusesModule } from './modules/transport-statuses/transport-
 import { SavedViewsModule } from './modules/saved-views/saved-views.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { KanbanModule } from './modules/kanban/kanban.module';
+import { LeadsModule } from './modules/leads/leads.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -65,6 +67,8 @@ import { KanbanModule } from './modules/kanban/kanban.module';
     TransportsModule,
     NotificationModule,
     KanbanModule,
+    LeadsModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [
