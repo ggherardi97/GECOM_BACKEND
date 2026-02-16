@@ -128,7 +128,12 @@ export class AuthService {
     }
   }
 
-  async createOrUpdateSession(tenant_id: string, user_id: string, refresh_token: string, req: Request) {
+  async createOrUpdateSession(
+    tenant_id: string,
+    user_id: string,
+    refresh_token: string,
+    req: Request
+  ) {
     const ip =
       (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress;
 
@@ -170,7 +175,8 @@ export class AuthService {
       // Always return the same message (avoid user enumeration)
       if (!user) {
         return {
-          message: 'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
+          message:
+            'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
         };
       }
 
@@ -196,23 +202,26 @@ export class AuthService {
         .replace(/{{resetLink}}/g, resetLink)
         .replace(/{{year}}/g, currentYear.toString());
 
-      await this.mailerService.sendWelcomeEmail(
-        user.email,
-        'Redefinição de Senha - GECOM',
-        html
-      );
+      await this.mailerService.sendWelcomeEmail(user.email, 'Redefinição de Senha - GECOM', html);
 
       return {
-        message: 'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
+        message:
+          'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
       };
     } catch {
       return {
-        message: 'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
+        message:
+          'Se o email existir em nossa base, você receberá as instruções para redefinir sua senha.',
       };
     }
   }
 
-  async resetPassword(user_id: string, token: string, new_password: string, confirm_password: string) {
+  async resetPassword(
+    user_id: string,
+    token: string,
+    new_password: string,
+    confirm_password: string
+  ) {
     if (new_password !== confirm_password) {
       throw new BadRequestException('As senhas não coincidem');
     }
@@ -237,8 +246,11 @@ export class AuthService {
       throw new BadRequestException('Token de reset expirado. Solicite um novo reset de senha.');
     }
 
-    // UserService hashes internally
-    await this.userService.updatePassword(tenantId, user_id, new_password);
+    if (user.first_access) {
+      await this.userService.activateFirstAccess(tenantId, user_id, new_password);
+    } else {
+      await this.userService.updatePassword(tenantId, user_id, new_password);
+    }
 
     await this.passwordResetService.deleteToken(user_id);
 
