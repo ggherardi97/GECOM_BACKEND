@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bem-vindo ao GECOM</title>
+    <!--[if mso]>
+      <noscript>
+        <xml>
+          <o:OfficeDocumentSettings>
+            <o:PixelsPerInch>96</o:PixelsPerInch>
+          </o:OfficeDocumentSettings>
+        </xml>
+      </noscript>
+    <![endif]-->
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+      font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+    "
+  >
+    <!-- Wrapper Table -->
+    <table
+      role="presentation"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      width="100%"
+      style="margin: 0; padding: 0; background-color: #f5f5f5"
+    >
+      <tr>
+        <td align="center" style="padding: 40px 15px">
+          <!-- Main Container -->
+          <table
+            role="presentation"
+            cellpadding="0"
+            cellspacing="0"
+            border="0"
+            style="
+              width: 100%;
+              max-width: 600px;
+              background-color: #ffffff;
+              border: 1px solid #e0e0e0;
+            "
+          >
+            <!-- Header -->
+            <tr>
+              <td style="background-color: #2c3e50; padding: 30px; text-align: center">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td align="center">
+                      <h1
+                        style="
+                          margin: 0;
+                          color: #ffffff;
+                          font-size: 28px;
+                          font-weight: normal;
+                          letter-spacing: 1px;
+                        "
+                      >
+                        GECOM
+                      </h1>
+                      <p
+                        style="
+                          margin: 10px 0 0;
+                          color: #ecf0f1;
+                          font-size: 14px;
+                          text-transform: uppercase;
+                          letter-spacing: 0.5px;
+                        "
+                      >
+                        Sistema de Gestão Corporativa
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Content -->
+            <tr>
+              <td style="padding: 40px 30px">
+                <!-- Greeting -->
+                <div style="margin-bottom: 30px">
+                  <h2
+                    style="margin: 0 0 20px; color: #2c3e50; font-size: 20px; font-weight: normal"
+                  >
+                    Olá, {{name}}!
+                  </h2>
+                  <p style="margin: 0 0 15px; color: #34495e; font-size: 16px; line-height: 1.6">
+                    Sua conta no sistema GECOM foi criada com sucesso.
+                  </p>
+                  <p style="margin: 0; color: #34495e; font-size: 16px; line-height: 1.6">
+                    Para realizar seu primeiro acesso, é necessário definir uma senha segura
+                    clicando no botão abaixo.
+                  </p>
+                </div>
+
+                <!-- Instructions -->
+                <div
+                  style="
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                    padding: 25px;
+                    margin: 30px 0;
+                  "
+                >
+                  <h3 style="margin: 0 0 15px; color: #2c3e50; font-size: 16px; font-weight: 600">
+                    Defina sua Senha
+                  </h3>
+                  <p style="margin: 0 0 10px; color: #495057; font-size: 14px; line-height: 1.5">
+                    Clique no botão para criar sua senha de acesso:
+                  </p>
+                  <p style="margin: 0; color: #6c757d; font-size: 13px; line-height: 1.4">
+                    <strong>Importante:</strong> Este link expira em 24 horas.
+                  </p>
+                </div>
+
+                <!-- CTA Button -->
+                <div style="text-align: center; margin: 35px 0">
+                  <table
+                    role="presentation"
+                    cellpadding="0"
+                    cellspacing="0"
+                    border="0"
+                    style="margin: 0 auto"
+                  >
+                    <tr>
+                      <td style="background-color: #27ae60; border-radius: 4px">
+                        <a
+                          href="{{resetLink}}"
+                          style="
+                            display: inline-block;
+                            color: #ffffff;
+                            text-decoration: none;
+                            padding: 14px 30px;
+                            font-size: 16px;
+                            font-weight: normal;
+                            text-transform: uppercase;
+                            letter-spacing: 0.5px;
+                          "
+                        >
+                          Definir Minha Senha
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </div>
+
+                <!-- Alternative Link -->
+                <div style="border-top: 1px solid #dee2e6; padding-top: 25px; margin-top: 30px">
+                  <h4 style="margin: 0 0 15px; color: #495057; font-size: 14px; font-weight: 600">
+                    Link Alternativo
+                  </h4>
+                  <p style="margin: 0 0 10px; color: #6c757d; font-size: 14px; line-height: 1.5">
+                    Se o botão não funcionar, copie e cole o link abaixo no seu navegador:
+                  </p>
+                  <div
+                    style="
+                      background-color: #f8f9fa;
+                      border: 1px solid #dee2e6;
+                      padding: 15px;
+                      word-break: break-all;
+                    "
+                  >
+                    <a
+                      href="{{resetLink}}"
+                      style="
+                        color: #007bff;
+                        text-decoration: none;
+                        font-size: 12px;
+                        font-family: monospace;
+                      "
+                    >
+                      {{resetLink}}
+                    </a>
+                  </div>
+                </div>
+
+                <!-- Security Note -->
+                <div
+                  style="
+                    background-color: #fff3cd;
+                    border: 1px solid #ffeaa7;
+                    padding: 20px;
+                    margin: 25px 0;
+                  "
+                >
+                  <p style="margin: 0; color: #856404; font-size: 13px; line-height: 1.5">
+                    <strong>Dica de Segurança:</strong> Nunca compartilhe sua senha com ninguém. A
+                    equipe GECOM nunca solicitará sua senha por email ou telefone.
+                  </p>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td
+                style="background-color: #f8f9fa; padding: 25px 30px; border-top: 1px solid #dee2e6"
+              >
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td align="center">
+                      <p style="margin: 0 0 15px; color: #6c757d; font-size: 14px">
+                        Central de Suporte
+                      </p>
+                      <p style="margin: 0 0 20px; color: #495057; font-size: 14px">
+                        <a
+                          href="mailto:suporte@gecom.com.br"
+                          style="color: #007bff; text-decoration: none"
+                        >
+                          suporte@gecom.com.br
+                        </a>
+                      </p>
+                      <div style="border-top: 1px solid #dee2e6; padding-top: 20px">
+                        <p style="margin: 0; color: #adb5bd; font-size: 12px">
+                          © {{year}} GECOM - Todos os direitos reservados
+                        </p>
+                        <p style="margin: 5px 0 0; color: #adb5bd; font-size: 11px">
+                          Email automático. Não responda.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

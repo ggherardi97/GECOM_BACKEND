@@ -7,6 +7,11 @@ import { UpdateMyProfileDTO } from './dto/update-my-profile.dto';
 import { UpdateProfilePictureDTO } from './dto/update-profile-picture.dto';
 import { UserRole, UserStatusEnum } from './enums';
 import { UserRepository, UserSafe } from './user.repository';
+import { PasswordResetService } from '../password-reset/password-reset.service';
+import { MailerService } from '../mailer/mailer.service';
+import { generateToken } from '../utils/generate-token';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 
@@ -14,7 +19,7 @@ function decodeBase64ToBuffer(input: string): Buffer {
   const raw = String(input ?? '').trim();
   if (!raw) throw new BadRequestException('Image base64 is required.');
 
-  const base64 = raw.includes('base64,') ? raw.split('base64,').pop() ?? '' : raw;
+  const base64 = raw.includes('base64,') ? (raw.split('base64,').pop() ?? '') : raw;
 
   const buf = Buffer.from(base64, 'base64');
   if (!buf || buf.length === 0) throw new BadRequestException('Invalid base64 image.');
@@ -23,20 +28,33 @@ function decodeBase64ToBuffer(input: string): Buffer {
   return buf;
 }
 
-
 @Injectable()
 export class UserService {
   constructor(
     private readonly repository: UserRepository,
     private readonly crypto: CryptoService,
+    private readonly passwordResetService: PasswordResetService,
+    private readonly mailerService: MailerService
   ) {}
 
   async findAll(tenantId: string, query?: { company_id?: string; role?: string; status?: string }) {
-    const role = query?.role != null && String(query.role).trim().length > 0 ? String(query.role).toUpperCase() : undefined;
-    const status = query?.status != null && String(query.status).trim().length > 0 ? String(query.status).toUpperCase() : undefined;
+    const role =
+      query?.role != null && String(query.role).trim().length > 0
+        ? String(query.role).toUpperCase()
+        : undefined;
+    const status =
+      query?.status != null && String(query.status).trim().length > 0
+        ? String(query.status).toUpperCase()
+        : undefined;
 
-    const roleEnum = role && (user_role_enum as any)[role] ? ((user_role_enum as any)[role] as user_role_enum) : undefined;
-    const statusEnum = status && (user_status_enum as any)[status] ? ((user_status_enum as any)[status] as user_status_enum) : undefined;
+    const roleEnum =
+      role && (user_role_enum as any)[role]
+        ? ((user_role_enum as any)[role] as user_role_enum)
+        : undefined;
+    const statusEnum =
+      status && (user_status_enum as any)[status]
+        ? ((user_status_enum as any)[status] as user_status_enum)
+        : undefined;
 
     return this.repository.findAll({
       tenant_id: tenantId,
@@ -53,25 +71,29 @@ export class UserService {
   }
 
   async findByEmail(email: string): Promise<users> {
-    const normalized = String(email ?? '').trim().toLowerCase();
+    const normalized = String(email ?? '')
+      .trim()
+      .toLowerCase();
     const user = await this.repository.findByEmail(normalized);
     if (!user) throw new NotFoundException('User not found.');
     return user;
   }
 
   async create(tenantId: string, data: CreateUserDTO): Promise<UserSafe> {
-    const email = String(data.email ?? '').trim().toLowerCase();
+    const email = String(data.email ?? '')
+      .trim()
+      .toLowerCase();
     if (!email) throw new BadRequestException('Email is required.');
 
     const hashedPassword = await this.crypto.hash(data.password);
 
-    return this.repository.create({
+    const user = await this.repository.create({
       tenant_id: tenantId,
       email,
       password: hashedPassword,
       full_name: data.full_name,
-      role: ((data.role ?? UserRole.USER) as any) as user_role_enum,
-      status: ((data.status ?? UserStatusEnum.ACTIVE) as any) as user_status_enum,
+      role: (data.role ?? UserRole.USER) as any as user_role_enum,
+      status: (data.status ?? UserStatusEnum.ACTIVE) as any as user_status_enum,
       company_id: data.company_id ?? null,
       phonenumber: data.phonenumber ?? null,
       first_access: data.first_access ?? true,
@@ -80,6 +102,39 @@ export class UserService {
       acept_terms: false,
       profile_picture: null,
     } satisfies Prisma.usersUncheckedCreateInput);
+
+    try {
+      const resetToken = generateToken(32);
+      const tokenHash = await this.crypto.hash(resetToken);
+
+      await this.passwordResetService.generateResetToken({
+        tenant_id: tenantId,
+        token: tokenHash,
+        user_id: user.id,
+      } as any);
+
+      const templatePath = join(__dirname, '..', 'mailer', 'templates', 'first-access.html');
+
+      const template = readFileSync(templatePath, 'utf8');
+
+      const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}&userId=${user.id}`;
+      const currentYear = new Date().getFullYear();
+
+      const html = template
+        .replace(/{{name}}/g, user.full_name)
+        .replace(/{{resetLink}}/g, resetLink)
+        .replace(/{{year}}/g, currentYear.toString());
+
+      await this.mailerService.sendWelcomeEmail(
+        user.email,
+        'Bem-vindo ao GECOM - Definição de Senha',
+        html
+      );
+    } catch (error) {
+      console.error('Failed to send first access email:', error);
+    }
+
+    return user;
   }
 
   async update(tenantId: string, id: string, data: UpdateUserDTO): Promise<UserSafe> {
@@ -89,8 +144,12 @@ export class UserService {
       ...(data.company_id !== undefined ? { company_id: data.company_id ?? null } : {}),
       ...(data.phonenumber !== undefined ? { phonenumber: data.phonenumber ?? null } : {}),
       ...(data.first_access !== undefined ? { first_access: data.first_access } : {}),
-      ...(data.role != null ? { role: (String(data.role).toUpperCase() as any) as user_role_enum } : {}),
-      ...(data.status != null ? { status: (String(data.status).toUpperCase() as any) as user_status_enum } : {}),
+      ...(data.role != null
+        ? { role: String(data.role).toUpperCase() as any as user_role_enum }
+        : {}),
+      ...(data.status != null
+        ? { status: String(data.status).toUpperCase() as any as user_status_enum }
+        : {}),
     };
 
     if (data.password != null && String(data.password).trim().length > 0) {
@@ -105,12 +164,16 @@ export class UserService {
   }
 
   async validateUser(email: string, password: string): Promise<users> {
-    const normalized = String(email ?? '').trim().toLowerCase();
+    const normalized = String(email ?? '')
+      .trim()
+      .toLowerCase();
     const user = await this.repository.findByEmail(normalized);
 
     if (!user) throw new NotFoundException('Invalid credentials.');
-    if (user.status === user_status_enum.DELETED) throw new NotFoundException('Invalid credentials.');
-    if (user.status !== user_status_enum.ACTIVE) throw new BadRequestException('User is not active.');
+    if (user.status === user_status_enum.DELETED)
+      throw new NotFoundException('Invalid credentials.');
+    if (user.status !== user_status_enum.ACTIVE)
+      throw new BadRequestException('User is not active.');
 
     const ok = await this.crypto.verify(password, user.password);
     if (!ok) throw new NotFoundException('Invalid credentials.');
@@ -138,11 +201,24 @@ export class UserService {
     return this.repository.updatePassword(tenantId, id, hashed);
   }
 
+  async activateFirstAccess(tenantId: string, id: string, password: string): Promise<UserSafe> {
+    const hashed = await this.crypto.hash(password);
+    return this.repository.update(tenantId, id, {
+      password: hashed,
+      status: user_status_enum.ACTIVE,
+      first_access: false,
+    });
+  }
+
   // -----------------------
   // NEW: "My profile" APIs
   // -----------------------
 
-  async updateMyProfile(tenantId: string, userId: string, dto: UpdateMyProfileDTO): Promise<UserSafe> {
+  async updateMyProfile(
+    tenantId: string,
+    userId: string,
+    dto: UpdateMyProfileDTO
+  ): Promise<UserSafe> {
     const patch: Prisma.usersUncheckedUpdateInput = {
       ...(dto.full_name != null ? { full_name: dto.full_name } : {}),
       ...(dto.phonenumber !== undefined ? { phonenumber: dto.phonenumber ?? null } : {}),
@@ -160,36 +236,40 @@ export class UserService {
   async acceptMyTerms(tenantId: string, userId: string): Promise<UserSafe> {
     return this.repository.acceptTerms(tenantId, userId);
   }
-async getProfilePicture(userId: string, tenantId: string) {
-  const user = await this.repository.findProfilePictureById(userId, tenantId);
+  async getProfilePicture(userId: string, tenantId: string) {
+    const user = await this.repository.findProfilePictureById(userId, tenantId);
 
-  if (!user) {
-    throw new NotFoundException('User not found');
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return {
+      profile_picture: user.profile_picture,
+    };
   }
 
-  return {
-    profile_picture: user.profile_picture,
-  };
-}
-
-  async updateMyProfilePicture(tenantId: string, userId: string, dto: UpdateProfilePictureDTO): Promise<UserSafe> {
+  async updateMyProfilePicture(
+    tenantId: string,
+    userId: string,
+    dto: UpdateProfilePictureDTO
+  ): Promise<UserSafe> {
     if (!dto.base64 || String(dto.base64).trim().length === 0) {
       // allow "clear" via empty
       return this.repository.updateProfilePicture(tenantId, userId, null);
     }
 
-const buffer = decodeBase64ToBuffer(dto.base64);
-return this.repository.updateProfilePicture(tenantId, userId, buffer);
-
+    const buffer = decodeBase64ToBuffer(dto.base64);
+    return this.repository.updateProfilePicture(tenantId, userId, buffer);
   }
 
-  async getMyProfilePictureBase64(tenantId: string, userId: string): Promise<{ base64: string | null }> {
-  const bytes = await this.repository.getProfilePicture(tenantId, userId);
-if (!bytes) return { base64: null };
+  async getMyProfilePictureBase64(
+    tenantId: string,
+    userId: string
+  ): Promise<{ base64: string | null }> {
+    const bytes = await this.repository.getProfilePicture(tenantId, userId);
+    if (!bytes) return { base64: null };
 
-const base64 = Buffer.from(bytes).toString('base64');
-return { base64 };
-
-}
-
+    const base64 = Buffer.from(bytes).toString('base64');
+    return { base64 };
+  }
 }
