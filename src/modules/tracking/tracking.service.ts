@@ -121,22 +121,22 @@ export class TrackingService {
     this.providers.set(this.marineTrafficProvider.provider, this.marineTrafficProvider);
   }
 
-  async getTrackingSnapshot(params: { tenantId: string; processId: string; forceRefresh?: boolean }): Promise<TrackingSnapshot> {
+  async getTrackingSnapshot(params: { tenantId: string; transportId: string; forceRefresh?: boolean }): Promise<TrackingSnapshot> {
     await this.assertPremiumEnabled(params.tenantId);
-    await this.assertProcessExists(params.tenantId, params.processId);
+    await this.assertTransportExists(params.tenantId, params.transportId);
 
     const link = await this.prisma.tracking_links.findFirst({
       where: {
         tenant_id: params.tenantId,
-        process_id: params.processId,
+        transport_id: params.transportId,
       },
     });
 
     if (!link) {
-      throw new NotFoundException('Tracking link not found for this process.');
+      throw new NotFoundException('Tracking link not found for this transport.');
     }
 
-    const cacheKey = this.getCacheKey(params.tenantId, params.processId);
+    const cacheKey = this.getCacheKey(params.tenantId, params.transportId);
     if (!params.forceRefresh) {
       const cached = this.cache.get(cacheKey);
       if (cached) return cached;
@@ -144,7 +144,7 @@ export class TrackingService {
 
     const refreshed = await this.refreshLink({
       tenantId: params.tenantId,
-      processId: params.processId,
+      transportId: params.transportId,
       link,
       allowFallback: true,
     });
@@ -153,15 +153,15 @@ export class TrackingService {
     return refreshed;
   }
 
-  async upsertTrackingLink(params: { tenantId: string; processId: string; dto: UpsertTrackingLinkDto }) {
+  async upsertTrackingLink(params: { tenantId: string; transportId: string; dto: UpsertTrackingLinkDto }) {
     await this.assertPremiumEnabled(params.tenantId);
-    await this.assertProcessExists(params.tenantId, params.processId);
+    await this.assertTransportExists(params.tenantId, params.transportId);
     this.assertModeProviderCompatibility(params.dto.mode as TrackingMode, params.dto.provider as TrackingProviderName);
 
     const existing = await this.prisma.tracking_links.findFirst({
       where: {
         tenant_id: params.tenantId,
-        process_id: params.processId,
+        transport_id: params.transportId,
       },
     });
 
@@ -182,7 +182,7 @@ export class TrackingService {
       : await this.prisma.tracking_links.create({
           data: {
             tenant_id: params.tenantId,
-            process_id: params.processId,
+            transport_id: params.transportId,
             mode: params.dto.mode as tracking_mode_enum,
             provider: params.dto.provider as tracking_provider_enum,
             external_id: params.dto.externalId,
@@ -191,11 +191,11 @@ export class TrackingService {
           },
         });
 
-    this.cache.delete(this.getCacheKey(params.tenantId, params.processId));
+    this.cache.delete(this.getCacheKey(params.tenantId, params.transportId));
 
     return {
       id: link.id,
-      processId: link.process_id,
+      transportId: link.transport_id,
       mode: link.mode,
       provider: link.provider,
       externalId: link.external_id,
@@ -203,36 +203,36 @@ export class TrackingService {
     };
   }
 
-  async deleteTrackingLink(params: { tenantId: string; processId: string }) {
+  async deleteTrackingLink(params: { tenantId: string; transportId: string }) {
     await this.assertPremiumEnabled(params.tenantId);
-    await this.assertProcessExists(params.tenantId, params.processId);
+    await this.assertTransportExists(params.tenantId, params.transportId);
 
     await this.prisma.tracking_links.deleteMany({
       where: {
         tenant_id: params.tenantId,
-        process_id: params.processId,
+        transport_id: params.transportId,
       },
     });
 
-    this.cache.delete(this.getCacheKey(params.tenantId, params.processId));
+    this.cache.delete(this.getCacheKey(params.tenantId, params.transportId));
     return { ok: true };
   }
 
   // Prepared for future cron scheduling.
-  async refreshTrackedProcess(tenantId: string, processId: string): Promise<TrackingSnapshot> {
-    return this.getTrackingSnapshot({ tenantId, processId, forceRefresh: true });
+  async refreshTrackedTransport(tenantId: string, transportId: string): Promise<TrackingSnapshot> {
+    return this.getTrackingSnapshot({ tenantId, transportId, forceRefresh: true });
   }
 
   private async refreshLink(params: {
     tenantId: string;
-    processId: string;
+    transportId: string;
     link: {
       id: string;
       mode: tracking_mode_enum;
       provider: tracking_provider_enum;
       external_id: string;
       last_snapshot_json: Prisma.JsonValue | null;
-      process_id: string;
+      transport_id: string;
     };
     allowFallback: boolean;
   }): Promise<TrackingSnapshot> {
@@ -257,7 +257,7 @@ export class TrackingService {
       this.enforceProviderRateLimit(params.tenantId, providerName);
       const snapshot = await provider.fetchSnapshot({
         tenantId: params.tenantId,
-        processId: params.processId,
+        transportId: params.transportId,
         externalId: params.link.external_id,
         apiKey: config.api_key,
       });
@@ -281,7 +281,7 @@ export class TrackingService {
           fallbackReason: (error as Error).message,
         });
         this.logger.warn(
-          `Tracking refresh fallback to stale snapshot for tenant=${params.tenantId} process=${params.processId} provider=${providerName}`,
+          `Tracking refresh fallback to stale snapshot for tenant=${params.tenantId} transport=${params.transportId} provider=${providerName}`,
         );
         return fallback;
       }
@@ -301,14 +301,14 @@ export class TrackingService {
     }
   }
 
-  private async assertProcessExists(tenantId: string, processId: string): Promise<void> {
-    const process = await this.prisma.processes.findFirst({
-      where: { tenant_id: tenantId, id: processId },
+  private async assertTransportExists(tenantId: string, transportId: string): Promise<void> {
+    const transport = await this.prisma.transports.findFirst({
+      where: { tenant_id: tenantId, id: transportId },
       select: { id: true },
     });
 
-    if (!process) {
-      throw new NotFoundException('Process not found.');
+    if (!transport) {
+      throw new NotFoundException('Transport not found.');
     }
   }
 
@@ -402,7 +402,7 @@ export class TrackingService {
     return parsed.toISOString();
   }
 
-  private getCacheKey(tenantId: string, processId: string): string {
-    return `${tenantId}:${processId}`;
+  private getCacheKey(tenantId: string, transportId: string): string {
+    return `${tenantId}:${transportId}`;
   }
 }

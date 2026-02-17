@@ -191,7 +191,6 @@ model processes {
   companies     companies      @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
   process_types process_types? @relation(fields: [process_type_id], references: [id], onUpdate: NoAction, map: "FK_ded16035eaef6f141a36aea73b3")
   transports    transports[]
-  tracking_links tracking_links[]
   boards        boards[]      @relation("BoardProcess")
   board_cards   board_cards[] @relation("BoardCardProcess")
 
@@ -409,6 +408,7 @@ model transports {
   transport_types     transport_types?    @relation(fields: [transport_type_id], references: [id], onUpdate: NoAction, map: "FK_110fc9c0bc02da7801eb079a295")
   transport_statuses  transport_statuses? @relation(fields: [transport_status_id], references: [id], onUpdate: NoAction, map: "FK_185a53c3b7a6faf5550be54c602")
   processes           processes           @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_9c0f227592aee16d3f035cc846a")
+  tracking_links      tracking_links[]
 
   @@index([tenant_id], map: "IDX_transports_tenant_id")
 }
@@ -430,7 +430,7 @@ model tracking_configs {
 model tracking_links {
   id                 String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id          String                 @db.Uuid
-  process_id         String                 @db.Uuid
+  transport_id       String                 @db.Uuid
   mode               tracking_mode_enum
   provider           tracking_provider_enum
   external_id        String                 @db.VarChar(120)
@@ -439,11 +439,11 @@ model tracking_links {
   created_at         DateTime               @default(now()) @db.Timestamptz(6)
   updated_at         DateTime               @default(now()) @db.Timestamptz(6)
 
-  process processes @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tracking_links_process")
+  transport transports @relation(fields: [transport_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tracking_links_transport")
 
-  @@unique([tenant_id, process_id], map: "uq_tracking_links_tenant_process")
+  @@unique([tenant_id, transport_id], map: "uq_tracking_links_tenant_transport")
   @@index([tenant_id], map: "idx_tracking_links_tenant")
-  @@index([process_id], map: "idx_tracking_links_process")
+  @@index([transport_id], map: "idx_tracking_links_transport")
   @@index([tenant_id, mode, provider], map: "idx_tracking_links_tenant_mode_provider")
   @@map("tracking_links")
 }

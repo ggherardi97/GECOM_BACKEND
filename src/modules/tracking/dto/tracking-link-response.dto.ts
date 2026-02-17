@@ -5,7 +5,7 @@ export class TrackingLinkResponseDto {
   id!: string;
 
   @ApiProperty()
-  processId!: string;
+  transportId!: string;
 
   @ApiProperty({ enum: ['AIR', 'SEA'] })
   mode!: 'AIR' | 'SEA';

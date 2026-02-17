@@ -26,43 +26,43 @@ type AuthUser = {
 @ApiTags('tracking')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('processes/:processId/tracking')
+@Controller('transports/:transportId/tracking')
 export class TrackingController {
   constructor(private readonly trackingService: TrackingService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get normalized tracking snapshot for a process' })
+  @ApiOperation({ summary: 'Get normalized tracking snapshot for a transport' })
   async getTracking(
     @Req() req: Request,
-    @Param('processId') processId: string,
+    @Param('transportId') transportId: string,
     @Query() query: GetTrackingQueryDto,
   ) {
     const user = this.getUser(req);
     return this.trackingService.getTrackingSnapshot({
       tenantId: user.tenant_id,
-      processId,
+      transportId,
       forceRefresh: query.refresh === true,
     });
   }
 
   @Put('link')
-  @ApiOperation({ summary: 'Create or update process tracking link' })
-  async upsertLink(@Req() req: Request, @Param('processId') processId: string, @Body() dto: UpsertTrackingLinkDto) {
+  @ApiOperation({ summary: 'Create or update transport tracking link' })
+  async upsertLink(@Req() req: Request, @Param('transportId') transportId: string, @Body() dto: UpsertTrackingLinkDto) {
     const user = this.getUser(req);
     return this.trackingService.upsertTrackingLink({
       tenantId: user.tenant_id,
-      processId,
+      transportId,
       dto,
     });
   }
 
   @Delete('link')
-  @ApiOperation({ summary: 'Delete process tracking link' })
-  async deleteLink(@Req() req: Request, @Param('processId') processId: string) {
+  @ApiOperation({ summary: 'Delete transport tracking link' })
+  async deleteLink(@Req() req: Request, @Param('transportId') transportId: string) {
     const user = this.getUser(req);
     return this.trackingService.deleteTrackingLink({
       tenantId: user.tenant_id,
-      processId,
+      transportId,
     });
   }
 

@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS tracking_configs (
 CREATE TABLE IF NOT EXISTS tracking_links (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id uuid NOT NULL,
-  process_id uuid NOT NULL,
+  transport_id uuid NOT NULL,
   mode tracking_mode_enum NOT NULL,
   provider tracking_provider_enum NOT NULL,
   external_id varchar(120) NOT NULL,
@@ -48,11 +48,11 @@ CREATE TABLE IF NOT EXISTS tracking_links (
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'fk_tracking_links_process'
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_tracking_links_transport'
   ) THEN
     ALTER TABLE tracking_links
-      ADD CONSTRAINT fk_tracking_links_process
-      FOREIGN KEY (process_id) REFERENCES processes(id)
+      ADD CONSTRAINT fk_tracking_links_transport
+      FOREIGN KEY (transport_id) REFERENCES transports(id)
       ON DELETE CASCADE ON UPDATE NO ACTION;
   END IF;
 END$$;
@@ -69,17 +69,17 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'uq_tracking_links_tenant_process'
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_tracking_links_tenant_transport'
   ) THEN
     ALTER TABLE tracking_links
-      ADD CONSTRAINT uq_tracking_links_tenant_process UNIQUE (tenant_id, process_id);
+      ADD CONSTRAINT uq_tracking_links_tenant_transport UNIQUE (tenant_id, transport_id);
   END IF;
 END$$;
 `);
 
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_tracking_configs_tenant ON tracking_configs (tenant_id)`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_tracking_links_tenant ON tracking_links (tenant_id)`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_tracking_links_process ON tracking_links (process_id)`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_tracking_links_transport ON tracking_links (transport_id)`);
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS idx_tracking_links_tenant_mode_provider ON tracking_links (tenant_id, mode, provider)`,
     );
@@ -87,13 +87,13 @@ END$$;
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP INDEX IF EXISTS idx_tracking_links_tenant_mode_provider`);
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_tracking_links_process`);
+    await queryRunner.query(`DROP INDEX IF EXISTS idx_tracking_links_transport`);
     await queryRunner.query(`DROP INDEX IF EXISTS idx_tracking_links_tenant`);
     await queryRunner.query(`DROP INDEX IF EXISTS idx_tracking_configs_tenant`);
 
-    await queryRunner.query(`ALTER TABLE tracking_links DROP CONSTRAINT IF EXISTS uq_tracking_links_tenant_process`);
+    await queryRunner.query(`ALTER TABLE tracking_links DROP CONSTRAINT IF EXISTS uq_tracking_links_tenant_transport`);
     await queryRunner.query(`ALTER TABLE tracking_configs DROP CONSTRAINT IF EXISTS uq_tracking_configs_tenant_provider`);
-    await queryRunner.query(`ALTER TABLE tracking_links DROP CONSTRAINT IF EXISTS fk_tracking_links_process`);
+    await queryRunner.query(`ALTER TABLE tracking_links DROP CONSTRAINT IF EXISTS fk_tracking_links_transport`);
 
     await queryRunner.query(`DROP TABLE IF EXISTS tracking_links`);
     await queryRunner.query(`DROP TABLE IF EXISTS tracking_configs`);

@@ -25,7 +25,7 @@ export interface TrackingSnapshot {
 
 export interface ProviderSnapshotInput {
   tenantId: string;
-  processId: string;
+  transportId: string;
   externalId: string;
   apiKey: string;
 }
