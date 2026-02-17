@@ -39,7 +39,7 @@ export const gridDefinitionSchema = z
     pageSize: z.number().int().min(1).max(200).default(50),
     aggregations: z.array(gridAggregationSchema).max(10).optional(),
   })
-  .strict();
+  .passthrough();
 
 export const dashboardWidgetSchema = z
   .object({

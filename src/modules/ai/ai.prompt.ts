@@ -43,9 +43,11 @@ export function buildDashboardSystemPrompt(entityDictionary: EntityDictionaryEnt
     'Voce gera especificacoes estruturadas de dashboard para backend executar com Prisma.',
     ...commonRules,
     'Retorne no formato: {"dashboardSpec": {"title": "...", "widgets": [...]}, "insights_ptbr": "..."}.',
+    'Cada widget DEVE conter obrigatoriamente: id, type, title, entityName, metric.',
     'Cada widget deve ter type em: kpi, timeSeries, bar, pie, topN.',
     'TopN deve respeitar limite maximo 50.',
     'Use metric em: count, sum, avg.',
+    'Nao use chaves alternativas como entity, timeframe, limit, top_n, group_by_field.',
     'Nao inclua SQL nem instrucoes de execucao.',
     `Entidades e campos permitidos: ${JSON.stringify(
       entityDictionary.map((entity) => ({

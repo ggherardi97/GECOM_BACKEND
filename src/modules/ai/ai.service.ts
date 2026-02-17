@@ -246,7 +246,8 @@ export class AiService {
       }),
     });
 
-    const parsed = gridFilterAiResponseSchema.safeParse(aiJson);
+    const normalizedAiPayload = this.normalizeAiGridFilterPayload(aiJson);
+    const parsed = gridFilterAiResponseSchema.safeParse(normalizedAiPayload);
     if (!parsed.success) {
       this.logger.warn(`Invalid grid-filter payload from AI: ${parsed.error.message}`);
       throw new BadRequestException('Nao foi possivel interpretar o filtro solicitado.');
@@ -260,6 +261,53 @@ export class AiService {
     };
   }
 
+  private normalizeAiGridFilterPayload(payload: unknown): unknown {
+    if (!payload || typeof payload !== 'object') {
+      return payload;
+    }
+
+    const root = payload as Record<string, any>;
+    const definition = root.definition_json;
+
+    if (!definition || typeof definition !== 'object') {
+      return payload;
+    }
+
+    const normalizedDefinition = { ...(definition as Record<string, any>) };
+
+    if (Array.isArray(normalizedDefinition.sort)) {
+      normalizedDefinition.sort = normalizedDefinition.sort.map((item: any) => {
+        if (!item || typeof item !== 'object') {
+          return item;
+        }
+
+        const rawDirection = item.direction ?? item.dir;
+        const normalizedDirection =
+          typeof rawDirection === 'string'
+            ? rawDirection.toLowerCase() === 'desc'
+              ? 'desc'
+              : 'asc'
+            : item.direction;
+
+        const normalizedItem = {
+          ...item,
+          direction: normalizedDirection,
+        };
+
+        if ('dir' in normalizedItem) {
+          delete normalizedItem.dir;
+        }
+
+        return normalizedItem;
+      });
+    }
+
+    return {
+      ...root,
+      definition_json: normalizedDefinition,
+    };
+  }
+
   async generateDashboard(input: { user: AuthUser; naturalLanguage: string; entityHints?: string[] }) {
     const aiJson = await this.aiClient.generateJson({
       model: this.filterModel,
@@ -270,16 +318,21 @@ export class AiService {
       }),
     });
 
-    const parsed = dashboardAiResponseSchema.safeParse(aiJson);
+    const normalizedAiPayload = this.normalizeAiDashboardPayload(aiJson);
+    const parsed = dashboardAiResponseSchema.safeParse(normalizedAiPayload);
+    let normalizedSpec: DashboardSpec;
     if (!parsed.success) {
       this.logger.warn(`Invalid dashboard payload from AI: ${parsed.error.message}`);
-      throw new BadRequestException('Nao foi possivel montar o dashboard solicitado.');
+      normalizedSpec = this.buildFallbackDashboardSpec(input.entityHints, input.user.role);
+    } else {
+      normalizedSpec = this.normalizeDashboardSpec(parsed.data.dashboardSpec, input.user.role);
     }
+    const specWithTimeRange = this.applyNaturalLanguageTimeRangeFallback(normalizedSpec, input.naturalLanguage);
+    const data = await this.executeDashboardSpec(specWithTimeRange, input.user.tenant_id);
 
-    const normalizedSpec = this.normalizeDashboardSpec(parsed.data.dashboardSpec, input.user.role);
-    const data = await this.executeDashboardSpec(normalizedSpec, input.user.tenant_id);
-
-    let insights = parsed.data.insights_ptbr ?? 'Nao foi possivel gerar insights automáticos.';
+    let insights = parsed.success
+      ? parsed.data.insights_ptbr ?? 'Nao foi possivel gerar insights automáticos.'
+      : 'Nao foi possivel gerar insights automáticos.';
     try {
       const insightJson = await this.aiClient.generateJson({
         model: this.dashModel,
@@ -295,9 +348,146 @@ export class AiService {
     }
 
     return {
-      dashboardSpec: normalizedSpec,
+      dashboardSpec: specWithTimeRange,
       data,
       insights_ptbr: insights,
+    };
+  }
+
+  private buildFallbackDashboardSpec(entityHints?: string[], userRole?: string): DashboardSpec {
+    const candidateEntities = (entityHints ?? AI_SUPPORTED_ENTITIES)
+      .map((item) => String(item).toLowerCase())
+      .filter((item) => AI_SUPPORTED_ENTITIES.includes(item as any));
+
+    const selectedEntity =
+      candidateEntities.find((entityName) => {
+        try {
+          const entity = this.resolveEntity(entityName);
+          this.assertEntityPermission(userRole, entity);
+          return true;
+        } catch {
+          return false;
+        }
+      }) ?? 'invoices';
+
+    const dateField = this.getDefaultDateField(selectedEntity) ?? undefined;
+
+    const fallback: DashboardSpec = {
+      title: 'Dashboard basico',
+      widgets: [
+        {
+          id: 'kpi_total_registros',
+          type: 'kpi',
+          title: 'Total de registros',
+          entityName: selectedEntity as any,
+          metric: 'count',
+        },
+        ...(dateField
+          ? [
+              {
+                id: 'serie_mensal_registros',
+                type: 'timeSeries' as const,
+                title: 'Evolucao mensal',
+                entityName: selectedEntity as any,
+                metric: 'count' as const,
+                dateField,
+              },
+            ]
+          : []),
+      ],
+    };
+
+    return this.normalizeDashboardSpec(fallback, userRole);
+  }
+
+  private normalizeAiDashboardPayload(payload: unknown): unknown {
+    if (!payload || typeof payload !== 'object') {
+      return payload;
+    }
+
+    const root = payload as Record<string, any>;
+    const rawDashboardSpec = root.dashboardSpec ?? root.dashboard_spec ?? null;
+    const rawSpec =
+      rawDashboardSpec && typeof rawDashboardSpec === 'object'
+        ? rawDashboardSpec
+        : {
+            title: root.title,
+            widgets: root.widgets,
+          };
+
+    const rawWidgets = Array.isArray(rawSpec.widgets) ? rawSpec.widgets : [];
+    const widgets = rawWidgets
+      .map((rawWidget: any, index: number) => {
+        if (!rawWidget || typeof rawWidget !== 'object') {
+          return null;
+        }
+
+        const rawType = String(rawWidget.type ?? '').trim();
+        const type =
+          rawType === 'timeseries'
+            ? 'timeSeries'
+            : rawType === 'topn'
+              ? 'topN'
+              : ['kpi', 'timeSeries', 'bar', 'pie', 'topN'].includes(rawType)
+                ? rawType
+                : undefined;
+
+        const rawEntityName = String(rawWidget.entityName ?? rawWidget.entity ?? rawWidget.entity_name ?? '')
+          .trim()
+          .toLowerCase();
+
+        const entityName = rawEntityName || undefined;
+        const rawMetric = String(rawWidget.metric ?? rawWidget.aggregation ?? rawWidget.agg ?? 'count').trim().toLowerCase();
+        const metric =
+          rawMetric === 'sum' ||
+          rawMetric === 'total' ||
+          rawMetric === 'amount' ||
+          rawMetric === 'soma' ||
+          rawMetric === 'valor_total'
+            ? 'sum'
+            : rawMetric === 'avg' ||
+                rawMetric === 'average' ||
+                rawMetric === 'mean' ||
+                rawMetric === 'media' ||
+                rawMetric === 'média'
+              ? 'avg'
+              : rawMetric === 'count' ||
+                  rawMetric === 'qty' ||
+                  rawMetric === 'quantity' ||
+                  rawMetric === 'quantidade' ||
+                  rawMetric === 'qtd' ||
+                  rawMetric === 'numero' ||
+                  rawMetric === 'número'
+                ? 'count'
+                : 'count';
+        const id = String(rawWidget.id ?? `widget_${index + 1}`).trim();
+        const title = String(rawWidget.title ?? rawWidget.name ?? `${type ?? 'kpi'} ${entityName ?? ''}`).trim();
+        const topNRaw = rawWidget.topN ?? rawWidget.top_n ?? rawWidget.limit;
+        const topN = Number.isFinite(Number(topNRaw)) ? Number(topNRaw) : undefined;
+
+        const normalizedWidget = {
+          id,
+          type,
+          title,
+          entityName,
+          metric,
+          field: rawWidget.field,
+          dateField: rawWidget.dateField ?? rawWidget.date_field,
+          groupByField: rawWidget.groupByField ?? rawWidget.group_by_field,
+          topN,
+          filters: Array.isArray(rawWidget.filters) ? rawWidget.filters : undefined,
+        };
+
+        return Object.fromEntries(Object.entries(normalizedWidget).filter(([, value]) => value !== undefined));
+      })
+      .filter((item): item is Record<string, any> => item !== null);
+
+    return {
+      dashboardSpec: {
+        title: rawSpec.title,
+        widgets,
+      },
+      insights_ptbr: root.insights_ptbr,
     };
   }
 
@@ -468,14 +658,70 @@ export class AiService {
         filters: this.normalizeFilters(widget.filters ?? [], entity),
       };
 
-      if (widget.field && !entity.fields[widget.field]) {
+      if (normalizedWidget.field && !entity.fields[normalizedWidget.field]) {
         continue;
       }
-      if (widget.groupByField && !entity.fields[widget.groupByField]) {
+      if (normalizedWidget.groupByField && !entity.fields[normalizedWidget.groupByField]) {
         continue;
       }
-      if (widget.dateField && !entity.fields[widget.dateField]) {
+      if (normalizedWidget.dateField && !entity.fields[normalizedWidget.dateField]) {
         continue;
+      }
+
+      const numericFields = this.getEntityFieldsByType(entity, ['number']);
+      const groupableFields = this.getEntityFieldsByType(entity, ['string', 'enum', 'boolean']);
+      const defaultDateField = this.getDefaultDateField(entity.entityName) ?? this.getEntityFieldsByType(entity, ['date'])[0];
+      const preferredMetricField = this.getPreferredMetricField(entity.entityName, numericFields);
+
+      if (
+        normalizedWidget.metric !== 'count' &&
+        normalizedWidget.field &&
+        this.isLikelyCategoricalNumericField(entity.entityName, normalizedWidget.field)
+      ) {
+        if (preferredMetricField) {
+          normalizedWidget.field = preferredMetricField;
+        } else if (numericFields.length > 0) {
+          normalizedWidget.field = numericFields[0];
+        } else {
+          normalizedWidget.metric = 'count';
+          delete (normalizedWidget as any).field;
+        }
+      }
+
+      if (normalizedWidget.metric !== 'count' && !normalizedWidget.field) {
+        if (preferredMetricField) {
+          normalizedWidget.field = preferredMetricField;
+        } else if (numericFields.length > 0) {
+          normalizedWidget.field = numericFields[0];
+        } else {
+          normalizedWidget.metric = 'count';
+          delete (normalizedWidget as any).field;
+        }
+      }
+
+      if (normalizedWidget.type === 'topN' && !normalizedWidget.field) {
+        const fallbackTopField = numericFields[0] ?? groupableFields[0] ?? defaultDateField;
+        if (!fallbackTopField) {
+          continue;
+        }
+        normalizedWidget.field = fallbackTopField;
+      }
+
+      if ((normalizedWidget.type === 'bar' || normalizedWidget.type === 'pie') && !normalizedWidget.groupByField) {
+        const fallbackGroupField = groupableFields[0] ?? defaultDateField;
+        if (!fallbackGroupField) {
+          continue;
+        }
+        normalizedWidget.groupByField = fallbackGroupField;
+      }
+
+      if (normalizedWidget.type === 'timeSeries') {
+        if (!normalizedWidget.dateField && defaultDateField) {
+          normalizedWidget.dateField = defaultDateField;
+        }
+        if (!normalizedWidget.dateField) {
+          continue;
+        }
       }
 
       widgets.push(normalizedWidget);
@@ -489,6 +735,80 @@ export class AiService {
       title: parsed.title,
       widgets,
     };
+  }
+
+  private applyNaturalLanguageTimeRangeFallback(spec: DashboardSpec, naturalLanguage: string): DashboardSpec {
+    const dateRange = resolveRelativeDateRange(naturalLanguage, new Date(), 'America/Sao_Paulo');
+    if (!dateRange) {
+      return spec;
+    }
+
+    const widgets = spec.widgets.map((widget) => {
+      const entity = this.resolveEntity(widget.entityName);
+      const dateField = widget.dateField ?? this.getDefaultDateField(widget.entityName);
+      if (!dateField || !entity.fields[dateField] || entity.fields[dateField].type !== 'date') {
+        return widget;
+      }
+
+      const hasDateFilter = (widget.filters ?? []).some((filter) => filter.field === dateField);
+      if (hasDateFilter) {
+        return widget;
+      }
+
+      return {
+        ...widget,
+        dateField,
+        filters: [
+          ...(widget.filters ?? []),
+          {
+            field: dateField,
+            operator: 'between' as const,
+            from: dateRange.from.toISOString(),
+            to: dateRange.to.toISOString(),
+          },
+        ],
+      };
+    });
+
+    return {
+      ...spec,
+      widgets,
+    };
+  }
+
+  private getEntityFieldsByType(entity: EntityDictionaryEntry, types: string[]): string[] {
+    return Object.entries(entity.fields)
+      .filter(([, config]) => types.includes(config.type))
+      .map(([field]) => field);
+  }
+
+  private getPreferredMetricField(entityName: string, numericFields: string[]): string | undefined {
+    const preferredByEntity: Record<string, string[]> = {
+      invoices: ['total', 'subtotal', 'tax_total'],
+      products: ['default_unit_price', 'default_tax_rate'],
+      companies: ['number_of_invoices'],
+      documents: ['size_bytes'],
+      processes: [],
+    };
+
+    const preferredList = preferredByEntity[entityName] ?? [];
+    const matched = preferredList.find((field) => numericFields.includes(field));
+    if (matched) return matched;
+
+    return numericFields.find((field) => !this.isLikelyCategoricalNumericField(entityName, field));
+  }
+
+  private isLikelyCategoricalNumericField(entityName: string, field: string): boolean {
+    const blockedByEntity: Record<string, Set<string>> = {
+      invoices: new Set(['status', 'version', 'discount_percent']),
+      processes: new Set(['status', 'completed']),
+      products: new Set([]),
+      companies: new Set([]),
+      documents: new Set([]),
+    };
+
+    const blocked = blockedByEntity[entityName] ?? new Set<string>();
+    return blocked.has(field);
   }
 
   private normalizeFilters(filters: GridFilterItem[], entity: EntityDictionaryEntry): GridFilterItem[] {
@@ -843,7 +1163,7 @@ export class AiService {
   private getDefaultDateField(entityName: string): string | null {
     if (entityName === 'companies') return 'created_at';
     if (entityName === 'processes') return 'created_on';
-    if (entityName === 'invoices') return 'created_at';
+    if (entityName === 'invoices') return 'issued_at';
     if (entityName === 'products') return 'created_at';
     if (entityName === 'documents') return 'created_at';
     return null;

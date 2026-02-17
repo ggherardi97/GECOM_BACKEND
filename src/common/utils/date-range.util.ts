@@ -96,6 +96,49 @@ export function resolveRelativeDateRange(input: string, now = new Date(), timeZo
     };
   }
 
+  const daysMatch = normalizedInput.match(/(ultim[oa]s?|last)\s+(\d+)\s+(dias|days)/i);
+  if (daysMatch) {
+    const days = Math.max(Number(daysMatch[2] ?? '0'), 1);
+    const todayRange = buildDayRange(todayParts.year, todayParts.month, todayParts.day, timeZone);
+    return {
+      from: new Date(todayRange.from.getTime() - (days - 1) * DAY_MS),
+      to: todayRange.to,
+    };
+  }
+
+  const monthsMatch = normalizedInput.match(/(ultim[oa]s?|last)\s+(\d+)\s+(mes|meses|month|months)/i);
+  if (monthsMatch) {
+    const months = Math.max(Number(monthsMatch[2] ?? '0'), 1);
+    const zeroBasedCurrentMonth = todayParts.month - 1;
+    const zeroBasedStartMonth = zeroBasedCurrentMonth - (months - 1);
+    const startYear = todayParts.year + Math.floor(zeroBasedStartMonth / 12);
+    const startMonth = ((zeroBasedStartMonth % 12) + 12) % 12 + 1;
+    const todayRange = buildDayRange(todayParts.year, todayParts.month, todayParts.day, timeZone);
+
+    return {
+      from: toUtcFromZonedParts(
+        { year: startYear, month: startMonth, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0 },
+        timeZone,
+      ),
+      to: todayRange.to,
+    };
+  }
+
+  const yearsMatch = normalizedInput.match(/(ultim[oa]s?|last)\s+(\d+)\s+(ano|anos|year|years)/i);
+  if (yearsMatch) {
+    const years = Math.max(Number(yearsMatch[2] ?? '0'), 1);
+    const startYear = todayParts.year - (years - 1);
+    const todayRange = buildDayRange(todayParts.year, todayParts.month, todayParts.day, timeZone);
+
+    return {
+      from: toUtcFromZonedParts(
+        { year: startYear, month: 1, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0 },
+        timeZone,
+      ),
+      to: todayRange.to,
+    };
+  }
+
   if (normalizedInput.includes('ultimo trimestre') || normalizedInput.includes('last quarter')) {
     const currentQuarter = Math.floor((todayParts.month - 1) / 3);
     let startMonth = currentQuarter * 3 - 2;

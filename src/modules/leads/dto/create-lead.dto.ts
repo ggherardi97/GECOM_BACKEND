@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export enum LeadTypeDto {
@@ -21,11 +22,37 @@ export enum LeadStatusDto {
   CONVERTED = 'CONVERTED',
 }
 
+function normalizeEnumInput(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+
+  const aliases: Record<string, string> = {
+    EMPRESA: 'COMPANY',
+    PESSOA: 'PERSON',
+    SITE: 'WEBSITE',
+    WEB: 'WEBSITE',
+    INDICACAO: 'INDICATION',
+    IMPORTACAO: 'IMPORT',
+    NOVO: 'NEW',
+    QUALIFICADO: 'QUALIFIED',
+    DESQUALIFICADO: 'DISQUALIFIED',
+    CONVERTIDO: 'CONVERTED',
+  };
+
+  return aliases[normalized] ?? normalized;
+}
+
 export class CreateLeadDto {
   @IsString()
   @MaxLength(255)
   name!: string;
 
+  @Transform(({ value }) => normalizeEnumInput(value))
   @IsEnum(LeadTypeDto)
   type!: LeadTypeDto;
 
@@ -59,6 +86,7 @@ export class CreateLeadDto {
   @MaxLength(255)
   website?: string;
 
+  @Transform(({ value }) => normalizeEnumInput(value))
   @IsOptional()
   @IsEnum(LeadSourceDto)
   source?: LeadSourceDto;
@@ -67,6 +95,7 @@ export class CreateLeadDto {
   @IsUUID('4')
   owner_user_id?: string;
 
+  @Transform(({ value }) => normalizeEnumInput(value))
   @IsOptional()
   @IsEnum(LeadStatusDto)
   status?: LeadStatusDto;
@@ -95,6 +124,12 @@ export class CreateLeadDto {
   @IsOptional()
   @IsDateString()
   converted_at?: string;
+
+  // Accepted for compatibility with frontend payloads.
+  // Field is ignored by current persistence model.
+  @IsOptional()
+  @IsDateString()
+  next_action_at?: string;
 
   @IsOptional()
   @IsUUID('4')

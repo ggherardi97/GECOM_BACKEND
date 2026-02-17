@@ -44,8 +44,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly lead_tag_links: PrismaClient['lead_tag_links'];
   public readonly transport_types: PrismaClient['transport_types'];
   public readonly transport_statuses: PrismaClient['transport_statuses'];
-    public readonly saved_views: PrismaClient['saved_views'];
+  public readonly saved_views: PrismaClient['saved_views'];
   public readonly user_default_views: PrismaClient['user_default_views'];
+  public readonly tracking_configs: PrismaClient['tracking_configs'];
+  public readonly tracking_links: PrismaClient['tracking_links'];
 
   // Models that MUST be tenant-scoped
   private static readonly tenantModels = new Set<string>([
@@ -58,8 +60,11 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'products',
     'documents',
     'events',
-    'sessions', 'saved_views',
+    'sessions',
+    'saved_views',
     'user_default_views',
+    'tracking_configs',
+    'tracking_links',
     'password_resets',
     'notifications',
     'notification_reads',
@@ -179,8 +184,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.process_types = this.client.process_types;
     this.transport_types = this.client.transport_types;
     this.transport_statuses = this.client.transport_statuses;
-     this.saved_views = this.client.saved_views;
+    this.saved_views = this.client.saved_views;
     this.user_default_views = this.client.user_default_views;
+    this.tracking_configs = this.client.tracking_configs;
+    this.tracking_links = this.client.tracking_links;
     this.notifications = this.client.notifications;
     this.notification_reads = this.client.notification_reads;
     this.boards = this.client.boards;

@@ -63,7 +63,7 @@ services:
       MAIL_FROM: ${MAIL_FROM}
       MAIL_PREVIEW: ${MAIL_PREVIEW}
     command: >
-      sh -c "npm run prisma:generate && npm run dev"
+      sh -c "npm install --no-audit --no-fund && npm run prisma:generate && npm run dev"
     networks:
       - gecom_network
 
