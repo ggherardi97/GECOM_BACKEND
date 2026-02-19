@@ -17,7 +17,8 @@ export class AddCompanyIdToUsers1761419999999 implements MigrationInterface {
     await queryRunner.query(`
       DO $$
       BEGIN
-        IF NOT EXISTS (
+        IF to_regclass('public.companies') IS NOT NULL
+           AND NOT EXISTS (
           SELECT 1
           FROM pg_constraint
           WHERE conname = 'FK_users_company_id'
@@ -43,20 +44,8 @@ export class AddCompanyIdToUsers1761419999999 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
-  DO $$
-  BEGIN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM pg_constraint
-      WHERE conname = 'FK_users_company_id'
-    ) THEN
       ALTER TABLE "users"
-      ADD CONSTRAINT "FK_users_company_id"
-      FOREIGN KEY ("company_id") REFERENCES "companies"("id")
-      ON DELETE SET NULL
-      ON UPDATE CASCADE;
-    END IF;
-  END$$;
-`);
+      DROP COLUMN IF EXISTS "company_id"
+    `);
   }
 }

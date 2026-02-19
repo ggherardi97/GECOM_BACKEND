@@ -25,6 +25,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly sessions: PrismaClient['sessions'];
   public readonly password_resets: PrismaClient['password_resets'];
   public readonly currencies: PrismaClient['currencies'];
+  public readonly tenants: PrismaClient['tenants'];
   public readonly process_types: PrismaClient['process_types'];
   public readonly notifications: PrismaClient['notifications'];
   public readonly notification_reads: PrismaClient['notification_reads'];
@@ -129,9 +130,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
             const actionsWithWhere = new Set([
               'findFirst',
               'findMany',
-              'update',
               'updateMany',
-              'delete',
               'deleteMany',
               'count',
               'aggregate',
@@ -181,6 +180,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.sessions = this.client.sessions;
     this.password_resets = this.client.password_resets;
     this.currencies = this.client.currencies;
+    this.tenants = this.client.tenants;
     this.process_types = this.client.process_types;
     this.transport_types = this.client.transport_types;
     this.transport_statuses = this.client.transport_statuses;

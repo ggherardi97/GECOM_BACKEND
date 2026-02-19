@@ -84,6 +84,7 @@ export class UserService {
       .trim()
       .toLowerCase();
     if (!email) throw new BadRequestException('Email is required.');
+    const isFirstAccess = data.first_access ?? true;
 
     const hashedPassword = await this.crypto.hash(data.password);
 
@@ -96,14 +97,15 @@ export class UserService {
       status: (data.status ?? UserStatusEnum.ACTIVE) as any as user_status_enum,
       company_id: data.company_id ?? null,
       phonenumber: data.phonenumber ?? null,
-      first_access: data.first_access ?? true,
+      first_access: isFirstAccess,
 
       // New fields default behavior
       acept_terms: false,
       profile_picture: null,
     } satisfies Prisma.usersUncheckedCreateInput);
 
-    try {
+    if (isFirstAccess) {
+      try {
       const resetToken = generateToken(32);
       const tokenHash = await this.crypto.hash(resetToken);
 
@@ -130,8 +132,9 @@ export class UserService {
         'Bem-vindo ao GECOM - Definição de Senha',
         html
       );
-    } catch (error) {
-      console.error('Failed to send first access email:', error);
+      } catch (error) {
+        console.error('Failed to send first access email:', error);
+      }
     }
 
     return user;

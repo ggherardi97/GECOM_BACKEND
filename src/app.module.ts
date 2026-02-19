@@ -32,6 +32,7 @@ import { KanbanModule } from './modules/kanban/kanban.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { AiModule } from './modules/ai/ai.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
+import { TenantModule } from './modules/tenants/tenant.module';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { TrackingModule } from './modules/tracking/tracking.module';
     LeadsModule,
     AiModule,
     TrackingModule,
+    TenantModule,
   ],
   controllers: [AppController],
   providers: [

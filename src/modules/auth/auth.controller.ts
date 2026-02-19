@@ -9,13 +9,14 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiCreatedResponse, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { SignInDTO } from './dtos/signin.dto';
 import { RefreshTokenDTO } from './dtos/refresh-token.dto';
 import { ForgotPasswordDTO } from './dtos/forgot-password.dto';
 import { ResetPasswordDTO } from './dtos/reset-password.dto';
+import { SignUpDTO, SignUpResponseDTO } from './dtos/signup.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { Request, Response } from 'express';
 
@@ -24,6 +25,35 @@ import type { Request, Response } from 'express';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Public()
+  @Post('signup')
+  @ApiOperation({
+    summary: 'Public onboarding signup',
+    description: 'Creates tenant, company and admin user in one transaction and returns auth tokens.',
+  })
+  @ApiBody({ type: SignUpDTO })
+  @ApiCreatedResponse({ type: SignUpResponseDTO })
+  async signup(@Body() dto: SignUpDTO, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.signup(dto, req);
+    const isProd = !!process.env.NODE_ENV?.startsWith('prod');
+
+    res.cookie('access_token', result.access_token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      maxAge: 60 * 60 * 1000,
+    });
+
+    res.cookie('refresh_token', result.refresh_token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return result;
+  }
 
   @Public()
   @Post()

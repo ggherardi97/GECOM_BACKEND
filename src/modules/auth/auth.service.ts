@@ -10,6 +10,11 @@ import { addDays } from 'date-fns';
 import { generateToken } from '../utils/generate-token';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { randomUUID } from 'crypto';
+import { Prisma, user_role_enum, user_status_enum, view_visibility_enum, view_source_enum } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { runWithTenant } from '../../common/tenant/tenant-context';
+import { SignUpDTO, SignUpResponseDTO } from './dtos/signup.dto';
 
 @Injectable()
 export class AuthService {
@@ -18,8 +23,230 @@ export class AuthService {
     private userService: UserService,
     private readonly cryptoService: CryptoService,
     private readonly passwordResetService: PasswordResetService,
-    private readonly mailerService: MailerService
+    private readonly mailerService: MailerService,
+    private readonly prisma: PrismaService
   ) {}
+
+  private normalizeSlug(value: string): string {
+    return String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-');
+  }
+
+  async signup(dto: SignUpDTO, req: Request): Promise<SignUpResponseDTO> {
+    const tenantId = randomUUID();
+    const tenantName = String(dto.tenant_name ?? '').trim();
+    const tenantSlug = this.normalizeSlug(dto.tenant_slug);
+    const adminEmail = String(dto.admin_email ?? '').trim().toLowerCase();
+
+    if (!tenantName || !tenantSlug) {
+      throw new BadRequestException('tenant_name and tenant_slug are required.');
+    }
+    if (!adminEmail) {
+      throw new BadRequestException('admin_email is required.');
+    }
+
+    const adminPasswordHash = await this.cryptoService.hash(dto.admin_password);
+
+    try {
+      const created = await runWithTenant(tenantId, () =>
+        this.prisma.raw.$transaction(async (tx) => {
+          const tenant = await tx.tenants.create({
+            data: {
+              id: tenantId,
+              name: tenantName,
+              slug: tenantSlug,
+              status: 1,
+            },
+          });
+
+          const company = await tx.companies.create({
+            data: {
+              company_name: dto.company_name,
+              phone: dto.company_phone ?? null,
+              company_number: dto.company_number ?? null,
+              sector: dto.company_sector ?? null,
+              category: dto.company_category ?? null,
+              address_street: dto.company_address_street ?? null,
+              address_number: dto.company_address_number ?? null,
+              address_city: dto.company_address_city ?? null,
+              address_country: dto.company_address_country ?? null,
+              address_state: dto.company_address_state ?? null,
+              address_postalcode: dto.company_address_postalcode ?? null,
+              language: dto.company_language ?? null,
+            } as any,
+          });
+
+          const user = await tx.users.create({
+            data: {
+              tenant_id: tenant.id,
+              full_name: dto.admin_full_name,
+              email: adminEmail,
+              password: adminPasswordHash,
+              role: user_role_enum.ADMIN,
+              status: user_status_enum.ACTIVE,
+              company_id: company.id,
+              phonenumber: dto.admin_phone ?? null,
+              first_access: false,
+              acept_terms: dto.acept_terms ?? true,
+            } as any,
+          });
+
+          await tx.companies.update({
+            where: { id: company.id },
+            data: { user_id: user.id } as any,
+          });
+
+          await tx.tenants.update({
+            where: { id: tenant.id },
+            data: { company_id: company.id },
+          });
+
+          const systemSavedViews: Prisma.saved_viewsCreateManyInput[] = [
+            {
+              tenant_id: tenant.id,
+              owner_user_id: user.id,
+              entity_name: 'invoices',
+              name: 'Todos os invoices',
+              visibility: view_visibility_enum.PUBLIC,
+              definition_json: {
+                entityName: 'invoices',
+                columns: [],
+                filters: [],
+                sort: [],
+              } as Prisma.InputJsonValue,
+              is_system: true,
+              is_active: true,
+              source: view_source_enum.MANUAL,
+            },
+            {
+              tenant_id: tenant.id,
+              owner_user_id: user.id,
+              entity_name: 'products',
+              name: 'Todos os produtos',
+              visibility: view_visibility_enum.PUBLIC,
+              definition_json: {
+                entityName: 'products',
+                columns: [],
+                filters: [],
+                sort: [],
+              } as Prisma.InputJsonValue,
+              is_system: true,
+              is_active: true,
+              source: view_source_enum.MANUAL,
+            },
+            {
+              tenant_id: tenant.id,
+              owner_user_id: user.id,
+              entity_name: 'companies',
+              name: 'Todos os clientes',
+              visibility: view_visibility_enum.PUBLIC,
+              definition_json: {
+                entityName: 'companies',
+                columns: [],
+                filters: [],
+                sort: [],
+              } as Prisma.InputJsonValue,
+              is_system: true,
+              is_active: true,
+              source: view_source_enum.MANUAL,
+            },
+            {
+              tenant_id: tenant.id,
+              owner_user_id: user.id,
+              entity_name: 'leads',
+              name: 'Todos os leads',
+              visibility: view_visibility_enum.PUBLIC,
+              definition_json: {
+                entityName: 'leads',
+                columns: [],
+                filters: [],
+                sort: [],
+              } as Prisma.InputJsonValue,
+              is_system: true,
+              is_active: true,
+              source: view_source_enum.MANUAL,
+            },
+            {
+              tenant_id: tenant.id,
+              owner_user_id: user.id,
+              entity_name: 'notifications',
+              name: 'Todas as notificacoes',
+              visibility: view_visibility_enum.PUBLIC,
+              definition_json: {
+                entityName: 'notifications',
+                columns: [],
+                filters: [],
+                sort: [],
+              } as Prisma.InputJsonValue,
+              is_system: true,
+              is_active: true,
+              source: view_source_enum.MANUAL,
+            },
+            {
+              tenant_id: tenant.id,
+              owner_user_id: user.id,
+              entity_name: 'processes',
+              name: 'Todos os processos',
+              visibility: view_visibility_enum.PUBLIC,
+              definition_json: {
+                entityName: 'processes',
+                columns: [],
+                filters: [],
+                sort: [],
+              } as Prisma.InputJsonValue,
+              is_system: true,
+              is_active: true,
+              source: view_source_enum.MANUAL,
+            },
+          ];
+
+          await tx.saved_views.createMany({
+            data: systemSavedViews,
+          });
+
+          return { tenant, company, user };
+        })
+      );
+
+      const payload = {
+        sub: created.user.id,
+        email: created.user.email,
+        role: created.user.role,
+        tenant_id: created.tenant.id,
+        company_id: created.company.id,
+      };
+
+      const access_token = this.jwtService.sign(payload, {
+        secret: process.env.JWT_SECRET,
+        expiresIn: '1h',
+      });
+
+      const refresh_token = this.jwtService.sign(payload, {
+        secret: process.env.JWT_REFRESH_SECRET,
+        expiresIn: '7d',
+      });
+
+      const refresh_token_hash = await this.cryptoService.hash(refresh_token);
+      await this.createOrUpdateSession(created.tenant.id, created.user.id, refresh_token_hash, req);
+
+      return {
+        tenant_id: created.tenant.id,
+        company_id: created.company.id,
+        user_id: created.user.id,
+        access_token,
+        refresh_token,
+      };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new BadRequestException('Duplicate value (email, tenant slug or unique field).');
+        }
+      }
+      throw error;
+    }
+  }
 
   private isAdminRole(role: unknown): boolean {
     // Keep it simple and safe (avoid enum import changes in this file).

@@ -4,15 +4,24 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     const fallbackTenantId = "2f1803b2-4b33-4f86-8fb5-484f67472705";
 
-    // Ensure tenant exists (fail fast)
     const tenantRows: Array<{ id: string }> = await queryRunner.query(
       `SELECT id FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
       [fallbackTenantId]
     );
 
-    if (!tenantRows || tenantRows.length === 0) {
-      throw new Error(
-        `Fallback tenant not found or deleted: ${fallbackTenantId}`
+    let resolvedFallbackTenantId: string | null = tenantRows?.[0]?.id ?? null;
+
+    if (!resolvedFallbackTenantId) {
+      const anyTenantRows: Array<{ id: string }> = await queryRunner.query(
+        `SELECT id FROM tenants WHERE deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`
+      );
+      resolvedFallbackTenantId = anyTenantRows?.[0]?.id ?? null;
+    }
+
+    if (!resolvedFallbackTenantId) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[BackfillTenantId] No fallback tenant found. Rows without deterministic tenant relation may remain NULL in this step.`
       );
     }
 
@@ -28,14 +37,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
     `);
 
     // 2) Remaining companies -> fallback tenant
-    await queryRunner.query(
-      `
-      UPDATE companies
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE companies
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- users ----------------
     // Prefer company tenant
@@ -50,14 +61,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
     `);
 
     // Remaining -> fallback
-    await queryRunner.query(
-      `
-      UPDATE users
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE users
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- invoices ----------------
     await queryRunner.query(`
@@ -69,14 +82,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
         AND c.tenant_id IS NOT NULL
     `);
 
-    await queryRunner.query(
-      `
-      UPDATE invoices
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE invoices
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- invoice_lines ----------------
     await queryRunner.query(`
@@ -88,14 +103,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
         AND i.tenant_id IS NOT NULL
     `);
 
-    await queryRunner.query(
-      `
-      UPDATE invoice_lines
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE invoice_lines
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- processes ----------------
     await queryRunner.query(`
@@ -107,14 +124,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
         AND c.tenant_id IS NOT NULL
     `);
 
-    await queryRunner.query(
-      `
-      UPDATE processes
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE processes
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- transports ----------------
     await queryRunner.query(`
@@ -126,14 +145,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
         AND p.tenant_id IS NOT NULL
     `);
 
-    await queryRunner.query(
-      `
-      UPDATE transports
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE transports
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- documents ----------------
     await queryRunner.query(`
@@ -145,25 +166,29 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
         AND c.tenant_id IS NOT NULL
     `);
 
-    await queryRunner.query(
-      `
-      UPDATE documents
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE documents
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- products ----------------
     // Products currently have no ownership pointer, so we attach to fallback tenant
-    await queryRunner.query(
-      `
-      UPDATE products
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE products
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- sessions ----------------
     await queryRunner.query(`
@@ -175,14 +200,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
         AND u.tenant_id IS NOT NULL
     `);
 
-    await queryRunner.query(
-      `
-      UPDATE sessions
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE sessions
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- password_resets ----------------
     await queryRunner.query(`
@@ -194,14 +221,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
         AND u.tenant_id IS NOT NULL
     `);
 
-    await queryRunner.query(
-      `
-      UPDATE password_resets
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE password_resets
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- events ----------------
     // Try to infer tenant by related_table
@@ -246,14 +275,16 @@ export class BackfillTenantId1770000000200 implements MigrationInterface {
     `);
 
     // Remaining -> fallback
-    await queryRunner.query(
-      `
-      UPDATE events
-      SET tenant_id = $1
-      WHERE tenant_id IS NULL
-    `,
-      [fallbackTenantId]
-    );
+    if (resolvedFallbackTenantId) {
+      await queryRunner.query(
+        `
+        UPDATE events
+        SET tenant_id = $1
+        WHERE tenant_id IS NULL
+      `,
+        [resolvedFallbackTenantId]
+      );
+    }
 
     // ---------------- Sanity check ----------------
     const nullCounts = await queryRunner.query(`
