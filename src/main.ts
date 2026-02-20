@@ -10,6 +10,8 @@ import * as bodyParser from 'body-parser';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.setGlobalPrefix('api');
+
   // Increase payload limits (needed for base64 images in JSON)
   app.use(bodyParser.json({ limit: '15mb' }) as RequestHandler);
   app.use(bodyParser.urlencoded({ limit: '15mb', extended: true }) as RequestHandler);
@@ -17,7 +19,12 @@ async function bootstrap() {
   app.use(cookieParser() as RequestHandler);
 
   app.enableCors({
-    origin: 'http://localhost:3000',
+    origin: [
+      'http://localhost:3100',
+      'http://localhost:3000',
+      'https://dev.portalgecom.log.br',
+      'https://portalgecom.log.br',
+    ],
     credentials: true,
   });
 
