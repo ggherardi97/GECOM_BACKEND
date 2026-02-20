@@ -33,6 +33,7 @@ import { LeadsModule } from './modules/leads/leads.module';
 import { AiModule } from './modules/ai/ai.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
 import { TenantModule } from './modules/tenants/tenant.module';
+import { ServiceModule } from './modules/service/service.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { TenantModule } from './modules/tenants/tenant.module';
     AiModule,
     TrackingModule,
     TenantModule,
+    ServiceModule,
   ],
   controllers: [AppController],
   providers: [

@@ -31,39 +31,45 @@ model tenants {
 }
 
 model users {
-  id           String           @id(map: "PK_a3ffb1c0c8416b9fc6f907b7433") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id    String          @db.Uuid
-  full_name    String           @db.VarChar(255)
-  email        String           @unique(map: "UQ_97672ac88f789774dd47f7c8be3") @db.VarChar(255)
-  password     String           @db.VarChar(255)
-  role         user_role_enum   @default(USER)
-  status       user_status_enum @default(ACTIVE)
-  created_at   DateTime         @default(now()) @db.Timestamp(6)
-  updated_at   DateTime         @default(now()) @db.Timestamp(6)
-  company_id   String?          @db.Uuid
-  phonenumber  String?          @db.VarChar(50)
-  first_access Boolean          @default(true)
- profile_picture Bytes?   @db.ByteA
-  acept_terms     Boolean  @default(false)
+  id              String           @id(map: "PK_a3ffb1c0c8416b9fc6f907b7433") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String           @db.Uuid
+  full_name       String           @db.VarChar(255)
+  email           String           @unique(map: "UQ_97672ac88f789774dd47f7c8be3") @db.VarChar(255)
+  password        String           @db.VarChar(255)
+  role            user_role_enum   @default(USER)
+  status          user_status_enum @default(ACTIVE)
+  created_at      DateTime         @default(now()) @db.Timestamp(6)
+  updated_at      DateTime         @default(now()) @db.Timestamp(6)
+  company_id      String?          @db.Uuid
+  phonenumber     String?          @db.VarChar(50)
+  first_access    Boolean          @default(true)
+  profile_picture Bytes?           @db.ByteA
+  acept_terms     Boolean          @default(false)
 
-  primaryForCompanies companies[] @relation("CompanyPrimaryUser")
-  documentsCreated    documents[] @relation("UserDocumentsCreated")
-    savedViewsOwned   saved_views[]        @relation("UserSavedViewsOwned")
-  defaultViews      user_default_views[] @relation("UserDefaultViews")
+  primaryForCompanies companies[]          @relation("CompanyPrimaryUser")
+  documentsCreated    documents[]          @relation("UserDocumentsCreated")
+  savedViewsOwned     saved_views[]        @relation("UserSavedViewsOwned")
+  defaultViews        user_default_views[] @relation("UserDefaultViews")
 
-  created_notifications notifications[]     @relation("NotificationCreatedBy")
+  created_notifications notifications[]      @relation("NotificationCreatedBy")
   notification_reads    notification_reads[]
 
-  owned_boards               boards[]               @relation("BoardOwner")
-  created_board_cards        board_cards[]          @relation("BoardCardCreatedBy")
-  assigned_board_cards       board_cards[]          @relation("BoardCardAssignedTo")
+  owned_boards               boards[]                @relation("BoardOwner")
+  created_board_cards        board_cards[]           @relation("BoardCardCreatedBy")
+  assigned_board_cards       board_cards[]           @relation("BoardCardAssignedTo")
   board_card_comments        board_card_comments[]
-  board_card_audit_entries   board_card_audit[]     @relation("BoardCardAuditCreatedBy")
+  board_card_audit_entries   board_card_audit[]      @relation("BoardCardAuditCreatedBy")
   board_card_assignments     board_card_assignees[]
-  owned_leads                leads[]                @relation("LeadOwner")
-  lead_stage_history_changes lead_stage_history[]   @relation("LeadStageChangedBy")
-  lead_activities_created    lead_activities[]      @relation("LeadActivityCreatedBy")
-  lead_activities_assigned   lead_activities[]      @relation("LeadActivityAssignedTo")
+  owned_leads                leads[]                 @relation("LeadOwner")
+  lead_stage_history_changes lead_stage_history[]    @relation("LeadStageChangedBy")
+  lead_activities_created    lead_activities[]       @relation("LeadActivityCreatedBy")
+  lead_activities_assigned   lead_activities[]       @relation("LeadActivityAssignedTo")
+  owned_incidents            incidents[]             @relation("IncidentOwner")
+  opened_incidents           incidents[]             @relation("IncidentOpenedBy")
+  queue_memberships          service_queue_members[]
+  service_resources_links    service_resources[]     @relation("ServiceResourceUser")
+  assigned_service_tasks     service_tasks[]         @relation("ServiceTaskAssignedTo")
+  created_service_tasks      service_tasks[]         @relation("ServiceTaskCreatedBy")
 
   password_resets password_resets?
   processes       processes[]
@@ -107,17 +113,16 @@ model password_resets {
   expires_at DateTime @db.Timestamp(6)
   created_at DateTime @default(now()) @db.Timestamp(6)
 
-  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f7a4c3bc48f24df007936d217be")
+  users users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f7a4c3bc48f24df007936d217be")
 
   @@index([tenant_id], map: "IDX_password_resets_tenant_id")
 }
-
 
 model companies {
   id                 String    @id(map: "PK_d4bc3e82a314fa9e29f652c2c22") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id          String?   @db.Uuid
   company_name       String    @db.VarChar
-  user_id            String?    @db.Uuid
+  user_id            String?   @db.Uuid
   phone              String?   @db.VarChar
   company_number     String?   @db.VarChar
   sector             String?   @db.VarChar
@@ -134,18 +139,19 @@ model companies {
   address_state      String?   @db.VarChar
   number_of_invoices Int       @default(0)
   language           String?   @db.VarChar
-  company_picture Bytes? @db.ByteA
+  company_picture    Bytes?    @db.ByteA
 
-  primaryUser users?       @relation("CompanyPrimaryUser", fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
-  documents   documents[] @relation("CompanyDocuments")
-  invoices    invoices[]  @relation("CompanyInvoices")
-  processes   processes[] @relation("CompanyProcesses")
-  users       users[]     @relation("CompanyUsers")
-    notifications notifications[] @relation("CompanyNotifications")
-    boards        boards[]        @relation("BoardCompany")
-    board_cards   board_cards[]   @relation("BoardCardCompany")
-    converted_leads leads[]       @relation("LeadConvertedCompany")
-
+  primaryUser     users?            @relation("CompanyPrimaryUser", fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
+  documents       documents[]       @relation("CompanyDocuments")
+  invoices        invoices[]        @relation("CompanyInvoices")
+  processes       processes[]       @relation("CompanyProcesses")
+  users           users[]           @relation("CompanyUsers")
+  notifications   notifications[]   @relation("CompanyNotifications")
+  boards          boards[]          @relation("BoardCompany")
+  board_cards     board_cards[]     @relation("BoardCardCompany")
+  converted_leads leads[]           @relation("LeadConvertedCompany")
+  incidents       incidents[]
+  customer_assets customer_assets[]
 
   // opposite side of tenants.company
   tenant tenants?
@@ -191,8 +197,8 @@ model processes {
   companies     companies      @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
   process_types process_types? @relation(fields: [process_type_id], references: [id], onUpdate: NoAction, map: "FK_ded16035eaef6f141a36aea73b3")
   transports    transports[]
-  boards        boards[]      @relation("BoardProcess")
-  board_cards   board_cards[] @relation("BoardCardProcess")
+  boards        boards[]       @relation("BoardProcess")
+  board_cards   board_cards[]  @relation("BoardCardProcess")
 
   @@unique([process_number])
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
@@ -320,7 +326,7 @@ model documents {
 
   // Drive item metadata
   item_type DocumentItemType
-  name      String @db.VarChar(255)
+  name      String           @db.VarChar(255)
 
   filename  String? @db.VarChar(255)
   ext       String? @db.VarChar(20)
@@ -335,14 +341,14 @@ model documents {
   // Polymorphic relation (optional)
   related_table String? @db.VarChar(50)
   related_id    String? @db.Uuid
-   related_name String? @db.VarChar(255)
+  related_name  String? @db.VarChar(255)
 
   // Storage
-  storage_provider String @db.VarChar(20)
-  bucket           String? @db.VarChar(255)
-  object_key       String? @db.Text
-  etag             String? @db.VarChar(255)
-  version          String? @db.VarChar(255)
+  storage_provider String               @db.VarChar(20)
+  bucket           String?              @db.VarChar(255)
+  object_key       String?              @db.Text
+  etag             String?              @db.VarChar(255)
+  version          String?              @db.VarChar(255)
   upload_status    DocumentUploadStatus
 
   // Audit / soft delete
@@ -449,43 +455,41 @@ model tracking_links {
 }
 
 model saved_views {
-  id                   String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id            String              @db.Uuid
-  entity_name          String              @db.VarChar(100)
-  name                 String              @db.VarChar(255)
-  description          String?
-  owner_user_id        String              @db.Uuid
+  id            String  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String  @db.Uuid
+  entity_name   String  @db.VarChar(100)
+  name          String  @db.VarChar(255)
+  description   String?
+  owner_user_id String  @db.Uuid
 
   visibility           view_visibility_enum @default(PRIVATE)
   shared_with_user_ids Json?
   shared_with_role_ids Json?
 
-  definition_json      Json
+  definition_json Json
 
-  is_system            Boolean             @default(false)
-  is_active            Boolean             @default(true)
+  is_system Boolean @default(false)
+  is_active Boolean @default(true)
 
-  source               view_source_enum    @default(MANUAL)
-  ai_prompt            String?
+  source    view_source_enum @default(MANUAL)
+  ai_prompt String?
 
-  created_at           DateTime            @default(now()) @db.Timestamp(6)
-  updated_at           DateTime            @default(now()) @db.Timestamp(6)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
 
-  owner_user           users               @relation("UserSavedViewsOwned", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "FK_saved_views_owner_user_id")
+  owner_user users @relation("UserSavedViewsOwned", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "FK_saved_views_owner_user_id")
 
   // opposite side of user_default_views.saved_view
-  default_for_users    user_default_views[] @relation("SavedViewDefaultForUsers")
+  default_for_users user_default_views[] @relation("SavedViewDefaultForUsers")
 
+  // matches the unique index we created in the migration:
+  @@unique([tenant_id, entity_name, owner_user_id, name], map: "UQ_saved_views_owner_name")
   @@index([tenant_id], map: "IDX_saved_views_tenant_id")
   @@index([entity_name], map: "IDX_saved_views_entity_name")
   @@index([owner_user_id], map: "IDX_saved_views_owner_user_id")
   @@index([visibility], map: "IDX_saved_views_visibility")
   @@index([is_active], map: "IDX_saved_views_is_active")
   @@index([tenant_id, entity_name], map: "IDX_saved_views_tenant_entity")
-
-  // matches the unique index we created in the migration:
-  @@unique([tenant_id, entity_name, owner_user_id, name], map: "UQ_saved_views_owner_name")
-
   @@map("saved_views")
 }
 
@@ -530,7 +534,7 @@ model board_columns {
   created_at DateTime @default(now()) @db.Timestamp(6)
   updated_at DateTime @default(now()) @db.Timestamp(6)
 
-  board boards @relation(fields: [board_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_columns_board")
+  board boards        @relation(fields: [board_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_columns_board")
   cards board_cards[]
 
   audit_from board_card_audit[] @relation("BoardCardAuditFromColumn")
@@ -542,31 +546,31 @@ model board_columns {
 }
 
 model board_cards {
-  id                  String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id           String                  @db.Uuid
-  board_id            String                  @db.Uuid
-  column_id           String                  @db.Uuid
-  title               String                  @db.VarChar(255)
+  id                  String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String                   @db.Uuid
+  board_id            String                   @db.Uuid
+  column_id           String                   @db.Uuid
+  title               String                   @db.VarChar(255)
   description         String?
   priority            board_card_priority_enum @default(MEDIUM)
-  due_date            DateTime?               @db.Timestamp(6)
-  start_date          DateTime?               @db.Timestamp(6)
-  sort_order          Int                     @default(0)
-  created_by_user_id  String                  @db.Uuid
-  assigned_to_user_id String?                 @db.Uuid
-  company_id          String?                 @db.Uuid
-  process_id          String?                 @db.Uuid
-  invoice_id          String?                 @db.Uuid
-  related_table       String?                 @db.VarChar(50)
-  related_id          String?                 @db.Uuid
-  created_at          DateTime                @default(now()) @db.Timestamp(6)
-  updated_at          DateTime                @default(now()) @db.Timestamp(6)
-  completed_at        DateTime?               @db.Timestamp(6)
+  due_date            DateTime?                @db.Timestamp(6)
+  start_date          DateTime?                @db.Timestamp(6)
+  sort_order          Int                      @default(0)
+  created_by_user_id  String                   @db.Uuid
+  assigned_to_user_id String?                  @db.Uuid
+  company_id          String?                  @db.Uuid
+  process_id          String?                  @db.Uuid
+  invoice_id          String?                  @db.Uuid
+  related_table       String?                  @db.VarChar(50)
+  related_id          String?                  @db.Uuid
+  created_at          DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at          DateTime                 @default(now()) @db.Timestamp(6)
+  completed_at        DateTime?                @db.Timestamp(6)
 
-  board    boards        @relation(fields: [board_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_cards_board")
-  column   board_columns @relation(fields: [column_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_board_cards_column")
+  board  boards        @relation(fields: [board_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_cards_board")
+  column board_columns @relation(fields: [column_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_board_cards_column")
 
-  created_by_user users  @relation("BoardCardCreatedBy", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_board_cards_created_by")
+  created_by_user  users  @relation("BoardCardCreatedBy", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_board_cards_created_by")
   assigned_to_user users? @relation("BoardCardAssignedTo", fields: [assigned_to_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_cards_assigned_to")
 
   company companies? @relation("BoardCardCompany", fields: [company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_cards_company")
@@ -625,15 +629,15 @@ model board_card_comments {
 }
 
 model board_card_audit {
-  id                 String                      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id          String                      @db.Uuid
-  card_id            String                      @db.Uuid
+  id                 String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String                       @db.Uuid
+  card_id            String                       @db.Uuid
   action             board_card_audit_action_enum
-  from_column_id     String?                     @db.Uuid
-  to_column_id       String?                     @db.Uuid
+  from_column_id     String?                      @db.Uuid
+  to_column_id       String?                      @db.Uuid
   meta_json          Json?
-  created_by_user_id String                      @db.Uuid
-  created_at         DateTime                    @default(now()) @db.Timestamp(6)
+  created_by_user_id String                       @db.Uuid
+  created_at         DateTime                     @default(now()) @db.Timestamp(6)
 
   card            board_cards    @relation(fields: [card_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_board_card_audit_card")
   from_column     board_columns? @relation("BoardCardAuditFromColumn", fields: [from_column_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_board_card_audit_from_column")
@@ -702,9 +706,9 @@ model leads {
   created_at           DateTime         @default(now()) @db.Timestamp(6)
   updated_at           DateTime         @default(now()) @db.Timestamp(6)
 
-  owner_user         users                 @relation("LeadOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_leads_owner_user")
-  stage              lead_pipeline_stages? @relation(fields: [stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_leads_stage")
-  converted_company  companies?            @relation("LeadConvertedCompany", fields: [converted_company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_leads_converted_company")
+  owner_user        users                 @relation("LeadOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_leads_owner_user")
+  stage             lead_pipeline_stages? @relation(fields: [stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_leads_stage")
+  converted_company companies?            @relation("LeadConvertedCompany", fields: [converted_company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_leads_converted_company")
 
   stage_history lead_stage_history[]
   activities    lead_activities[]
@@ -782,18 +786,18 @@ model lead_tag_links {
 }
 
 model notifications {
-  id                 String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id          String                    @db.Uuid
-  company_id         String                    @db.Uuid
-  title              String?                   @db.VarChar(150)
-  message            String                    @db.Text
+  id                 String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String                     @db.Uuid
+  company_id         String                     @db.Uuid
+  title              String?                    @db.VarChar(150)
+  message            String                     @db.Text
   severity           notification_severity_enum @default(INFO)
-  starts_at          DateTime?                 @db.Timestamp(6)
-  expires_at         DateTime?                 @db.Timestamp(6)
-  is_active          Boolean                   @default(true)
-  created_by_user_id String?                   @db.Uuid
-  created_at         DateTime                  @default(now()) @db.Timestamp(6)
-  updated_at         DateTime                  @default(now()) @db.Timestamp(6)
+  starts_at          DateTime?                  @db.Timestamp(6)
+  expires_at         DateTime?                  @db.Timestamp(6)
+  is_active          Boolean                    @default(true)
+  created_by_user_id String?                    @db.Uuid
+  created_at         DateTime                   @default(now()) @db.Timestamp(6)
+  updated_at         DateTime                   @default(now()) @db.Timestamp(6)
 
   company   companies @relation("CompanyNotifications", fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
   createdBy users?    @relation("NotificationCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
@@ -806,12 +810,12 @@ model notifications {
 }
 
 model notification_reads {
-  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id       String   @db.Uuid
-  notification_id String   @db.Uuid
-  user_id         String   @db.Uuid
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String    @db.Uuid
+  notification_id String    @db.Uuid
+  user_id         String    @db.Uuid
   read_at         DateTime? @db.Timestamp(6)
-  created_at      DateTime @default(now()) @db.Timestamp(6)
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
 
   notification notifications @relation(fields: [notification_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user         users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -821,25 +825,519 @@ model notification_reads {
   @@index([tenant_id, notification_id], map: "IDX_notification_reads_tenant_notification")
 }
 
-
 model user_default_views {
-  id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id     String      @db.Uuid
-  user_id       String      @db.Uuid
-  entity_name   String      @db.VarChar(100)
-  saved_view_id String      @db.Uuid
+  id            String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String @db.Uuid
+  user_id       String @db.Uuid
+  entity_name   String @db.VarChar(100)
+  saved_view_id String @db.Uuid
 
-  created_at    DateTime    @default(now()) @db.Timestamp(6)
-  updated_at    DateTime    @default(now()) @db.Timestamp(6)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
 
-  user          users       @relation("UserDefaultViews", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_user_default_views_user_id")
-  saved_view    saved_views @relation("SavedViewDefaultForUsers", fields: [saved_view_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_user_default_views_saved_view_id")
+  user       users       @relation("UserDefaultViews", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_user_default_views_user_id")
+  saved_view saved_views @relation("SavedViewDefaultForUsers", fields: [saved_view_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_user_default_views_saved_view_id")
 
   @@unique([tenant_id, user_id, entity_name], map: "UQ_user_default_views_user_entity")
   @@index([tenant_id], map: "IDX_user_default_views_tenant_id")
   @@index([saved_view_id], map: "IDX_user_default_views_saved_view_id")
-
   @@map("user_default_views")
+}
+
+model incidents {
+  id                String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id         String           @db.Uuid
+  number            String           @db.VarChar(50)
+  title             String           @db.VarChar(255)
+  description       String?
+  status            IncidentStatus   @default(NEW)
+  priority          IncidentPriority @default(NORMAL)
+  channel           IncidentChannel  @default(PORTAL)
+  impact            IncidentImpact?
+  urgency           IncidentUrgency?
+  company_id        String           @db.Uuid
+  contact_id        String?          @db.VarChar(100)
+  asset_id          String?          @db.Uuid
+  subject_id        String?          @db.Uuid
+  queue_id          String?          @db.Uuid
+  owner_user_id     String?          @db.Uuid
+  opened_by_user_id String?          @db.Uuid
+  due_at            DateTime?        @db.Timestamp(6)
+  resolved_at       DateTime?        @db.Timestamp(6)
+  closed_at         DateTime?        @db.Timestamp(6)
+  sla_policy_id     String?          @db.Uuid
+  sla_instance_id   String?          @db.Uuid
+  created_at        DateTime         @default(now()) @db.Timestamp(6)
+  updated_at        DateTime         @default(now()) @db.Timestamp(6)
+
+  company             companies              @relation(fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_incidents_company")
+  asset               customer_assets?       @relation(fields: [asset_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_incidents_asset")
+  subject             service_subjects?      @relation(fields: [subject_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_incidents_subject")
+  queue               service_queues?        @relation(fields: [queue_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_incidents_queue")
+  owner_user          users?                 @relation("IncidentOwner", fields: [owner_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_incidents_owner_user")
+  opened_by_user      users?                 @relation("IncidentOpenedBy", fields: [opened_by_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_incidents_opened_by_user")
+  sla_policy          sla_policies?          @relation("IncidentSlaPolicy", fields: [sla_policy_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_incidents_sla_policy")
+  sla_instance        sla_instances?         @relation("IncidentSlaInstance")
+  sla_linked_instance sla_instances?         @relation("IncidentLinkedSlaInstance", fields: [sla_instance_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_incidents_sla_instance")
+  tasks               service_tasks[]
+  sla_events          sla_events[]
+  appointments        service_appointments[]
+
+  @@unique([tenant_id, number], map: "uq_incidents_tenant_number")
+  @@unique([tenant_id, sla_instance_id], map: "uq_incidents_tenant_sla_instance")
+  @@index([tenant_id], map: "IDX_incidents_tenant_id")
+  @@index([tenant_id, status], map: "IDX_incidents_tenant_status")
+  @@index([tenant_id, company_id], map: "IDX_incidents_tenant_company")
+}
+
+model sla_policies {
+  id                   String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String   @db.Uuid
+  name                 String   @db.VarChar(150)
+  description          String?
+  is_active            Boolean  @default(true)
+  business_calendar_id String?  @db.Uuid
+  apply_when_json      Json?
+  created_at           DateTime @default(now()) @db.Timestamp(6)
+  updated_at           DateTime @default(now()) @db.Timestamp(6)
+
+  business_calendar service_calendars? @relation("SlaPolicyBusinessCalendar", fields: [business_calendar_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_sla_policies_calendar")
+  kpis              sla_kpis[]
+  instances         sla_instances[]
+  incidents         incidents[]        @relation("IncidentSlaPolicy")
+  queues            service_queues[]   @relation("QueueDefaultSlaPolicy")
+  subjects          service_subjects[] @relation("SubjectDefaultSlaPolicy")
+
+  @@unique([tenant_id, name], map: "uq_sla_policies_tenant_name")
+  @@index([tenant_id], map: "IDX_sla_policies_tenant_id")
+  @@index([tenant_id, is_active], map: "IDX_sla_policies_tenant_active")
+}
+
+model sla_kpis {
+  id                    String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id             String          @db.Uuid
+  sla_policy_id         String          @db.Uuid
+  name                  String          @db.VarChar(150)
+  kpi_type              SlaKpiType
+  start_condition       String          @db.VarChar(100)
+  start_status          IncidentStatus?
+  stop_condition        String          @db.VarChar(100)
+  stop_status           IncidentStatus?
+  pause_when_status_in  Json?
+  warning_after_minutes Int
+  fail_after_minutes    Int
+  is_active             Boolean         @default(true)
+  sort_order            Int             @default(0)
+  created_at            DateTime        @default(now()) @db.Timestamp(6)
+  updated_at            DateTime        @default(now()) @db.Timestamp(6)
+
+  sla_policy    sla_policies        @relation(fields: [sla_policy_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sla_kpis_policy")
+  instance_kpis sla_instance_kpis[]
+
+  @@unique([tenant_id, sla_policy_id, sort_order], map: "uq_sla_kpis_tenant_policy_sort")
+  @@index([tenant_id], map: "IDX_sla_kpis_tenant_id")
+  @@index([tenant_id, sla_policy_id], map: "IDX_sla_kpis_tenant_policy")
+}
+
+model sla_instances {
+  id            String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String            @db.Uuid
+  incident_id   String            @db.Uuid
+  sla_policy_id String            @db.Uuid
+  status        SlaInstanceStatus @default(RUNNING)
+  started_at    DateTime          @default(now()) @db.Timestamp(6)
+  paused_at     DateTime?         @db.Timestamp(6)
+  completed_at  DateTime?         @db.Timestamp(6)
+  created_at    DateTime          @default(now()) @db.Timestamp(6)
+  updated_at    DateTime          @default(now()) @db.Timestamp(6)
+
+  incident         incidents           @relation("IncidentSlaInstance", fields: [incident_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sla_instances_incident")
+  sla_policy       sla_policies        @relation(fields: [sla_policy_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sla_instances_policy")
+  instance_kpis    sla_instance_kpis[]
+  linked_incidents incidents[]         @relation("IncidentLinkedSlaInstance")
+
+  @@unique([incident_id], map: "uq_sla_instances_incident")
+  @@index([tenant_id], map: "IDX_sla_instances_tenant_id")
+  @@index([tenant_id, status], map: "IDX_sla_instances_tenant_status")
+}
+
+model sla_instance_kpis {
+  id              String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String               @db.Uuid
+  sla_instance_id String               @db.Uuid
+  sla_kpi_id      String               @db.Uuid
+  status          SlaInstanceKpiStatus @default(RUNNING)
+  target_at       DateTime             @db.Timestamp(6)
+  warning_at      DateTime?            @db.Timestamp(6)
+  met_at          DateTime?            @db.Timestamp(6)
+  breached_at     DateTime?            @db.Timestamp(6)
+  elapsed_minutes Int                  @default(0)
+  last_tick_at    DateTime?            @db.Timestamp(6)
+  created_at      DateTime             @default(now()) @db.Timestamp(6)
+  updated_at      DateTime             @default(now()) @db.Timestamp(6)
+
+  sla_instance sla_instances @relation(fields: [sla_instance_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sla_instance_kpis_instance")
+  sla_kpi      sla_kpis      @relation(fields: [sla_kpi_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sla_instance_kpis_kpi")
+  events       sla_events[]
+
+  @@unique([tenant_id, sla_instance_id, sla_kpi_id], map: "uq_sla_instance_kpis_tenant_instance_kpi")
+  @@index([tenant_id], map: "IDX_sla_instance_kpis_tenant_id")
+  @@index([tenant_id, sla_instance_id], map: "IDX_sla_instance_kpis_tenant_instance")
+}
+
+model sla_events {
+  id                  String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String       @db.Uuid
+  incident_id         String       @db.Uuid
+  sla_instance_kpi_id String?      @db.Uuid
+  event_type          SlaEventType
+  occurred_at         DateTime     @default(now()) @db.Timestamp(6)
+  metadata_json       Json?
+  created_at          DateTime     @default(now()) @db.Timestamp(6)
+  updated_at          DateTime     @default(now()) @db.Timestamp(6)
+
+  incident         incidents          @relation(fields: [incident_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sla_events_incident")
+  sla_instance_kpi sla_instance_kpis? @relation(fields: [sla_instance_kpi_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_sla_events_instance_kpi")
+
+  @@index([tenant_id], map: "IDX_sla_events_tenant_id")
+  @@index([tenant_id, incident_id], map: "IDX_sla_events_tenant_incident")
+}
+
+model service_queues {
+  id                    String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id             String              @db.Uuid
+  name                  String              @db.VarChar(150)
+  email                 String?             @db.VarChar(255)
+  is_active             Boolean             @default(true)
+  assignment_mode       QueueAssignmentMode @default(MANUAL)
+  default_sla_policy_id String?             @db.Uuid
+  created_at            DateTime            @default(now()) @db.Timestamp(6)
+  updated_at            DateTime            @default(now()) @db.Timestamp(6)
+
+  default_sla_policy sla_policies?           @relation("QueueDefaultSlaPolicy", fields: [default_sla_policy_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_queues_default_policy")
+  members            service_queue_members[]
+  incidents          incidents[]
+
+  @@unique([tenant_id, name], map: "uq_service_queues_tenant_name")
+  @@index([tenant_id], map: "IDX_service_queues_tenant_id")
+}
+
+model service_queue_members {
+  id         String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String          @db.Uuid
+  queue_id   String          @db.Uuid
+  user_id    String          @db.Uuid
+  role       QueueMemberRole @default(AGENT)
+  is_active  Boolean         @default(true)
+  created_at DateTime        @default(now()) @db.Timestamp(6)
+  updated_at DateTime        @default(now()) @db.Timestamp(6)
+
+  queue service_queues @relation(fields: [queue_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_queue_members_queue")
+  user  users          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_queue_members_user")
+
+  @@unique([tenant_id, queue_id, user_id], map: "uq_service_queue_members_tenant_queue_user")
+  @@index([tenant_id], map: "IDX_service_queue_members_tenant_id")
+}
+
+model customer_assets {
+  id                String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id         String      @db.Uuid
+  company_id        String      @db.Uuid
+  name              String      @db.VarChar(255)
+  asset_tag         String?     @db.VarChar(100)
+  serial_number     String?     @db.VarChar(120)
+  category          String?     @db.VarChar(120)
+  status            AssetStatus @default(ACTIVE)
+  purchase_date     DateTime?   @db.Date
+  warranty_end_date DateTime?   @db.Date
+  notes             String?
+  created_at        DateTime    @default(now()) @db.Timestamp(6)
+  updated_at        DateTime    @default(now()) @db.Timestamp(6)
+
+  company   companies   @relation(fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_customer_assets_company")
+  incidents incidents[]
+
+  @@unique([tenant_id, asset_tag], map: "uq_customer_assets_tenant_asset_tag")
+  @@unique([tenant_id, serial_number], map: "uq_customer_assets_tenant_serial")
+  @@index([tenant_id], map: "IDX_customer_assets_tenant_id")
+  @@index([tenant_id, company_id], map: "IDX_customer_assets_tenant_company")
+}
+
+model service_subjects {
+  id                    String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id             String   @db.Uuid
+  name                  String   @db.VarChar(150)
+  parent_id             String?  @db.Uuid
+  path                  String?  @db.VarChar(600)
+  is_active             Boolean  @default(true)
+  default_sla_policy_id String?  @db.Uuid
+  created_at            DateTime @default(now()) @db.Timestamp(6)
+  updated_at            DateTime @default(now()) @db.Timestamp(6)
+
+  parent             service_subjects?  @relation("ServiceSubjectHierarchy", fields: [parent_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_subjects_parent")
+  children           service_subjects[] @relation("ServiceSubjectHierarchy")
+  default_sla_policy sla_policies?      @relation("SubjectDefaultSlaPolicy", fields: [default_sla_policy_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_subjects_default_policy")
+  incidents          incidents[]
+
+  @@unique([tenant_id, name, parent_id], map: "uq_service_subjects_tenant_name_parent")
+  @@index([tenant_id], map: "IDX_service_subjects_tenant_id")
+  @@index([tenant_id, path], map: "IDX_service_subjects_tenant_path")
+}
+
+model service_calendars {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(150)
+  timezone   String   @default("America/Sao_Paulo") @db.VarChar(80)
+  is_default Boolean  @default(false)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+
+  rules        service_calendar_rules[]
+  exceptions   service_calendar_exceptions[]
+  sla_policies sla_policies[]                @relation("SlaPolicyBusinessCalendar")
+  resources    service_resources[]           @relation("ServiceResourceCalendar")
+
+  @@unique([tenant_id, name], map: "uq_service_calendars_tenant_name")
+  @@index([tenant_id], map: "IDX_service_calendars_tenant_id")
+}
+
+model service_calendar_rules {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String   @db.Uuid
+  calendar_id     String   @db.Uuid
+  day_of_week     Int
+  start_time      DateTime @db.Time(6)
+  end_time        DateTime @db.Time(6)
+  is_working_time Boolean  @default(true)
+  created_at      DateTime @default(now()) @db.Timestamp(6)
+  updated_at      DateTime @default(now()) @db.Timestamp(6)
+
+  calendar service_calendars @relation(fields: [calendar_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_calendar_rules_calendar")
+
+  @@unique([tenant_id, calendar_id, day_of_week, start_time, end_time], map: "uq_service_calendar_rules_slot")
+  @@index([tenant_id], map: "IDX_service_calendar_rules_tenant_id")
+}
+
+model service_calendar_exceptions {
+  id          String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String                @db.Uuid
+  calendar_id String                @db.Uuid
+  date_from   DateTime              @db.Timestamp(6)
+  date_to     DateTime              @db.Timestamp(6)
+  type        CalendarExceptionType
+  notes       String?               @db.VarChar(255)
+  created_at  DateTime              @default(now()) @db.Timestamp(6)
+  updated_at  DateTime              @default(now()) @db.Timestamp(6)
+
+  calendar service_calendars @relation(fields: [calendar_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_calendar_exceptions_calendar")
+
+  @@index([tenant_id], map: "IDX_service_calendar_exceptions_tenant_id")
+  @@index([tenant_id, calendar_id, date_from], map: "IDX_service_calendar_exceptions_tenant_calendar_from")
+}
+
+model service_resources {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String   @db.Uuid
+  user_id          String   @db.Uuid
+  name             String   @db.VarChar(150)
+  calendar_id      String?  @db.Uuid
+  skills_json      Json?
+  capacity_per_day Int      @default(8)
+  is_active        Boolean  @default(true)
+  created_at       DateTime @default(now()) @db.Timestamp(6)
+  updated_at       DateTime @default(now()) @db.Timestamp(6)
+
+  user         users                  @relation("ServiceResourceUser", fields: [user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_service_resources_user")
+  calendar     service_calendars?     @relation("ServiceResourceCalendar", fields: [calendar_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_resources_calendar")
+  appointments service_appointments[]
+
+  @@unique([tenant_id, user_id], map: "uq_service_resources_tenant_user")
+  @@index([tenant_id], map: "IDX_service_resources_tenant_id")
+}
+
+model service_appointments {
+  id          String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String            @db.Uuid
+  resource_id String            @db.Uuid
+  incident_id String?           @db.Uuid
+  title       String            @db.VarChar(255)
+  start_at    DateTime          @db.Timestamp(6)
+  end_at      DateTime          @db.Timestamp(6)
+  status      AppointmentStatus @default(SCHEDULED)
+  notes       String?
+  created_at  DateTime          @default(now()) @db.Timestamp(6)
+  updated_at  DateTime          @default(now()) @db.Timestamp(6)
+
+  resource service_resources @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_appointments_resource")
+  incident incidents?        @relation(fields: [incident_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_appointments_incident")
+
+  @@index([tenant_id], map: "IDX_service_appointments_tenant_id")
+  @@index([tenant_id, resource_id, start_at], map: "IDX_service_appointments_tenant_resource_start")
+}
+
+model service_task_types {
+  id                       String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                String           @db.Uuid
+  name                     String           @db.VarChar(150)
+  default_duration_minutes Int?
+  channel                  TaskTypeChannel?
+  is_active                Boolean          @default(true)
+  created_at               DateTime         @default(now()) @db.Timestamp(6)
+  updated_at               DateTime         @default(now()) @db.Timestamp(6)
+
+  tasks service_tasks[]
+
+  @@unique([tenant_id, name], map: "uq_service_task_types_tenant_name")
+  @@index([tenant_id], map: "IDX_service_task_types_tenant_id")
+}
+
+model service_tasks {
+  id                  String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String           @db.Uuid
+  incident_id         String           @db.Uuid
+  task_type_id        String?          @db.Uuid
+  title               String           @db.VarChar(255)
+  description         String?
+  type                TaskTypeChannel
+  status              TaskStatus       @default(OPEN)
+  priority            IncidentPriority @default(NORMAL)
+  assigned_to_user_id String?          @db.Uuid
+  due_at              DateTime?        @db.Timestamp(6)
+  started_at          DateTime?        @db.Timestamp(6)
+  completed_at        DateTime?        @db.Timestamp(6)
+  estimated_minutes   Int?
+  actual_minutes      Int?
+  created_by_user_id  String           @db.Uuid
+  created_at          DateTime         @default(now()) @db.Timestamp(6)
+  updated_at          DateTime         @default(now()) @db.Timestamp(6)
+
+  incident         incidents           @relation(fields: [incident_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_tasks_incident")
+  task_type        service_task_types? @relation(fields: [task_type_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_tasks_task_type")
+  assigned_to_user users?              @relation("ServiceTaskAssignedTo", fields: [assigned_to_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_tasks_assigned_to")
+  created_by_user  users               @relation("ServiceTaskCreatedBy", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_service_tasks_created_by")
+
+  @@index([tenant_id], map: "IDX_service_tasks_tenant_id")
+  @@index([tenant_id, incident_id], map: "IDX_service_tasks_tenant_incident")
+  @@index([tenant_id, status], map: "IDX_service_tasks_tenant_status")
+}
+
+enum IncidentStatus {
+  NEW
+  IN_PROGRESS
+  WAITING_CUSTOMER
+  WAITING_INTERNAL
+  RESOLVED
+  CANCELLED
+}
+
+enum IncidentPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum IncidentChannel {
+  EMAIL
+  PHONE
+  WHATSAPP
+  PORTAL
+  INTERNAL
+  API
+}
+
+enum IncidentImpact {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum IncidentUrgency {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum SlaInstanceStatus {
+  RUNNING
+  PAUSED
+  MET
+  BREACHED
+  CANCELLED
+}
+
+enum SlaKpiType {
+  FIRST_RESPONSE
+  RESOLUTION
+  CUSTOM
+}
+
+enum SlaEventType {
+  START
+  PAUSE
+  RESUME
+  WARNING
+  BREACH
+  MET
+  RECALC
+  CANCEL
+}
+
+enum SlaInstanceKpiStatus {
+  RUNNING
+  PAUSED
+  MET
+  BREACHED
+}
+
+enum QueueAssignmentMode {
+  MANUAL
+  ROUND_ROBIN
+  LEAST_BUSY
+}
+
+enum QueueMemberRole {
+  AGENT
+  SUPERVISOR
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  RETIRED
+  MAINTENANCE
+}
+
+enum TaskTypeChannel {
+  SERVICE
+  CALL
+  EMAIL
+  WHATSAPP
+  VISIT
+  INTERNAL
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  DONE
+  CANCELLED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  DONE
+  CANCELLED
+  NO_SHOW
+}
+
+enum CalendarExceptionType {
+  HOLIDAY
+  SPECIAL_HOURS
+  BLACKOUT
 }
 
 enum user_role_enum {
@@ -863,6 +1361,7 @@ enum DocumentItemType {
 
   @@map("document_item_type")
 }
+
 enum notification_severity_enum {
   INFO
   WARNING
@@ -878,6 +1377,7 @@ enum DocumentUploadStatus {
 
   @@map("document_upload_status")
 }
+
 enum view_visibility_enum {
   PRIVATE
   SHARED

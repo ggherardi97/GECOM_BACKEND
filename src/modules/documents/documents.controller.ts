@@ -20,6 +20,7 @@ import { DocumentsService } from './documents.service';
 import { CreateDocumentDTO } from './dto/create.dto';
 import { UpdateDocumentDTO } from './dto/update.dto';
 import { R2Service } from './r2.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 type PresignUploadDto = {
   fileName: string;
@@ -57,6 +58,7 @@ export class DocumentsController {
   constructor(
     private readonly service: DocumentsService,
     private readonly r2Service: R2Service,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ------------------------
@@ -75,7 +77,7 @@ export class DocumentsController {
   private getTenantId(req: Request): string {
     const user = this.getUser(req);
     const tenantId = String(user?.tenant_id ?? user?.tenantId ?? '').trim();
-    if (!tenantId) throw new BadRequestException('Usuário sem tenant_id no token');
+    if (!tenantId) throw new BadRequestException('Usuario sem tenant_id no token');
     return tenantId;
   }
 
@@ -87,18 +89,75 @@ export class DocumentsController {
 
   private ensureCompanyScope(req: Request): { related_table: 'company'; related_id: string } {
     const companyId = this.getCompanyId(req);
-    if (!companyId) throw new BadRequestException('Usuário sem company_id no token');
+    if (!companyId) throw new BadRequestException('Usuario sem company_id no token');
     return { related_table: 'company', related_id: companyId };
   }
 
-  private ensureDocReadable(req: Request, doc: any): void {
-    if (this.isAdmin(req)) return;
+  private normalizeRelatedTable(value: any): string {
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  private isProcessRelatedTable(value: string): boolean {
+    return value === 'process' || value === 'processes';
+  }
+
+  private async canReadProcessById(req: Request, tenantId: string, processId: string): Promise<boolean> {
+    if (this.isAdmin(req)) return true;
 
     const scope = this.ensureCompanyScope(req);
+    const process = await this.prisma.processes.findFirst({
+      where: {
+        id: processId,
+        tenant_id: tenantId,
+        deleted_at: null,
+      } as any,
+      select: { company_id: true } as any,
+    });
 
-    if (String(doc?.related_table ?? '') !== scope.related_table || String(doc?.related_id ?? '') !== scope.related_id) {
-      throw new ForbiddenException('Você não tem acesso a este documento.');
+    return !!process && String((process as any)?.company_id ?? '') === scope.related_id;
+  }
+
+  private async canReadByProcessScope(req: Request, tenantId: string, doc: any): Promise<boolean> {
+    const relatedTable = this.normalizeRelatedTable(doc?.related_table);
+    if (!this.isProcessRelatedTable(relatedTable)) return false;
+
+    const processId = String(doc?.related_id ?? '').trim();
+    if (!processId) return false;
+
+    return this.canReadProcessById(req, tenantId, processId);
+  }
+
+  private canReadByCompanyScope(req: Request, doc: any): boolean {
+    if (this.isAdmin(req)) return true;
+
+    const scope = this.ensureCompanyScope(req);
+    return (
+      String(doc?.related_table ?? '') === scope.related_table &&
+      String(doc?.related_id ?? '') === scope.related_id
+    );
+  }
+
+  private async ensureDocReadable(req: Request, tenantId: string, doc: any): Promise<void> {
+    if (this.canReadByCompanyScope(req, doc)) return;
+    if (await this.canReadByProcessScope(req, tenantId, doc)) return;
+    // Backward compatibility: some child rows were created without related_* scope.
+    // In this case, inherit access from an ancestor folder that is company-scoped.
+    const visited = new Set<string>();
+    let parentId = String(doc?.parent_id ?? '').trim();
+    while (parentId) {
+      if (visited.has(parentId)) break;
+      visited.add(parentId);
+      let parent: any = null;
+      try {
+        parent = await this.service.findById(parentId, tenantId, false);
+      } catch {
+        break;
+      }
+      if (this.canReadByCompanyScope(req, parent)) return;
+      if (await this.canReadByProcessScope(req, tenantId, parent)) return;
+      parentId = String(parent?.parent_id ?? '').trim();
     }
+    throw new ForbiddenException('Voce nao tem acesso a este documento.');
   }
 
   // =========================
@@ -150,14 +209,35 @@ const userId =
     const parsedPath = path === undefined ? undefined : (path === 'null' || path === '' ? null : path);
 
     // ADMIN: can use query filters as is (but still restricted by tenant)
-    // Non-admin: force company scope
+    // Non-admin: force company scope for root listing.
     let enforcedRelatedTable = related_table;
     let enforcedRelatedId = related_id;
 
     if (!this.isAdmin(req)) {
-      const scope = this.ensureCompanyScope(req);
-      enforcedRelatedTable = scope.related_table;
-      enforcedRelatedId = scope.related_id;
+      const requestedRelatedTable = this.normalizeRelatedTable(related_table);
+      const requestedRelatedId = String(related_id ?? '').trim();
+
+      if (this.isProcessRelatedTable(requestedRelatedTable) && requestedRelatedId) {
+        const canReadProcess = await this.canReadProcessById(req, tenantId, requestedRelatedId);
+        if (!canReadProcess) {
+          throw new ForbiddenException('Voce nao tem acesso a este processo.');
+        }
+        enforcedRelatedTable = requestedRelatedTable;
+        enforcedRelatedId = requestedRelatedId;
+      } else {
+        const scope = this.ensureCompanyScope(req);
+        enforcedRelatedTable = scope.related_table;
+        enforcedRelatedId = scope.related_id;
+      }
+
+      // For folder navigation (path=<parent_id>), first validate parent access
+      // then list children by parent_id regardless of child related_* fields.
+      if (parsedPath && parsedPath !== 'null') {
+        const parent = await this.service.findById(String(parsedPath), tenantId, false);
+        await this.ensureDocReadable(req, tenantId, parent);
+        enforcedRelatedTable = undefined;
+        enforcedRelatedId = undefined;
+      }
 
       // optional: ignore account_id filtering for non-admin
       account_id = undefined;
@@ -189,15 +269,7 @@ const userId =
     const include = String(includeChildren).toLowerCase() === 'true';
     const doc = await this.service.findById(id, tenantId, include);
 
-    this.ensureDocReadable(req, doc);
-
-    // If including children, filter children too for non-admin
-    if (include && !this.isAdmin(req) && Array.isArray((doc as any)?.children)) {
-      const scope = this.ensureCompanyScope(req);
-      (doc as any).children = (doc as any).children.filter((c: any) => {
-        return String(c?.related_table ?? '') === scope.related_table && String(c?.related_id ?? '') === scope.related_id;
-      });
-    }
+    await this.ensureDocReadable(req, tenantId, doc);
 
     return doc;
   }
@@ -214,7 +286,7 @@ const userId =
     const tenantId = this.getTenantId(req);
 
     const existing = await this.service.findById(id, tenantId, false);
-    this.ensureDocReadable(req, existing);
+    await this.ensureDocReadable(req, tenantId, existing);
 
     const payload: any = { ...(data as any) };
 
@@ -257,7 +329,7 @@ const userId =
 
     // Load doc and check access (tenant enforced)
     const doc = await this.service.findById(documentId, tenantId, false);
-    this.ensureDocReadable(req, doc);
+    await this.ensureDocReadable(req, tenantId, doc);
 
     const accountId = String((doc as any)?.account_id ?? '').trim();
     if (!accountId) throw new BadRequestException('Document missing account_id');
@@ -311,7 +383,7 @@ const userId =
     if (!documentId) throw new BadRequestException('Missing document id');
 
     const doc = await this.service.findById(documentId, tenantId, false);
-    this.ensureDocReadable(req, doc);
+    await this.ensureDocReadable(req, tenantId, doc);
 
     const objectKey = String((doc as any)?.object_key ?? '').trim();
     if (!objectKey) throw new BadRequestException('Document has no object_key. Upload it first.');
@@ -332,7 +404,7 @@ const userId =
     if (!documentId) throw new BadRequestException('Missing document id');
 
     const doc = await this.service.findById(documentId, tenantId, false);
-    this.ensureDocReadable(req, doc);
+    await this.ensureDocReadable(req, tenantId, doc);
 
     const objectKey = String((doc as any)?.object_key ?? '').trim();
     if (!objectKey) return { ok: true, message: 'No object_key found. Nothing to delete in R2.' };
@@ -367,8 +439,9 @@ const userId =
     const tenantId = this.getTenantId(req);
 
     const existing = await this.service.findById(id, tenantId, false);
-    this.ensureDocReadable(req, existing);
+    await this.ensureDocReadable(req, tenantId, existing);
 
     return this.service.remove(id, tenantId);
   }
 }
+

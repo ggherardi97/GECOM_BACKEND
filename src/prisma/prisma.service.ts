@@ -49,6 +49,23 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly user_default_views: PrismaClient['user_default_views'];
   public readonly tracking_configs: PrismaClient['tracking_configs'];
   public readonly tracking_links: PrismaClient['tracking_links'];
+  public readonly incidents: PrismaClient['incidents'];
+  public readonly sla_policies: PrismaClient['sla_policies'];
+  public readonly sla_kpis: PrismaClient['sla_kpis'];
+  public readonly sla_instances: PrismaClient['sla_instances'];
+  public readonly sla_instance_kpis: PrismaClient['sla_instance_kpis'];
+  public readonly sla_events: PrismaClient['sla_events'];
+  public readonly service_queues: PrismaClient['service_queues'];
+  public readonly service_queue_members: PrismaClient['service_queue_members'];
+  public readonly customer_assets: PrismaClient['customer_assets'];
+  public readonly service_subjects: PrismaClient['service_subjects'];
+  public readonly service_calendars: PrismaClient['service_calendars'];
+  public readonly service_calendar_rules: PrismaClient['service_calendar_rules'];
+  public readonly service_calendar_exceptions: PrismaClient['service_calendar_exceptions'];
+  public readonly service_resources: PrismaClient['service_resources'];
+  public readonly service_appointments: PrismaClient['service_appointments'];
+  public readonly service_task_types: PrismaClient['service_task_types'];
+  public readonly service_tasks: PrismaClient['service_tasks'];
 
   // Models that MUST be tenant-scoped
   private static readonly tenantModels = new Set<string>([
@@ -83,6 +100,23 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'lead_activities',
     'lead_tags',
     'lead_tag_links',
+    'incidents',
+    'sla_policies',
+    'sla_kpis',
+    'sla_instances',
+    'sla_instance_kpis',
+    'sla_events',
+    'service_queues',
+    'service_queue_members',
+    'customer_assets',
+    'service_subjects',
+    'service_calendars',
+    'service_calendar_rules',
+    'service_calendar_exceptions',
+    'service_resources',
+    'service_appointments',
+    'service_task_types',
+    'service_tasks',
 
     // add others that have tenant_id
   ]);
@@ -188,6 +222,23 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.user_default_views = this.client.user_default_views;
     this.tracking_configs = this.client.tracking_configs;
     this.tracking_links = this.client.tracking_links;
+    this.incidents = this.client.incidents;
+    this.sla_policies = this.client.sla_policies;
+    this.sla_kpis = this.client.sla_kpis;
+    this.sla_instances = this.client.sla_instances;
+    this.sla_instance_kpis = this.client.sla_instance_kpis;
+    this.sla_events = this.client.sla_events;
+    this.service_queues = this.client.service_queues;
+    this.service_queue_members = this.client.service_queue_members;
+    this.customer_assets = this.client.customer_assets;
+    this.service_subjects = this.client.service_subjects;
+    this.service_calendars = this.client.service_calendars;
+    this.service_calendar_rules = this.client.service_calendar_rules;
+    this.service_calendar_exceptions = this.client.service_calendar_exceptions;
+    this.service_resources = this.client.service_resources;
+    this.service_appointments = this.client.service_appointments;
+    this.service_task_types = this.client.service_task_types;
+    this.service_tasks = this.client.service_tasks;
     this.notifications = this.client.notifications;
     this.notification_reads = this.client.notification_reads;
     this.boards = this.client.boards;

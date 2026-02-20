@@ -421,7 +421,7 @@ export class AuthService {
         'utf8'
       );
 
-      const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}&userId=${user.id}`;
+      const resetLink = `${process.env.FRONTEND_URL}?token=${resetToken}&userId=${user.id}`;
       const currentYear = new Date().getFullYear();
 
       const html = template
