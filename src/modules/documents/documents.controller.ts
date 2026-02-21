@@ -197,6 +197,8 @@ const userId =
     @Req() req: Request,
     @Query('account_id') account_id?: string,
     @Query('path') path?: string,
+    @Query('parent_id') parent_id?: string,
+    @Query('parentId') parentId?: string,
     @Query('related_table') related_table?: string,
     @Query('related_id') related_id?: string,
     @Query('item_type') item_type?: string,
@@ -206,7 +208,10 @@ const userId =
   ) {
     const tenantId = this.getTenantId(req);
 
-    const parsedPath = path === undefined ? undefined : (path === 'null' || path === '' ? null : path);
+    // Backward compatibility with clients that send parent_id/parentId instead of path.
+    const navTargetRaw = path ?? parent_id ?? parentId;
+    const parsedPath =
+      navTargetRaw === undefined ? undefined : navTargetRaw === 'null' || navTargetRaw === '' ? null : navTargetRaw;
 
     // ADMIN: can use query filters as is (but still restricted by tenant)
     // Non-admin: force company scope for root listing.
