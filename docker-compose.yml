@@ -69,7 +69,7 @@ services:
       BREVO_SMTP_USER: ${BREVO_SMTP_USER}
       BREVO_SMTP_PASS: ${BREVO_SMTP_PASS}
     command: >
-      sh -c "npm install --no-audit --no-fund && npm run migration:up || true && npm run prisma:deploy && npm run prisma:generate && npm run dev"
+      sh -c "npm install --no-audit --no-fund && npm run migration:up || true && npm run prisma:generate && npm run dev"
     networks:
       - gecom_network
 
