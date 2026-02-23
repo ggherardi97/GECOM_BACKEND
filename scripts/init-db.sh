@@ -36,6 +36,6 @@ echo "✅ Banco pronto para uso!"
 
 echo "🚀 Iniciando a aplicação Gecom Api..."
 
-npm run prisma:update
+npm run prisma:generate
 
 npm run dev
