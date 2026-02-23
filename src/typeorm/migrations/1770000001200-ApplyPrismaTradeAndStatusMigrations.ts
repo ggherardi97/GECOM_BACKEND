@@ -37,7 +37,8 @@ export class ApplyPrismaTradeAndStatusMigrations1770000001200 implements Migrati
       throw new Error(`Missing Prisma migration file: ${sqlPath}`);
     }
 
-    const sql = fs.readFileSync(sqlPath, 'utf8');
+    // Some SQL files may start with UTF-8 BOM (U+FEFF), which breaks Postgres parser.
+    const sql = fs.readFileSync(sqlPath, 'utf8').replace(/^\uFEFF/, '');
     return queryRunner.query(sql);
   }
 
