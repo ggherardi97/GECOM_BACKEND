@@ -5,8 +5,10 @@ import { CreateProcessDTO } from './dto/create-process.dto';
 // IMPORTANT: use type-only import and alias to avoid conflicts with runtime variables.
 import type { processes, events as EventRow } from '@prisma/client';
 
-type CreateProcessInput = Omit<CreateProcessDTO, 'process_number'> & {
+type CreateProcessInput = Omit<CreateProcessDTO, 'process_number' | 'status' | 'status_config_id'> & {
   process_number: string;
+  status: number;
+  status_config_id?: string | null;
 };
 
 @Injectable()
@@ -20,10 +22,21 @@ export class ProcessRepository {
     id: true,
     process_number: true,
     status: true,
+    status_config_id: true,
+    total_value: true,
     completed: true,
     invoice: true,
     ship_date: true,
     created_on: true,
+    status_config: {
+      select: {
+        id: true,
+        code: true,
+        label: true,
+        color: true,
+        entity: true,
+      },
+    },
     companies: {
       select: {
         id: true,
@@ -47,6 +60,8 @@ export class ProcessRepository {
           tenant_id: tenantId,
           process_number: data.process_number,
           status: data.status,
+          status_config_id: data.status_config_id ?? null,
+          total_value: data.total_value ?? 0,
           invoice: data.invoice ?? null,
           company_id: data.company_id,
           process_type_id: data.process_type_id,
@@ -62,16 +77,22 @@ export class ProcessRepository {
   }
 
   // -------------------- Full (existing) --------------------
-  async findAll(tenantId: string): Promise<processes[]> {
+  async findAll(
+    tenantId: string,
+    filter?: { status?: number; status_config_id?: string },
+  ): Promise<processes[]> {
     return this.prisma.processes.findMany({
       where: {
         tenant_id: tenantId,
         deleted_at: null,
+        ...(filter?.status !== undefined ? { status: filter.status } : {}),
+        ...(filter?.status_config_id ? { status_config_id: filter.status_config_id } : {}),
       } as any,
       include: {
         companies: true,
         process_types: true,
         transports: true,
+        status_config: true,
         users: {
           select: {
             id: true,
@@ -93,6 +114,7 @@ export class ProcessRepository {
         companies: true,
         process_types: true,
         transports: true,
+        status_config: true,
         users: {
           select: {
             id: true,
@@ -104,17 +126,24 @@ export class ProcessRepository {
     });
   }
 
-  async findByCompanyId(companyId: string, tenantId: string): Promise<processes[]> {
+  async findByCompanyId(
+    companyId: string,
+    tenantId: string,
+    filter?: { status?: number; status_config_id?: string },
+  ): Promise<processes[]> {
     return this.prisma.processes.findMany({
       where: {
         tenant_id: tenantId,
         company_id: companyId,
         deleted_at: null,
+        ...(filter?.status !== undefined ? { status: filter.status } : {}),
+        ...(filter?.status_config_id ? { status_config_id: filter.status_config_id } : {}),
       } as any,
       include: {
         companies: true,
         process_types: true,
         transports: true,
+        status_config: true,
         users: {
           select: {
             id: true,
@@ -130,11 +159,16 @@ export class ProcessRepository {
   }
 
   // -------------------- Dashboard (new lightweight) --------------------
-  async findAllDashboard(tenantId: string): Promise<any[]> {
+  async findAllDashboard(
+    tenantId: string,
+    filter?: { status?: number; status_config_id?: string },
+  ): Promise<any[]> {
     return this.prisma.processes.findMany({
       where: {
         tenant_id: tenantId,
         deleted_at: null,
+        ...(filter?.status !== undefined ? { status: filter.status } : {}),
+        ...(filter?.status_config_id ? { status_config_id: filter.status_config_id } : {}),
       } as any,
       select: ProcessRepository.dashboardSelect as any,
       orderBy: {
@@ -143,12 +177,18 @@ export class ProcessRepository {
     });
   }
 
-  async findByCompanyIdDashboard(companyId: string, tenantId: string): Promise<any[]> {
+  async findByCompanyIdDashboard(
+    companyId: string,
+    tenantId: string,
+    filter?: { status?: number; status_config_id?: string },
+  ): Promise<any[]> {
     return this.prisma.processes.findMany({
       where: {
         tenant_id: tenantId,
         company_id: companyId,
         deleted_at: null,
+        ...(filter?.status !== undefined ? { status: filter.status } : {}),
+        ...(filter?.status_config_id ? { status_config_id: filter.status_config_id } : {}),
       } as any,
       select: ProcessRepository.dashboardSelect as any,
       orderBy: {
@@ -167,10 +207,15 @@ export class ProcessRepository {
     });
   }
 
-  async updateStatus(id: string, tenantId: string, status: number): Promise<processes | null> {
+  async updateStatus(
+    id: string,
+    tenantId: string,
+    status: number,
+    status_config_id?: string | null,
+  ): Promise<processes | null> {
     const result = await this.prisma.processes.updateMany({
       where: { id, tenant_id: tenantId } as any,
-      data: { status },
+      data: { status, status_config_id: status_config_id ?? null },
     });
 
     if (!result || result.count === 0) return null;
@@ -200,12 +245,20 @@ export class ProcessRepository {
   async update(
     id: string,
     tenantId: string,
-    data: { completed?: number; status?: number; ship_date?: string | Date | null }
+    data: {
+      completed?: number;
+      status?: number;
+      status_config_id?: string | null;
+      total_value?: number;
+      ship_date?: string | Date | null;
+    }
   ): Promise<processes | null> {
     const updateData: any = {};
 
     if (data.completed !== undefined) updateData.completed = data.completed;
     if (data.status !== undefined) updateData.status = data.status;
+    if (data.status_config_id !== undefined) updateData.status_config_id = data.status_config_id;
+    if (data.total_value !== undefined) updateData.total_value = data.total_value;
 
     if (data.ship_date !== undefined) {
       updateData.ship_date = data.ship_date == null ? null : new Date(data.ship_date);
@@ -243,7 +296,13 @@ export class ProcessRepository {
    * Creates a process with an auto-generated process_number using DB sequence `process_number_seq`.
    * Format: PROC-000001 (6 digits)
    */
-  async createWithAutoNumber(data: Omit<CreateProcessDTO, 'process_number'>, tenantId: string): Promise<processes> {
+  async createWithAutoNumber(
+    data: Omit<CreateProcessDTO, 'process_number' | 'status' | 'status_config_id'> & {
+      status: number;
+      status_config_id?: string | null;
+    },
+    tenantId: string,
+  ): Promise<processes> {
     return this.prisma.transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ seq: bigint }>>`
         SELECT nextval('process_number_seq') AS seq
@@ -262,6 +321,8 @@ export class ProcessRepository {
           tenant_id: tenantId,
           process_number: processNumber,
           status: data.status,
+          status_config_id: data.status_config_id ?? null,
+          total_value: data.total_value ?? 0,
           invoice: data.invoice ?? null,
           company_id: data.company_id,
           process_type_id: data.process_type_id,

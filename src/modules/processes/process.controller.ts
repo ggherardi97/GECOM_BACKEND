@@ -78,12 +78,14 @@ export class ProcessController {
   @ApiOperation({
     summary: 'List processes',
     description:
-      'ADMIN: all processes (optionally filter by company_id). Non-admin: only processes from user company. Supports fields=dashboard for lightweight payload.',
+      'ADMIN: all processes (optional filters: company_id, status, status_config_id). Non-admin: only processes from user company. Supports fields=dashboard for lightweight payload.',
   })
   @ApiOkResponse({ description: 'List of processes' })
   async findAll(
     @Req() req: Request,
     @Query('company_id') companyIdQuery?: string,
+    @Query('status') statusQuery?: string,
+    @Query('status_config_id') statusConfigIdQuery?: string,
     @Query('fields') fields?: string
   ) {
     const tenantId = this.getTenantId(req);
@@ -95,20 +97,32 @@ export class ProcessController {
       const companyId = companyIdQuery && String(companyIdQuery).trim().length > 0 ? String(companyIdQuery).trim() : undefined;
 
       if (isDashboard) {
-        return this.service.findAllDashboard({ company_id: companyId }, tenantId);
+        return this.service.findAllDashboard(
+          { company_id: companyId, status: statusQuery, status_config_id: statusConfigIdQuery },
+          tenantId,
+        );
       }
 
-      return this.service.findAll({ company_id: companyId }, tenantId);
+      return this.service.findAll(
+        { company_id: companyId, status: statusQuery, status_config_id: statusConfigIdQuery },
+        tenantId,
+      );
     }
 
     const companyId = this.getCompanyId(req);
     if (!companyId) throw new BadRequestException('company_id is missing from authenticated user.');
 
     if (isDashboard) {
-      return this.service.findAllDashboard({ company_id: companyId }, tenantId);
+      return this.service.findAllDashboard(
+        { company_id: companyId, status: statusQuery, status_config_id: statusConfigIdQuery },
+        tenantId,
+      );
     }
 
-    return this.service.findAll({ company_id: companyId }, tenantId);
+    return this.service.findAll(
+      { company_id: companyId, status: statusQuery, status_config_id: statusConfigIdQuery },
+      tenantId,
+    );
   }
 
   @Get(':id')
@@ -168,6 +182,9 @@ export class ProcessController {
   @ApiOkResponse({ description: 'Process status updated' })
   async updateStatus(@Req() req: Request, @Param('id') id: string, @Body() data: UpdateProcessStatusDTO) {
     const tenantId = this.getTenantId(req);
+    if (data.status === undefined && !data.status_config_id) {
+      throw new BadRequestException('Informe status ou status_config_id.');
+    }
 
     const existing = await this.service.findById(id, tenantId);
     if (!this.isAdmin(req)) {
@@ -178,7 +195,10 @@ export class ProcessController {
       }
     }
 
-    return this.service.updateStatus(id, tenantId, data.status);
+    return this.service.updateStatus(id, tenantId, {
+      status: data.status,
+      status_config_id: data.status_config_id,
+    });
   }
 
   @Get(':id/events')

@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
-  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -11,8 +10,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { InvoiceStatus } from '../enums/invoice-status.enum';
+import { Type, Transform } from 'class-transformer';
 
 export class CreateInvoiceLineDTO {
   @ApiPropertyOptional({
@@ -163,13 +161,21 @@ export class CreateInvoiceDTO {
   billing_address_country?: string;
 
   @ApiPropertyOptional({
-    description: 'Invoice status',
-    enum: InvoiceStatus,
-    example: InvoiceStatus.ACTIVE,
+    description: 'Invoice status legacy (int or code). Optional when status_config_id is provided.',
+    example: 1,
   })
   @IsOptional()
-  @IsEnum(InvoiceStatus)
-  status?: InvoiceStatus;
+  @Transform(({ value }) => (value === undefined || value === null ? value : String(value).trim()))
+  @IsString()
+  status?: string;
+
+  @ApiPropertyOptional({
+    description: 'Status config id (preferred dynamic status).',
+    example: 'f7e88a44-3cce-4d7a-b08f-2096d96a9175',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  status_config_id?: string;
 
   @ApiPropertyOptional({
     description: 'Header discount percent (0..100).',

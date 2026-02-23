@@ -486,6 +486,28 @@ export class AuthService {
       await this.userService.logoutAll(tenantId, user.sessions.refresh_token);
     }
 
+    try {
+      const template = readFileSync(
+        join(__dirname, '..', 'mailer', 'templates', 'reset-password.html'),
+        'utf8'
+      );
+      const currentYear = new Date().getFullYear();
+      const loginLink = process.env.FRONTEND_URL ?? '';
+
+      const html = template
+        .replace(/{{name}}/g, user.full_name)
+        .replace(/{{resetLink}}/g, loginLink)
+        .replace(/{{year}}/g, currentYear.toString());
+
+      await this.mailerService.sendWelcomeEmail(
+        user.email,
+        'Senha redefinida com sucesso - GECOM',
+        html
+      );
+    } catch (error) {
+      console.error('Failed to send reset success email:', error);
+    }
+
     return {
       message: 'Senha redefinida com sucesso. Faça login com sua nova senha.',
     };

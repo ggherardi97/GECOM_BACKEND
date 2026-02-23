@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, Max, Min, IsDateString, ValidateIf } from 'class-validator';
+import { IsInt, IsOptional, Max, Min, IsDateString, IsUUID, IsNumber, ValidateIf } from 'class-validator';
 
 export class UpdateProcessDTO {
   @IsOptional()
@@ -19,4 +19,13 @@ export class UpdateProcessDTO {
   @IsOptional()
   @IsInt()
   status?: number;
+
+  @IsOptional()
+  @IsUUID()
+  status_config_id?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  total_value?: number;
 }

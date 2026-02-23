@@ -46,16 +46,17 @@ export class InvoiceController {
 @ApiOkResponse({ description: 'List of invoices' })
 @ApiOperation({
   summary: 'List invoices',
-  description: 'Optional filters: company_id, status, fields=summary',
+  description: 'Optional filters: company_id, status, status_config_id, fields=summary',
 })
 async findAll(
   @Req() req: Request,
   @Query('company_id') company_id?: string,
   @Query('status') status?: string,
+  @Query('status_config_id') status_config_id?: string,
   @Query('fields') fields?: string
 ) {
   const tenantId = this.getTenantId(req);
-  return this.service.findAll({ company_id, status }, tenantId, fields);
+  return this.service.findAll({ company_id, status, status_config_id }, tenantId, fields);
 }
 
 

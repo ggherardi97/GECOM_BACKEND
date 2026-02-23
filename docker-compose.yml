@@ -61,8 +61,15 @@ services:
       MAIL_PASS: ${MAIL_PASS}
       MAIL_FROM: ${MAIL_FROM}
       MAIL_PREVIEW: ${MAIL_PREVIEW}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER}
+      EMAIL_FROM: ${EMAIL_FROM}
+      EMAIL_TO_TEST: ${EMAIL_TO_TEST}
+      BREVO_SMTP_HOST: ${BREVO_SMTP_HOST}
+      BREVO_SMTP_PORT: ${BREVO_SMTP_PORT}
+      BREVO_SMTP_USER: ${BREVO_SMTP_USER}
+      BREVO_SMTP_PASS: ${BREVO_SMTP_PASS}
     command: >
-      sh -c "npm install --no-audit --no-fund && npm run prisma:generate && npm run dev"
+      sh -c "npm install --no-audit --no-fund && npm run migration:up || true && npm run prisma:deploy && npm run prisma:generate && npm run dev"
     networks:
       - gecom_network
 

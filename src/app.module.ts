@@ -34,6 +34,8 @@ import { AiModule } from './modules/ai/ai.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
 import { TenantModule } from './modules/tenants/tenant.module';
 import { ServiceModule } from './modules/service/service.module';
+import { TradeSimulationModule } from './modules/trade-simulation/trade-simulation.module';
+import { StatusConfigModule } from './modules/status-config/status-config.module';
 
 @Module({
   imports: [
@@ -75,6 +77,8 @@ import { ServiceModule } from './modules/service/service.module';
     TrackingModule,
     TenantModule,
     ServiceModule,
+    TradeSimulationModule,
+    StatusConfigModule,
   ],
   controllers: [AppController],
   providers: [

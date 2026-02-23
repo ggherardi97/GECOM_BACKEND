@@ -70,6 +70,7 @@ model users {
   service_resources_links    service_resources[]     @relation("ServiceResourceUser")
   assigned_service_tasks     service_tasks[]         @relation("ServiceTaskAssignedTo")
   created_service_tasks      service_tasks[]         @relation("ServiceTaskCreatedBy")
+  trade_simulations_created  trade_simulations[]     @relation("TradeSimulationCreatedByUser")
 
   password_resets password_resets?
   processes       processes[]
@@ -141,17 +142,18 @@ model companies {
   language           String?   @db.VarChar
   company_picture    Bytes?    @db.ByteA
 
-  primaryUser     users?            @relation("CompanyPrimaryUser", fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
-  documents       documents[]       @relation("CompanyDocuments")
-  invoices        invoices[]        @relation("CompanyInvoices")
-  processes       processes[]       @relation("CompanyProcesses")
-  users           users[]           @relation("CompanyUsers")
-  notifications   notifications[]   @relation("CompanyNotifications")
-  boards          boards[]          @relation("BoardCompany")
-  board_cards     board_cards[]     @relation("BoardCardCompany")
-  converted_leads leads[]           @relation("LeadConvertedCompany")
-  incidents       incidents[]
-  customer_assets customer_assets[]
+  primaryUser       users?              @relation("CompanyPrimaryUser", fields: [user_id], references: [id], map: "FK_ee0839cba07cb0c52602021ad4b")
+  documents         documents[]         @relation("CompanyDocuments")
+  invoices          invoices[]          @relation("CompanyInvoices")
+  processes         processes[]         @relation("CompanyProcesses")
+  users             users[]             @relation("CompanyUsers")
+  notifications     notifications[]     @relation("CompanyNotifications")
+  boards            boards[]            @relation("BoardCompany")
+  board_cards       board_cards[]       @relation("BoardCardCompany")
+  converted_leads   leads[]             @relation("LeadConvertedCompany")
+  incidents         incidents[]
+  customer_assets   customer_assets[]
+  trade_simulations trade_simulations[]
 
   // opposite side of tenants.company
   tenant tenants?
@@ -184,11 +186,13 @@ model processes {
   tenant_id          String?   @db.Uuid
   process_number     String    @db.VarChar(100)
   status             Int
+  status_config_id   String?   @db.Uuid
   invoice            String?   @db.VarChar(100)
   company_id         String    @db.Uuid
   primary_contact_id String    @db.Uuid
   ship_date          DateTime? @db.Timestamp(6)
   completed          Int       @default(0)
+  total_value        Decimal   @default(0) @db.Decimal(19, 4)
   created_on         DateTime  @default(now()) @db.Timestamp(6)
   deleted_at         DateTime? @db.Timestamp(6)
   process_type_id    String?   @db.Uuid
@@ -196,6 +200,7 @@ model processes {
   users         users          @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
   companies     companies      @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
   process_types process_types? @relation(fields: [process_type_id], references: [id], onUpdate: NoAction, map: "FK_ded16035eaef6f141a36aea73b3")
+  status_config status_configs? @relation("ProcessStatusConfig", fields: [status_config_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_processes_status_config")
   transports    transports[]
   boards        boards[]       @relation("BoardProcess")
   board_cards   board_cards[]  @relation("BoardCardProcess")
@@ -203,6 +208,7 @@ model processes {
   @@unique([process_number])
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
   @@index([process_number], map: "IDX_PROCESS_PROCESS_NUMBER")
+  @@index([tenant_id, status_config_id], map: "IDX_processes_tenant_status_config")
   @@index([tenant_id], map: "IDX_processes_tenant_id")
 }
 
@@ -220,21 +226,22 @@ model currencies {
 }
 
 model products {
-  id                 String          @id(map: "PK_0806c755e0aca124e67c0cf6d7d") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id          String?         @db.Uuid
-  product_code       String          @unique(map: "uq_products_product_code") @db.VarChar(80)
-  name               String          @db.VarChar(255)
-  brand              String?         @db.VarChar(120)
-  unit               String?         @db.VarChar(50)
-  description        String?
-  currency_id        String          @db.Uuid
-  default_unit_price Decimal         @default(0) @db.Decimal(19, 4)
-  default_tax_rate   Decimal         @default(0) @db.Decimal(9, 4)
-  is_active          Boolean         @default(true)
-  created_at         DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime        @default(now()) @db.Timestamptz(6)
-  invoice_lines      invoice_lines[]
-  currencies         currencies      @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_products_currency")
+  id                     String                   @id(map: "PK_0806c755e0aca124e67c0cf6d7d") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id              String?                  @db.Uuid
+  product_code           String                   @unique(map: "uq_products_product_code") @db.VarChar(80)
+  name                   String                   @db.VarChar(255)
+  brand                  String?                  @db.VarChar(120)
+  unit                   String?                  @db.VarChar(50)
+  description            String?
+  currency_id            String                   @db.Uuid
+  default_unit_price     Decimal                  @default(0) @db.Decimal(19, 4)
+  default_tax_rate       Decimal                  @default(0) @db.Decimal(9, 4)
+  is_active              Boolean                  @default(true)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  invoice_lines          invoice_lines[]
+  trade_simulation_items trade_simulation_items[]
+  currencies             currencies               @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_products_currency")
 
   @@index([currency_id], map: "idx_products_currency_id")
   @@index([is_active], map: "idx_products_is_active")
@@ -258,6 +265,7 @@ model invoices {
   billing_address_postal_code String?
   billing_address_country     String?
   status                      Int             @default(0) @db.SmallInt
+  status_config_id            String?         @db.Uuid
   subtotal                    Decimal         @default(0) @db.Decimal(19, 4)
   discount_percent            Int             @default(0)
   discount_amount             Decimal         @default(0) @db.Decimal(19, 4)
@@ -274,6 +282,7 @@ model invoices {
   invoice_lines               invoice_lines[]
   companies                   companies       @relation("CompanyInvoices", fields: [company_id], references: [id], onUpdate: NoAction, map: "fk_invoices_company")
   currencies                  currencies      @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_invoices_currency")
+  status_config               status_configs? @relation("InvoiceStatusConfig", fields: [status_config_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_invoices_status_config")
   boards                      boards[]        @relation("BoardInvoice")
   board_cards                 board_cards[]   @relation("BoardCardInvoice")
 
@@ -281,6 +290,7 @@ model invoices {
   @@index([company_id, status], map: "idx_invoices_company_status")
   @@index([currency_id], map: "idx_invoices_currency_id")
   @@index([status], map: "idx_invoices_status")
+  @@index([tenant_id, status_config_id], map: "IDX_invoices_tenant_status_config")
   @@index([tenant_id], map: "IDX_invoices_tenant_id")
 }
 
@@ -308,6 +318,142 @@ model invoice_lines {
   @@index([invoice_id], map: "idx_invoice_lines_invoice_id")
   @@index([product_id], map: "idx_invoice_lines_product_id")
   @@index([tenant_id], map: "IDX_invoice_lines_tenant_id")
+}
+
+model trade_simulations {
+  id                       String                         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                String                         @db.Uuid
+  company_id               String                         @db.Uuid
+  type                     TradeSimulationType
+  status                   TradeSimulationStatus          @default(DRAFT)
+  calculation_mode         TradeSimulationCalculationMode @default(MANUAL)
+  currency                 String                         @db.VarChar(3)
+  exchange_rate            Decimal?                       @db.Decimal(19, 8)
+  incoterm                 String?                        @db.VarChar(20)
+  origin_country           String?                        @db.VarChar(2)
+  destination_state        String?                        @db.VarChar(2)
+  customs_value            Decimal                        @db.Decimal(19, 4)
+  freight_international    Decimal?                       @db.Decimal(19, 4)
+  insurance_international  Decimal?                       @db.Decimal(19, 4)
+  other_additions          Decimal?                       @db.Decimal(19, 4)
+  icms_rate                Decimal?                       @db.Decimal(9, 6)
+  calculation_payload_json Json?
+  created_by_user_id       String                         @db.Uuid
+  created_at               DateTime                       @default(now()) @db.Timestamp(6)
+  updated_at               DateTime                       @default(now()) @db.Timestamp(6)
+
+  company         companies                @relation(fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_trade_simulations_company")
+  created_by_user users                    @relation("TradeSimulationCreatedByUser", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_trade_simulations_created_by_user")
+  items           trade_simulation_items[]
+  costs           trade_simulation_costs[]
+  taxes           trade_simulation_taxes[]
+
+  @@index([tenant_id], map: "IDX_trade_simulations_tenant_id")
+  @@index([tenant_id, company_id], map: "IDX_trade_simulations_tenant_company")
+  @@index([tenant_id, status], map: "IDX_trade_simulations_tenant_status")
+}
+
+model trade_simulation_items {
+  id                      String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id               String   @db.Uuid
+  trade_simulation_id     String   @db.Uuid
+  product_id              String?  @db.Uuid
+  description             String   @db.VarChar(255)
+  ncm                     String   @db.VarChar(20)
+  quantity                Decimal  @db.Decimal(19, 6)
+  unit_price              Decimal  @db.Decimal(19, 6)
+  item_value              Decimal  @db.Decimal(19, 4)
+  freight_allocated       Decimal? @db.Decimal(19, 4)
+  insurance_allocated     Decimal? @db.Decimal(19, 4)
+  customs_value_allocated Decimal? @db.Decimal(19, 4)
+  notes                   String?  @db.VarChar(500)
+  created_at              DateTime @default(now()) @db.Timestamp(6)
+  updated_at              DateTime @default(now()) @db.Timestamp(6)
+
+  trade_simulation trade_simulations        @relation(fields: [trade_simulation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_trade_simulation_items_simulation")
+  product          products?                @relation(fields: [product_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_trade_simulation_items_product")
+  taxes            trade_simulation_taxes[]
+
+  @@index([tenant_id], map: "IDX_trade_simulation_items_tenant_id")
+  @@index([tenant_id, trade_simulation_id], map: "IDX_trade_simulation_items_tenant_simulation")
+  @@index([tenant_id, ncm], map: "IDX_trade_simulation_items_tenant_ncm")
+}
+
+model trade_simulation_costs {
+  id                  String                              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String                              @db.Uuid
+  trade_simulation_id String                              @db.Uuid
+  cost_type           TradeSimulationCostType
+  amount              Decimal                             @db.Decimal(19, 4)
+  currency            String                              @db.VarChar(3)
+  exchange_rate       Decimal?                            @db.Decimal(19, 8)
+  is_in_icms_base     Boolean                             @default(true)
+  allocation_method   TradeSimulationCostAllocationMethod @default(TOTAL)
+  notes               String?                             @db.VarChar(500)
+  created_at          DateTime                            @default(now()) @db.Timestamp(6)
+  updated_at          DateTime                            @default(now()) @db.Timestamp(6)
+
+  trade_simulation trade_simulations @relation(fields: [trade_simulation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_trade_simulation_costs_simulation")
+
+  @@index([tenant_id], map: "IDX_trade_simulation_costs_tenant_id")
+  @@index([tenant_id, trade_simulation_id], map: "IDX_trade_simulation_costs_tenant_simulation")
+}
+
+model trade_simulation_taxes {
+  id                       String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                String                 @db.Uuid
+  trade_simulation_id      String                 @db.Uuid
+  trade_simulation_item_id String?                @db.Uuid
+  tax_type                 TradeSimulationTaxType
+  base_amount_brl          Decimal?               @db.Decimal(19, 4)
+  rate                     Decimal?               @db.Decimal(9, 6)
+  amount_brl               Decimal                @db.Decimal(19, 4)
+  metadata_json            Json?
+  created_at               DateTime               @default(now()) @db.Timestamp(6)
+  updated_at               DateTime               @default(now()) @db.Timestamp(6)
+
+  trade_simulation      trade_simulations       @relation(fields: [trade_simulation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_trade_simulation_taxes_simulation")
+  trade_simulation_item trade_simulation_items? @relation(fields: [trade_simulation_item_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_trade_simulation_taxes_item")
+
+  @@index([tenant_id], map: "IDX_trade_simulation_taxes_tenant_id")
+  @@index([tenant_id, trade_simulation_id], map: "IDX_trade_simulation_taxes_tenant_simulation")
+}
+
+model tax_profiles {
+  id                              String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                       String              @db.Uuid
+  name                            String              @db.VarChar(120)
+  type                            TradeSimulationType
+  destination_state               String?             @db.VarChar(2)
+  icms_rate                       Decimal?            @db.Decimal(9, 6)
+  include_ipi_in_icms_base        Boolean             @default(true)
+  include_pis_cofins_in_icms_base Boolean             @default(true)
+  default_costs_json              Json?
+  is_active                       Boolean             @default(true)
+  created_at                      DateTime            @default(now()) @db.Timestamp(6)
+  updated_at                      DateTime            @default(now()) @db.Timestamp(6)
+
+  @@index([tenant_id], map: "IDX_tax_profiles_tenant_id")
+  @@index([tenant_id, type], map: "IDX_tax_profiles_tenant_type")
+}
+
+model ncm_tax_rules {
+  id          String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String           @db.Uuid
+  ncm         String           @db.VarChar(20)
+  ii_rate     Decimal?         @db.Decimal(9, 6)
+  ipi_rate    Decimal?         @db.Decimal(9, 6)
+  pis_rate    Decimal?         @db.Decimal(9, 6)
+  cofins_rate Decimal?         @db.Decimal(9, 6)
+  valid_from  DateTime?        @db.Timestamp(6)
+  valid_to    DateTime?        @db.Timestamp(6)
+  source      NcmTaxRuleSource @default(MANUAL)
+  notes       String?          @db.VarChar(500)
+  created_at  DateTime         @default(now()) @db.Timestamp(6)
+  updated_at  DateTime         @default(now()) @db.Timestamp(6)
+
+  @@index([tenant_id], map: "IDX_ncm_tax_rules_tenant_id")
+  @@index([tenant_id, ncm], map: "IDX_ncm_tax_rules_tenant_ncm")
 }
 
 model documents {
@@ -695,6 +841,7 @@ model leads {
   source               lead_source_enum @default(MANUAL)
   owner_user_id        String           @db.Uuid
   status               lead_status_enum @default(NEW)
+  status_config_id     String?          @db.Uuid
   stage_id             String?          @db.Uuid
   disqualify_reason    String?
   converted_company_id String?          @db.Uuid
@@ -709,12 +856,14 @@ model leads {
   owner_user        users                 @relation("LeadOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_leads_owner_user")
   stage             lead_pipeline_stages? @relation(fields: [stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_leads_stage")
   converted_company companies?            @relation("LeadConvertedCompany", fields: [converted_company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_leads_converted_company")
+  status_config     status_configs?       @relation("LeadStatusConfig", fields: [status_config_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_leads_status_config")
 
   stage_history lead_stage_history[]
   activities    lead_activities[]
   tags          lead_tag_links[]
 
   @@index([tenant_id, status], map: "IDX_leads_tenant_status")
+  @@index([tenant_id, status_config_id], map: "IDX_leads_tenant_status_config")
   @@index([tenant_id, owner_user_id], map: "IDX_leads_tenant_owner")
   @@index([tenant_id, stage_id], map: "IDX_leads_tenant_stage")
 }
@@ -783,6 +932,29 @@ model lead_tag_links {
 
   @@id([tenant_id, lead_id, tag_id], map: "pk_lead_tag_links")
   @@index([lead_id], map: "IDX_lead_tag_links_lead")
+}
+
+model status_configs {
+  id                 String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String               @db.Uuid
+  entity             status_config_entity
+  code               String               @db.VarChar(60)
+  label              String               @db.VarChar(120)
+  color              String?              @db.VarChar(20)
+  sort_order         Int                  @default(0)
+  is_active          Boolean              @default(true)
+  is_system          Boolean              @default(false)
+  legacy_int_value   Int?
+  legacy_lead_status lead_status_enum?
+  created_at         DateTime             @default(now()) @db.Timestamp(6)
+  updated_at         DateTime             @default(now()) @db.Timestamp(6)
+  processes_status   processes[]          @relation("ProcessStatusConfig")
+  invoices_status    invoices[]           @relation("InvoiceStatusConfig")
+  leads_status       leads[]              @relation("LeadStatusConfig")
+
+  @@unique([tenant_id, entity, code], map: "uq_status_configs_tenant_entity_code")
+  @@index([tenant_id], map: "IDX_status_configs_tenant_id")
+  @@index([tenant_id, entity, is_active], map: "IDX_status_configs_tenant_entity_active")
 }
 
 model notifications {
@@ -1434,6 +1606,12 @@ enum lead_status_enum {
   CONVERTED
 }
 
+enum status_config_entity {
+  PROCESS
+  LEAD
+  INVOICE
+}
+
 enum lead_activity_type_enum {
   NOTE
   CALL
@@ -1451,4 +1629,54 @@ enum tracking_provider_enum {
 enum tracking_mode_enum {
   AIR
   SEA
+}
+
+enum TradeSimulationType {
+  IMPORT
+  EXPORT
+}
+
+enum TradeSimulationStatus {
+  DRAFT
+  FINAL
+  CONVERTED
+}
+
+enum TradeSimulationCalculationMode {
+  MANUAL
+  RULES
+  TTCE
+}
+
+enum TradeSimulationCostType {
+  BROKER
+  WAREHOUSE
+  THC
+  INLAND_FREIGHT
+  PORT_FEES
+  OTHER
+}
+
+enum TradeSimulationCostAllocationMethod {
+  TOTAL
+  BY_VALUE
+  MANUAL
+}
+
+enum TradeSimulationTaxType {
+  II
+  IPI
+  PIS
+  COFINS
+  ICMS
+  SISCOMEX
+  AFRMM
+  ANTIDUMPING
+  OTHER
+}
+
+enum NcmTaxRuleSource {
+  MANUAL
+  IMPORT
+  API
 }

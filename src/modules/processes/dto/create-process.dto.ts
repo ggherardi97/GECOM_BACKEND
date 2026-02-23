@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsString, IsInt, IsOptional, IsDateString, IsUUID } from 'class-validator';
+import { IsString, IsInt, IsOptional, IsDateString, IsUUID, IsNumber, Min } from 'class-validator';
 import { ProcessStatus } from '../enums/process-status.enum';
 
 export class CreateProcessDTO {
@@ -19,12 +19,21 @@ export class CreateProcessDTO {
   })
   process_number?: string;
 
-  @ApiProperty({
-    description: 'Process status',
+  @ApiPropertyOptional({
+    description: 'Process status legacy (int). Optional when status_config_id is provided.',
     example: ProcessStatus.PENDING,
   })
+  @IsOptional()
   @IsInt()
-  status: number;
+  status?: number;
+
+  @ApiPropertyOptional({
+    description: 'Status config id (preferred dynamic status).',
+    example: 'f7e88a44-3cce-4d7a-b08f-2096d96a9175',
+  })
+  @IsOptional()
+  @IsUUID()
+  status_config_id?: string;
 
   @ApiProperty({
     description: 'Invoice number',
@@ -55,6 +64,15 @@ export class CreateProcessDTO {
   })
   @IsUUID()
   process_type_id: string;
+
+  @ApiPropertyOptional({
+    description: 'Total process value (decimal)',
+    example: 15000.5,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  total_value?: number;
 
   @ApiProperty({
     description: 'Shipment date (ISO 8601 string)',

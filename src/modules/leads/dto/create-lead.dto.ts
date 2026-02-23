@@ -14,14 +14,6 @@ export enum LeadSourceDto {
   OTHER = 'OTHER',
 }
 
-export enum LeadStatusDto {
-  NEW = 'NEW',
-  WORKING = 'WORKING',
-  QUALIFIED = 'QUALIFIED',
-  DISQUALIFIED = 'DISQUALIFIED',
-  CONVERTED = 'CONVERTED',
-}
-
 function normalizeEnumInput(value: unknown): unknown {
   if (typeof value !== 'string') return value;
 
@@ -95,10 +87,14 @@ export class CreateLeadDto {
   @IsUUID('4')
   owner_user_id?: string;
 
-  @Transform(({ value }) => normalizeEnumInput(value))
   @IsOptional()
-  @IsEnum(LeadStatusDto)
-  status?: LeadStatusDto;
+  @Transform(({ value }) => normalizeEnumInput(value))
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  status_config_id?: string;
 
   @IsOptional()
   @IsUUID('4')

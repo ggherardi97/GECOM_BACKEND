@@ -82,6 +82,7 @@ export class LeadRepository {
   async listLeads(params: {
     tenantId: string;
     status?: lead_status_enum;
+    statusConfigId?: string;
     q?: string;
     ownerUserId?: string;
     stageId?: string;
@@ -91,6 +92,7 @@ export class LeadRepository {
     return this.prisma.leads.findMany({
       where: {
         tenant_id: params.tenantId,
+        ...(params.statusConfigId ? { status_config_id: params.statusConfigId } : {}),
         ...(params.status ? { status: params.status } : {}),
         ...(params.ownerUserId ? { owner_user_id: params.ownerUserId } : {}),
         ...(params.stageId ? { stage_id: params.stageId } : {}),
@@ -111,6 +113,7 @@ export class LeadRepository {
       include: {
         owner_user: { select: { id: true, full_name: true, email: true } },
         stage: true,
+        status_config: true,
         _count: { select: { activities: true, tags: true } },
       },
     });
@@ -122,6 +125,7 @@ export class LeadRepository {
       include: {
         owner_user: { select: { id: true, full_name: true, email: true } },
         stage: true,
+        status_config: true,
         converted_company: { select: { id: true, company_name: true } },
         stage_history: {
           orderBy: [{ changed_at: 'desc' }],
@@ -158,6 +162,7 @@ export class LeadRepository {
     source?: lead_source_enum;
     ownerUserId: string;
     status?: lead_status_enum;
+    statusConfigId?: string;
     stageId?: string;
     disqualifyReason?: string;
     estimatedValue?: number;
@@ -181,6 +186,7 @@ export class LeadRepository {
         source: params.source ?? lead_source_enum.MANUAL,
         owner_user_id: params.ownerUserId,
         status: params.status ?? lead_status_enum.NEW,
+        status_config_id: params.statusConfigId ?? null,
         stage_id: params.stageId ?? null,
         disqualify_reason: params.disqualifyReason ?? null,
         estimated_value: params.estimatedValue ?? null,

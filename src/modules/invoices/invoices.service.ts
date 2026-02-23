@@ -3,30 +3,45 @@ import { Prisma } from '@prisma/client';
 import { InvoiceRepository } from './invoices.repository';
 import { CreateInvoiceDTO } from './dto/create.dto';
 import { UpdateInvoiceDTO } from './dto/update.dto';
+import { StatusConfigService } from '../status-config/status-config.service';
 
 @Injectable()
 export class InvoiceService {
-  constructor(private readonly repository: InvoiceRepository) {}
+  constructor(
+    private readonly repository: InvoiceRepository,
+    private readonly statusConfigService: StatusConfigService,
+  ) {}
 
-async findAll(
-  query: { company_id?: string; status?: string } | undefined,
-  tenantId: string,
-  fields?: string
-) {
-  const statusRaw = query?.status != null && String(query.status).trim().length > 0 ? Number(query.status) : undefined;
-  const status = Number.isNaN(statusRaw as any) ? undefined : statusRaw;
+  async findAll(
+    query: { company_id?: string; status?: string; status_config_id?: string } | undefined,
+    tenantId: string,
+    fields?: string,
+  ) {
+    let resolvedStatus:
+      | {
+          status: number;
+          statusConfig: { id: string };
+        }
+      | undefined;
 
-  //const mode: 'summary' | 'full' = String(fields || '').toLowerCase() != 'summary' ? 'full' : 'full';
+    if (
+      (query?.status !== undefined && String(query.status).trim().length > 0) ||
+      (query?.status_config_id !== undefined && String(query.status_config_id).trim().length > 0)
+    ) {
+      resolvedStatus = await this.statusConfigService.resolveInvoiceStatus(tenantId, {
+        status: query?.status,
+        status_config_id: query?.status_config_id,
+      });
+    }
 
-  console.log("****** fields: " + fields);
-  return this.repository.findAll({
-    tenantId,
-    company_id: query?.company_id,
-    status,
-    fields: fields,
-  });
-}
-
+    return this.repository.findAll({
+      tenantId,
+      company_id: query?.company_id,
+      status: resolvedStatus?.status,
+      status_config_id: resolvedStatus?.statusConfig.id,
+      fields,
+    });
+  }
 
   async findById(id: string, tenantId: string) {
     const invoice = await this.repository.findById(id, tenantId);
@@ -35,6 +50,11 @@ async findAll(
   }
 
   async create(data: CreateInvoiceDTO, tenantId: string) {
+    const resolvedStatus = await this.statusConfigService.resolveInvoiceStatus(tenantId, {
+      status: data.status,
+      status_config_id: data.status_config_id,
+    });
+
     const headerDiscountPercent = this.normalizePercent(data.discount_percent ?? 0);
     const hasLines = Array.isArray(data.lines) && data.lines.length > 0;
 
@@ -50,11 +70,10 @@ async findAll(
         };
 
     const created = await this.repository.create({
-      // DB trigger will fill invoice_number if empty
       invoice_number: '',
-
       companies: { connect: { id: data.company_id } },
       currencies: { connect: { id: data.currency_id } },
+      status_config: { connect: { id: resolvedStatus.statusConfig.id } },
 
       quote_at: data.quote_at ? new Date(data.quote_at) : undefined,
       due_at: data.due_at ? new Date(data.due_at) : undefined,
@@ -69,7 +88,7 @@ async findAll(
       billing_address_postal_code: data.billing_address_postal_code ?? null,
       billing_address_country: data.billing_address_country ?? null,
 
-      status: (data.status as any) ?? 0,
+      status: resolvedStatus.status,
 
       subtotal: computed.subtotal,
       discount_percent: headerDiscountPercent,
@@ -115,22 +134,27 @@ async findAll(
       updated_at: new Date(),
     };
 
-    // Basic fields
     if (data.invoice_number !== undefined) patch.invoice_number = data.invoice_number ?? '';
-    if (data.status !== undefined) patch.status = data.status as any;
+
+    if (data.status !== undefined || data.status_config_id !== undefined) {
+      const resolvedStatus = await this.statusConfigService.resolveInvoiceStatus(tenantId, {
+        status: data.status,
+        status_config_id: data.status_config_id,
+      });
+      patch.status = resolvedStatus.status as any;
+      (patch as any).status_config_id = resolvedStatus.statusConfig.id;
+    }
+
     if (data.version !== undefined) patch.version = data.version;
 
-    // Dates
     if (data.quote_at !== undefined) patch.quote_at = data.quote_at ? new Date(data.quote_at) : null;
     if (data.due_at !== undefined) patch.due_at = data.due_at ? new Date(data.due_at) : null;
 
-    // Exchange rate (non-null column in schema)
     if (data.exchange_rate !== undefined) {
       const raw = String(data.exchange_rate ?? '').trim();
       patch.exchange_rate = raw ? new Prisma.Decimal(raw) : new Prisma.Decimal(1);
     }
 
-    // Billing
     if (data.billing_address_line1 !== undefined) patch.billing_address_line1 = data.billing_address_line1 ?? null;
     if (data.billing_address_line2 !== undefined) patch.billing_address_line2 = data.billing_address_line2 ?? null;
     if (data.billing_address_city !== undefined) patch.billing_address_city = data.billing_address_city ?? null;
@@ -138,15 +162,11 @@ async findAll(
     if (data.billing_address_postal_code !== undefined) patch.billing_address_postal_code = data.billing_address_postal_code ?? null;
     if (data.billing_address_country !== undefined) patch.billing_address_country = data.billing_address_country ?? null;
 
-    // Notes/terms
     if (data.notes !== undefined) patch.notes = data.notes ?? null;
     if (data.terms !== undefined) patch.terms = data.terms ?? null;
 
-    // ✅ If lines were provided -> recompute totals and replace lines
     if (Array.isArray(data.lines)) {
-      const headerDiscountPercent = this.normalizePercent(
-        data.discount_percent ?? (existing.discount_percent as any) ?? 0
-      );
+      const headerDiscountPercent = this.normalizePercent(data.discount_percent ?? (existing.discount_percent as any) ?? 0);
 
       if (data.lines.length === 0) {
         patch.subtotal = new Prisma.Decimal(0);
@@ -190,13 +210,12 @@ async findAll(
           discount_amount: l.discount_amount,
           line_subtotal: l.line_subtotal,
           line_total: l.line_total,
-        }))
+        })),
       );
 
       return this.findById(id, tenantId);
     }
 
-    // If header discount changed but no lines passed, do not auto-recalc totals
     if (data.discount_percent !== undefined) patch.discount_percent = this.normalizePercent(data.discount_percent);
 
     const updated = await this.repository.update(id, tenantId, patch);
@@ -214,9 +233,6 @@ async findAll(
     return removed;
   }
 
-  // -------------------------
-  // Helpers
-  // -------------------------
   private normalizePercent(value: any): number {
     const n = Number(value ?? 0);
     if (!Number.isFinite(n)) return 0;
@@ -230,13 +246,6 @@ async findAll(
     }
   }
 
-  /**
-   * Totals logic aligned with the FRONT:
-   * - subtotal = sum(line_subtotal) [gross]
-   * - lineDiscountTotal = sum(discount_amount)
-   * - headerDiscountAmount = subtotal * headerDiscountPercent / 100
-   * - total = (subtotal - lineDiscountTotal - headerDiscountAmount) + taxTotal
-   */
   private computeTotals(lines: CreateInvoiceDTO['lines'] | undefined, headerDiscountPercent: number) {
     const safeLines = lines ?? [];
 
@@ -269,7 +278,6 @@ async findAll(
         throw new BadRequestException('unit_price and quantity must be >= 0');
       }
 
-      // ✅ quantity must be integer
       this.assertIntegerDecimal(quantity, 'quantity must be an integer');
 
       const taxRate = l.tax_rate != null ? new Prisma.Decimal(String(l.tax_rate)) : new Prisma.Decimal(0);
@@ -306,7 +314,10 @@ async findAll(
     });
 
     const headerDiscountAmount = subtotal.mul(new Prisma.Decimal(headerDiscountPercent)).div(new Prisma.Decimal(100));
-    const total = Prisma.Decimal.max(new Prisma.Decimal(0), subtotal.sub(lineDiscountTotal).sub(headerDiscountAmount).add(taxTotal));
+    const total = Prisma.Decimal.max(
+      new Prisma.Decimal(0),
+      subtotal.sub(lineDiscountTotal).sub(headerDiscountAmount).add(taxTotal),
+    );
 
     return {
       subtotal,

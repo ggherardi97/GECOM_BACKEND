@@ -6,6 +6,10 @@ export class ListLeadsQueryDto {
   status?: string;
 
   @IsOptional()
+  @IsUUID('4')
+  status_config_id?: string;
+
+  @IsOptional()
   @IsString()
   q?: string;
 

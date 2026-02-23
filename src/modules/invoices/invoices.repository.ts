@@ -7,6 +7,7 @@ type InvoiceFindAllParams = {
   tenantId: string;
   company_id?: string;
   status?: number;
+  status_config_id?: string;
   fields?: string;
 };
 
@@ -21,6 +22,7 @@ export class InvoiceRepository {
       const where = {
         tenant_id: params.tenantId,
         ...(params.company_id ? { company_id: params.company_id } : {}),
+        ...(params.status_config_id ? { status_config_id: params.status_config_id } : {}),
         ...(params.status !== undefined ? { status: params.status } : {}),
       } as any;
 
@@ -35,7 +37,17 @@ export class InvoiceRepository {
             quote_at: true,
             created_at: true,
             status: true,
+            status_config_id: true,
             company_id: true,
+            status_config: {
+              select: {
+                id: true,
+                code: true,
+                label: true,
+                color: true,
+                entity: true,
+              },
+            },
           },
         });
       }
@@ -55,7 +67,17 @@ export class InvoiceRepository {
             quote_at: true,
             created_at: true,
             status: true,
+            status_config_id: true,
             company_id: true,
+            status_config: {
+              select: {
+                id: true,
+                code: true,
+                label: true,
+                color: true,
+                entity: true,
+              },
+            },
             companies: {
               select:{
                 company_name:true,
@@ -74,6 +96,7 @@ export class InvoiceRepository {
           invoice_lines: true,
           currencies: true,
           companies: true,
+          status_config: true,
         },
       });
     } catch (error) {
@@ -90,6 +113,7 @@ export class InvoiceRepository {
           invoice_lines: true,
           currencies: true,
           companies: true,
+          status_config: true,
         },
       });
     } catch (error) {
@@ -106,6 +130,7 @@ export class InvoiceRepository {
             invoice_lines: true,
             currencies: true,
             companies: true,
+            status_config: true,
           },
         });
 

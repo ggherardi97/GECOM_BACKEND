@@ -66,6 +66,13 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly service_appointments: PrismaClient['service_appointments'];
   public readonly service_task_types: PrismaClient['service_task_types'];
   public readonly service_tasks: PrismaClient['service_tasks'];
+  public readonly trade_simulations: PrismaClient['trade_simulations'];
+  public readonly trade_simulation_items: PrismaClient['trade_simulation_items'];
+  public readonly trade_simulation_costs: PrismaClient['trade_simulation_costs'];
+  public readonly trade_simulation_taxes: PrismaClient['trade_simulation_taxes'];
+  public readonly tax_profiles: PrismaClient['tax_profiles'];
+  public readonly ncm_tax_rules: PrismaClient['ncm_tax_rules'];
+  public readonly status_configs: PrismaClient['status_configs'];
 
   // Models that MUST be tenant-scoped
   private static readonly tenantModels = new Set<string>([
@@ -117,6 +124,13 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'service_appointments',
     'service_task_types',
     'service_tasks',
+    'trade_simulations',
+    'trade_simulation_items',
+    'trade_simulation_costs',
+    'trade_simulation_taxes',
+    'tax_profiles',
+    'ncm_tax_rules',
+    'status_configs',
 
     // add others that have tenant_id
   ]);
@@ -239,6 +253,13 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.service_appointments = this.client.service_appointments;
     this.service_task_types = this.client.service_task_types;
     this.service_tasks = this.client.service_tasks;
+    this.trade_simulations = this.client.trade_simulations;
+    this.trade_simulation_items = this.client.trade_simulation_items;
+    this.trade_simulation_costs = this.client.trade_simulation_costs;
+    this.trade_simulation_taxes = this.client.trade_simulation_taxes;
+    this.tax_profiles = this.client.tax_profiles;
+    this.ncm_tax_rules = this.client.ncm_tax_rules;
+    this.status_configs = this.client.status_configs;
     this.notifications = this.client.notifications;
     this.notification_reads = this.client.notification_reads;
     this.boards = this.client.boards;

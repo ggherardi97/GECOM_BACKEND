@@ -5,8 +5,10 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { LeadsController } from './leads.controller';
 import { LeadRepository } from './leads.repository';
 import { LeadsService } from './leads.service';
+import { StatusConfigModule } from '../status-config/status-config.module';
 
 @Module({
+  imports: [StatusConfigModule],
   controllers: [LeadsController],
   providers: [PrismaService, LeadRepository, LeadsService, JwtAuthGuard, RolesGuard],
   exports: [LeadRepository, LeadsService],
