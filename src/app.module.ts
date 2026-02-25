@@ -36,6 +36,12 @@ import { TenantModule } from './modules/tenants/tenant.module';
 import { ServiceModule } from './modules/service/service.module';
 import { TradeSimulationModule } from './modules/trade-simulation/trade-simulation.module';
 import { StatusConfigModule } from './modules/status-config/status-config.module';
+import { OpportunitiesModule } from './modules/opportunities/opportunities.module';
+import { ContractsModule } from './modules/contracts/contracts.module';
+import { PriceTablesModule } from './modules/price-tables/price-tables.module';
+import { SalesApprovalsModule } from './modules/sales-approvals/sales-approvals.module';
+import { SalesGoalsModule } from './modules/sales-goals/sales-goals.module';
+import { BillingPlansModule } from './modules/billing-plans/billing-plans.module';
 
 @Module({
   imports: [
@@ -79,6 +85,12 @@ import { StatusConfigModule } from './modules/status-config/status-config.module
     ServiceModule,
     TradeSimulationModule,
     StatusConfigModule,
+    OpportunitiesModule,
+    ContractsModule,
+    PriceTablesModule,
+    SalesApprovalsModule,
+    SalesGoalsModule,
+    BillingPlansModule,
   ],
   controllers: [AppController],
   providers: [

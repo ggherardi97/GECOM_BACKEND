@@ -111,6 +111,18 @@ export class StatusConfigService {
       { tenant_id: tenantId, entity: status_config_entity.LEAD, code: 'QUALIFIED', label: 'Qualificado', legacy_lead_status: lead_status_enum.QUALIFIED, sort_order: 2, is_active: true, is_system: true },
       { tenant_id: tenantId, entity: status_config_entity.LEAD, code: 'DISQUALIFIED', label: 'Desqualificado', legacy_lead_status: lead_status_enum.DISQUALIFIED, sort_order: 3, is_active: true, is_system: true },
       { tenant_id: tenantId, entity: status_config_entity.LEAD, code: 'CONVERTED', label: 'Convertido', legacy_lead_status: lead_status_enum.CONVERTED, sort_order: 4, is_active: true, is_system: true },
+
+      { tenant_id: tenantId, entity: status_config_entity.OPPORTUNITY, code: 'OPEN', label: 'Aberta', sort_order: 0, is_active: true, is_system: true },
+      { tenant_id: tenantId, entity: status_config_entity.OPPORTUNITY, code: 'PROPOSAL', label: 'Proposta', sort_order: 1, is_active: true, is_system: true },
+      { tenant_id: tenantId, entity: status_config_entity.OPPORTUNITY, code: 'WON', label: 'Ganha', sort_order: 2, is_active: true, is_system: true },
+      { tenant_id: tenantId, entity: status_config_entity.OPPORTUNITY, code: 'LOST', label: 'Perdida', sort_order: 3, is_active: true, is_system: true },
+      { tenant_id: tenantId, entity: status_config_entity.OPPORTUNITY, code: 'CANCELLED', label: 'Cancelada', sort_order: 4, is_active: true, is_system: true },
+
+      { tenant_id: tenantId, entity: status_config_entity.CONTRACT, code: 'DRAFT', label: 'Rascunho', sort_order: 0, is_active: true, is_system: true },
+      { tenant_id: tenantId, entity: status_config_entity.CONTRACT, code: 'ACTIVE', label: 'Ativo', sort_order: 1, is_active: true, is_system: true },
+      { tenant_id: tenantId, entity: status_config_entity.CONTRACT, code: 'SUSPENDED', label: 'Suspenso', sort_order: 2, is_active: true, is_system: true },
+      { tenant_id: tenantId, entity: status_config_entity.CONTRACT, code: 'CANCELLED', label: 'Cancelado', sort_order: 3, is_active: true, is_system: true },
+      { tenant_id: tenantId, entity: status_config_entity.CONTRACT, code: 'EXPIRED', label: 'Expirado', sort_order: 4, is_active: true, is_system: true },
     ];
 
     const normalized = rows.map((row) => ({

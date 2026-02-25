@@ -73,6 +73,21 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly tax_profiles: PrismaClient['tax_profiles'];
   public readonly ncm_tax_rules: PrismaClient['ncm_tax_rules'];
   public readonly status_configs: PrismaClient['status_configs'];
+  public readonly opportunities: PrismaClient['opportunities'];
+  public readonly opportunity_lines: PrismaClient['opportunity_lines'];
+  public readonly sales_approvals: PrismaClient['sales_approvals'];
+  public readonly price_tables: PrismaClient['price_tables'];
+  public readonly price_table_items: PrismaClient['price_table_items'];
+  public readonly sales_goals: PrismaClient['sales_goals'];
+  public readonly sales_commissions: PrismaClient['sales_commissions'];
+  public readonly contracts: PrismaClient['contracts'];
+  public readonly contract_lines: PrismaClient['contract_lines'];
+  public readonly contract_invoice_links: PrismaClient['contract_invoice_links'];
+  public readonly modules: PrismaClient['modules'];
+  public readonly plans: PrismaClient['plans'];
+  public readonly plan_modules: PrismaClient['plan_modules'];
+  public readonly tenant_subscriptions: PrismaClient['tenant_subscriptions'];
+  public readonly tenant_module_overrides: PrismaClient['tenant_module_overrides'];
 
   // Models that MUST be tenant-scoped
   private static readonly tenantModels = new Set<string>([
@@ -131,6 +146,16 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'tax_profiles',
     'ncm_tax_rules',
     'status_configs',
+    'opportunities',
+    'opportunity_lines',
+    'sales_approvals',
+    'price_tables',
+    'price_table_items',
+    'sales_goals',
+    'sales_commissions',
+    'contracts',
+    'contract_lines',
+    'contract_invoice_links',
 
     // add others that have tenant_id
   ]);
@@ -260,6 +285,21 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.tax_profiles = this.client.tax_profiles;
     this.ncm_tax_rules = this.client.ncm_tax_rules;
     this.status_configs = this.client.status_configs;
+    this.opportunities = this.client.opportunities;
+    this.opportunity_lines = this.client.opportunity_lines;
+    this.sales_approvals = this.client.sales_approvals;
+    this.price_tables = this.client.price_tables;
+    this.price_table_items = this.client.price_table_items;
+    this.sales_goals = this.client.sales_goals;
+    this.sales_commissions = this.client.sales_commissions;
+    this.contracts = this.client.contracts;
+    this.contract_lines = this.client.contract_lines;
+    this.contract_invoice_links = this.client.contract_invoice_links;
+    this.modules = this.client.modules;
+    this.plans = this.client.plans;
+    this.plan_modules = this.client.plan_modules;
+    this.tenant_subscriptions = this.client.tenant_subscriptions;
+    this.tenant_module_overrides = this.client.tenant_module_overrides;
     this.notifications = this.client.notifications;
     this.notification_reads = this.client.notification_reads;
     this.boards = this.client.boards;

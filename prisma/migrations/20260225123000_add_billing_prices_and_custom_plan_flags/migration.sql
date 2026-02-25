@@ -1,0 +1,10 @@
+ALTER TABLE "modules"
+  ADD COLUMN IF NOT EXISTS "monthly_price" DECIMAL(19,4) NOT NULL DEFAULT 0;
+
+ALTER TABLE "plans"
+  ADD COLUMN IF NOT EXISTS "monthly_price" DECIMAL(19,4) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "is_custom" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "is_public" BOOLEAN NOT NULL DEFAULT true;
+
+CREATE INDEX IF NOT EXISTS "IDX_plans_is_public" ON "plans" ("is_public");
+CREATE INDEX IF NOT EXISTS "IDX_plans_is_custom" ON "plans" ("is_custom");

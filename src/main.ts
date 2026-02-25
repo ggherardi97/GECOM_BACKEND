@@ -5,7 +5,7 @@ import { ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
 import { RequestHandler } from 'express';
 import * as bodyParser from 'body-parser';
-//import { BigIntJsonInterceptor } from "./common/interceptors/bigint-json.interceptor";
+import { BigIntJsonInterceptor } from './common/interceptors/bigint-json.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -40,7 +40,7 @@ async function bootstrap() {
     })
   );
 
-  //app.useGlobalInterceptors(new BigIntJsonInterceptor());
+  app.useGlobalInterceptors(new BigIntJsonInterceptor());
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

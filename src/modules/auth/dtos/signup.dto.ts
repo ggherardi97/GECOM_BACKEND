@@ -1,5 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class SignUpDTO {
   @ApiProperty({ example: 'Minha Empresa LTDA', maxLength: 255 })
@@ -93,6 +105,24 @@ export class SignUpDTO {
   @IsOptional()
   @IsBoolean()
   acept_terms?: boolean;
+
+  @ApiPropertyOptional({ example: '6a5d3f47-2f8d-4a6c-bce8-3f2bde39d5fb', format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  selected_plan_id?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    format: 'uuid',
+    example: ['6a5d3f47-2f8d-4a6c-bce8-3f2bde39d5fb'],
+  })
+  @IsOptional()
+  @Type(() => String)
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
+  custom_module_ids?: string[];
 }
 
 export class SignUpResponseDTO {

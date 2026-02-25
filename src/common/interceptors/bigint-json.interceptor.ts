@@ -7,11 +7,32 @@ import {
 import { Observable } from "rxjs";
 import { map } from "rxjs/operators";
 
+function isDecimalLike(value: any): boolean {
+  if (!value || typeof value !== "object") return false;
+  const ctorName = value?.constructor?.name;
+  if (ctorName === "Decimal" && typeof value.toString === "function") return true;
+  if (
+    Object.prototype.hasOwnProperty.call(value, "s") &&
+    Object.prototype.hasOwnProperty.call(value, "e") &&
+    Object.prototype.hasOwnProperty.call(value, "d") &&
+    Array.isArray((value as any).d) &&
+    typeof (value as any).toString === "function"
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function convertBigInt(value: any): any {
   if (value === null || value === undefined) return value;
 
+  if (value instanceof Date) return value.toISOString();
+
   if (typeof value === "bigint") {
-    // safest: string (keeps full precision)
+    return value.toString();
+  }
+
+  if (isDecimalLike(value)) {
     return value.toString();
   }
 

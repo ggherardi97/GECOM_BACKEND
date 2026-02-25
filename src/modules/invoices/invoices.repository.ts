@@ -39,6 +39,15 @@ export class InvoiceRepository {
             status: true,
             status_config_id: true,
             company_id: true,
+            currency_id: true,
+            currencies: {
+              select: {
+                id: true,
+                code: true,
+                symbol: true,
+                decimals: true,
+              },
+            },
             status_config: {
               select: {
                 id: true,
@@ -69,6 +78,7 @@ export class InvoiceRepository {
             status: true,
             status_config_id: true,
             company_id: true,
+            currency_id: true,
             status_config: {
               select: {
                 id: true,
@@ -76,6 +86,14 @@ export class InvoiceRepository {
                 label: true,
                 color: true,
                 entity: true,
+              },
+            },
+            currencies: {
+              select: {
+                id: true,
+                code: true,
+                symbol: true,
+                decimals: true,
               },
             },
             companies: {

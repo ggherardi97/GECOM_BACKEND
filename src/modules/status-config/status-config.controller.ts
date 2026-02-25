@@ -23,7 +23,7 @@ export class StatusConfigController {
   }
 
   @Post('seed-defaults')
-  @ApiOperation({ summary: 'Semear status padrão (process, lead, invoice)' })
+  @ApiOperation({ summary: 'Semear status padrao (process, lead, invoice, opportunity, contract)' })
   async seedDefaults(@Req() req: Request) {
     return this.service.seedDefaults(this.getTenantId(req));
   }

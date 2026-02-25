@@ -11,7 +11,14 @@ import { generateToken } from '../utils/generate-token';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
-import { Prisma, user_role_enum, user_status_enum, view_visibility_enum, view_source_enum } from '@prisma/client';
+import {
+  Prisma,
+  TenantSubscriptionStatus,
+  user_role_enum,
+  user_status_enum,
+  view_source_enum,
+  view_visibility_enum,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { runWithTenant } from '../../common/tenant/tenant-context';
 import { SignUpDTO, SignUpResponseDTO } from './dtos/signup.dto';
@@ -32,6 +39,117 @@ export class AuthService {
       .trim()
       .toLowerCase()
       .replace(/\s+/g, '-');
+  }
+
+  private uniqueStringArray(values: string[] | undefined): string[] {
+    if (!Array.isArray(values)) return [];
+    return Array.from(
+      new Set(
+        values
+          .map((value) => String(value || '').trim())
+          .filter((value) => value.length > 0),
+      ),
+    );
+  }
+
+  private async resolveSignupPlanId(
+    tx: Prisma.TransactionClient,
+    dto: SignUpDTO,
+    tenantName: string,
+    tenantSlug: string,
+  ): Promise<string | null> {
+    const customModuleIds = this.uniqueStringArray(dto.custom_module_ids);
+
+    if (customModuleIds.length > 0) {
+      const modules = await tx.modules.findMany({
+        where: {
+          id: { in: customModuleIds },
+          is_active: true,
+        },
+        select: {
+          id: true,
+          name_pt_br: true,
+          monthly_price: true,
+        },
+      });
+
+      if (modules.length === 0) {
+        throw new BadRequestException('Nenhum modulo valido foi selecionado para o plano custom.');
+      }
+      if (modules.length !== customModuleIds.length) {
+        throw new BadRequestException('Um ou mais modulos selecionados para o plano custom sao invalidos.');
+      }
+
+      const orderByInput = new Map(customModuleIds.map((id, index) => [id, index]));
+      const orderedModules = modules.sort((a, b) => {
+        const orderA = orderByInput.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+        const orderB = orderByInput.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+        return orderA - orderB;
+      });
+
+      const customTotal = orderedModules.reduce((total, item) => {
+        return total + Number(item.monthly_price ?? 0);
+      }, 0);
+
+      const codeSuffix = randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+      const planCode = `CUSTOM_${codeSuffix}`;
+      const planName = `Plano Custom - ${tenantName}`;
+
+      const customPlan = await tx.plans.create({
+        data: {
+          code: planCode,
+          name: planName.slice(0, 255),
+          description: `Plano custom criado no cadastro publico (${tenantSlug}).`,
+          monthly_price: customTotal,
+          is_active: true,
+          is_custom: true,
+          is_public: false,
+        },
+        select: { id: true },
+      });
+
+      await tx.plan_modules.createMany({
+        data: orderedModules.map((item, index) => ({
+          plan_id: customPlan.id,
+          module_id: item.id,
+          sort_order: index,
+          included: true,
+        })),
+      });
+
+      return customPlan.id;
+    }
+
+    const selectedPlanId = String(dto.selected_plan_id || '').trim();
+    if (selectedPlanId) {
+      const selectedPlan = await tx.plans.findFirst({
+        where: {
+          id: selectedPlanId,
+          is_active: true,
+          is_public: true,
+          is_custom: false,
+        },
+        select: { id: true },
+      });
+
+      if (!selectedPlan) {
+        throw new BadRequestException('Plano selecionado e invalido ou indisponivel.');
+      }
+
+      return selectedPlan.id;
+    }
+
+    const fallback = await tx.plans.findFirst({
+      where: {
+        is_active: true,
+        is_public: true,
+        is_custom: false,
+      },
+      orderBy: [{ monthly_price: 'asc' }, { created_at: 'asc' }],
+      select: { id: true },
+    });
+
+    return fallback?.id ?? null;
   }
 
   async signup(dto: SignUpDTO, req: Request): Promise<SignUpResponseDTO> {
@@ -205,6 +323,18 @@ export class AuthService {
           await tx.saved_views.createMany({
             data: systemSavedViews,
           });
+
+          const resolvedPlanId = await this.resolveSignupPlanId(tx, dto, tenantName, tenantSlug);
+          if (resolvedPlanId) {
+            await tx.tenant_subscriptions.create({
+              data: {
+                tenant_id: tenant.id,
+                plan_id: resolvedPlanId,
+                status: TenantSubscriptionStatus.ACTIVE,
+                starts_at: new Date(),
+              },
+            });
+          }
 
           return { tenant, company, user };
         })

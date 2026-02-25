@@ -23,11 +23,101 @@ model tenants {
   updated_at DateTime  @default(now()) @db.Timestamptz(6)
   deleted_at DateTime? @db.Timestamptz(6)
 
-  company companies? @relation(fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  company          companies?                @relation(fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  subscriptions    tenant_subscriptions[]
+  module_overrides tenant_module_overrides[]
 
   @@unique([slug], map: "uq_tenants_slug")
   @@index([status], map: "IDX_tenants_status")
   @@index([deleted_at], map: "IDX_tenants_deleted_at")
+}
+
+model modules {
+  id                String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code              String   @unique(map: "uq_modules_code") @db.VarChar(80)
+  name_pt_br        String   @db.VarChar(255)
+  description_pt_br String?
+  monthly_price     Decimal  @default(0) @db.Decimal(19, 4)
+  is_active         Boolean  @default(true)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @db.Timestamptz(6)
+
+  plan_modules            plan_modules[]
+  tenant_module_overrides tenant_module_overrides[]
+
+  @@index([is_active], map: "IDX_modules_is_active")
+}
+
+model plans {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code        String   @unique(map: "uq_plans_code") @db.VarChar(80)
+  name        String   @db.VarChar(255)
+  description String?
+  monthly_price Decimal @default(0) @db.Decimal(19, 4)
+  is_custom   Boolean  @default(false)
+  is_public   Boolean  @default(true)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  plan_modules         plan_modules[]
+  tenant_subscriptions tenant_subscriptions[]
+
+  @@index([is_active], map: "IDX_plans_is_active")
+  @@index([is_public], map: "IDX_plans_is_public")
+  @@index([is_custom], map: "IDX_plans_is_custom")
+}
+
+model plan_modules {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  plan_id    String   @db.Uuid
+  module_id  String   @db.Uuid
+  sort_order Int      @default(0)
+  included   Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  plan   plans   @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  module modules @relation(fields: [module_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([plan_id, module_id], map: "uq_plan_modules_plan_module")
+  @@index([plan_id], map: "IDX_plan_modules_plan_id")
+  @@index([module_id], map: "IDX_plan_modules_module_id")
+}
+
+model tenant_subscriptions {
+  id         String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String                   @db.Uuid
+  plan_id    String                   @db.Uuid
+  status     TenantSubscriptionStatus @default(ACTIVE)
+  starts_at  DateTime                 @default(now()) @db.Timestamptz(6)
+  ends_at    DateTime?                @db.Timestamptz(6)
+  renews_at  DateTime?                @db.Timestamptz(6)
+  created_at DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at DateTime                 @default(now()) @db.Timestamptz(6)
+
+  tenant tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  plan   plans   @relation(fields: [plan_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([tenant_id], map: "IDX_tenant_subscriptions_tenant_id")
+  @@index([plan_id], map: "IDX_tenant_subscriptions_plan_id")
+}
+
+model tenant_module_overrides {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  module_id  String   @db.Uuid
+  enabled    Boolean
+  reason     String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  module modules @relation(fields: [module_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, module_id], map: "uq_tenant_module_overrides_tenant_module")
+  @@index([tenant_id], map: "IDX_tenant_module_overrides_tenant_id")
+  @@index([module_id], map: "IDX_tenant_module_overrides_module_id")
 }
 
 model users {
@@ -71,6 +161,12 @@ model users {
   assigned_service_tasks     service_tasks[]         @relation("ServiceTaskAssignedTo")
   created_service_tasks      service_tasks[]         @relation("ServiceTaskCreatedBy")
   trade_simulations_created  trade_simulations[]     @relation("TradeSimulationCreatedByUser")
+  owned_opportunities        opportunities[]         @relation("OpportunityOwner")
+  requested_sales_approvals  sales_approvals[]       @relation("SalesApprovalRequestedBy")
+  resolved_sales_approvals   sales_approvals[]       @relation("SalesApprovalResolvedBy")
+  owned_contracts            contracts[]             @relation("ContractOwner")
+  owned_sales_goals          sales_goals[]           @relation("SalesGoalOwner")
+  sales_commissions          sales_commissions[]     @relation("SalesCommissionOwner")
 
   password_resets password_resets?
   processes       processes[]
@@ -154,6 +250,8 @@ model companies {
   incidents         incidents[]
   customer_assets   customer_assets[]
   trade_simulations trade_simulations[]
+  opportunities     opportunities[]     @relation("OpportunityCompany")
+  contracts         contracts[]         @relation("ContractCompany")
 
   // opposite side of tenants.company
   tenant tenants?
@@ -197,13 +295,13 @@ model processes {
   deleted_at         DateTime? @db.Timestamp(6)
   process_type_id    String?   @db.Uuid
 
-  users         users          @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
-  companies     companies      @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
-  process_types process_types? @relation(fields: [process_type_id], references: [id], onUpdate: NoAction, map: "FK_ded16035eaef6f141a36aea73b3")
+  users         users           @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
+  companies     companies       @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
+  process_types process_types?  @relation(fields: [process_type_id], references: [id], onUpdate: NoAction, map: "FK_ded16035eaef6f141a36aea73b3")
   status_config status_configs? @relation("ProcessStatusConfig", fields: [status_config_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_processes_status_config")
   transports    transports[]
-  boards        boards[]       @relation("BoardProcess")
-  board_cards   board_cards[]  @relation("BoardCardProcess")
+  boards        boards[]        @relation("BoardProcess")
+  board_cards   board_cards[]   @relation("BoardCardProcess")
 
   @@unique([process_number])
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
@@ -213,16 +311,20 @@ model processes {
 }
 
 model currencies {
-  id         String     @id(map: "PK_d528c54860c4182db13548e08c4") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  code       String     @unique(map: "UQ_9f8d0972aeeb5a2277e40332d29") @db.VarChar(3)
-  name       String     @db.VarChar(100)
-  symbol     String?    @db.VarChar(10)
-  decimals   Int        @default(2) @db.SmallInt
-  is_active  Boolean    @default(true)
-  created_at DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at DateTime   @default(now()) @db.Timestamptz(6)
-  invoices   invoices[]
-  products   products[]
+  id            String          @id(map: "PK_d528c54860c4182db13548e08c4") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code          String          @unique(map: "UQ_9f8d0972aeeb5a2277e40332d29") @db.VarChar(3)
+  name          String          @db.VarChar(100)
+  symbol        String?         @db.VarChar(10)
+  decimals      Int             @default(2) @db.SmallInt
+  is_active     Boolean         @default(true)
+  created_at    DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime        @default(now()) @db.Timestamptz(6)
+  invoices      invoices[]
+  products      products[]
+  opportunities opportunities[] @relation("OpportunityCurrency")
+  price_tables  price_tables[]  @relation("PriceTableCurrency")
+  contracts     contracts[]     @relation("ContractCurrency")
+  sales_goals   sales_goals[]   @relation("SalesGoalCurrency")
 }
 
 model products {
@@ -241,6 +343,9 @@ model products {
   updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
   invoice_lines          invoice_lines[]
   trade_simulation_items trade_simulation_items[]
+  opportunity_lines      opportunity_lines[]
+  contract_lines         contract_lines[]
+  price_table_items      price_table_items[]
   currencies             currencies               @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_products_currency")
 
   @@index([currency_id], map: "idx_products_currency_id")
@@ -249,42 +354,44 @@ model products {
 }
 
 model invoices {
-  id                          String          @id(map: "PK_668cef7c22a427fd822cc1be3ce") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id                   String?         @db.Uuid
-  invoice_seq                 BigInt          @default(autoincrement())
-  invoice_number              String          @unique(map: "UQ_d8f8d3788694e1b3f96c42c36fb") @db.VarChar(30)
-  company_id                  String          @db.Uuid
-  currency_id                 String          @db.Uuid
-  quote_at                    DateTime?       @db.Timestamptz(6)
-  exchange_rate               Decimal         @default(1) @db.Decimal(19, 8)
-  version                     Int             @default(1)
-  billing_address_line1       String?
-  billing_address_line2       String?
-  billing_address_city        String?
-  billing_address_state       String?
-  billing_address_postal_code String?
-  billing_address_country     String?
-  status                      Int             @default(0) @db.SmallInt
-  status_config_id            String?         @db.Uuid
-  subtotal                    Decimal         @default(0) @db.Decimal(19, 4)
-  discount_percent            Int             @default(0)
-  discount_amount             Decimal         @default(0) @db.Decimal(19, 4)
-  tax_total                   Decimal         @default(0) @db.Decimal(19, 4)
-  fee_total                   Decimal         @default(0) @db.Decimal(19, 4)
-  total                       Decimal         @default(0) @db.Decimal(19, 4)
-  issued_at                   DateTime?       @db.Timestamptz(6)
-  due_at                      DateTime?       @db.Timestamptz(6)
-  paid_at                     DateTime?       @db.Timestamptz(6)
-  notes                       String?
-  terms                       String?
-  created_at                  DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at                  DateTime        @default(now()) @db.Timestamptz(6)
-  invoice_lines               invoice_lines[]
-  companies                   companies       @relation("CompanyInvoices", fields: [company_id], references: [id], onUpdate: NoAction, map: "fk_invoices_company")
-  currencies                  currencies      @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_invoices_currency")
-  status_config               status_configs? @relation("InvoiceStatusConfig", fields: [status_config_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_invoices_status_config")
-  boards                      boards[]        @relation("BoardInvoice")
-  board_cards                 board_cards[]   @relation("BoardCardInvoice")
+  id                           String                   @id(map: "PK_668cef7c22a427fd822cc1be3ce") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                    String?                  @db.Uuid
+  invoice_seq                  BigInt                   @default(autoincrement())
+  invoice_number               String                   @unique(map: "UQ_d8f8d3788694e1b3f96c42c36fb") @db.VarChar(30)
+  company_id                   String                   @db.Uuid
+  currency_id                  String                   @db.Uuid
+  quote_at                     DateTime?                @db.Timestamptz(6)
+  exchange_rate                Decimal                  @default(1) @db.Decimal(19, 8)
+  version                      Int                      @default(1)
+  billing_address_line1        String?
+  billing_address_line2        String?
+  billing_address_city         String?
+  billing_address_state        String?
+  billing_address_postal_code  String?
+  billing_address_country      String?
+  status                       Int                      @default(0) @db.SmallInt
+  status_config_id             String?                  @db.Uuid
+  subtotal                     Decimal                  @default(0) @db.Decimal(19, 4)
+  discount_percent             Int                      @default(0)
+  discount_amount              Decimal                  @default(0) @db.Decimal(19, 4)
+  tax_total                    Decimal                  @default(0) @db.Decimal(19, 4)
+  fee_total                    Decimal                  @default(0) @db.Decimal(19, 4)
+  total                        Decimal                  @default(0) @db.Decimal(19, 4)
+  issued_at                    DateTime?                @db.Timestamptz(6)
+  due_at                       DateTime?                @db.Timestamptz(6)
+  paid_at                      DateTime?                @db.Timestamptz(6)
+  notes                        String?
+  terms                        String?
+  created_at                   DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                 @default(now()) @db.Timestamptz(6)
+  invoice_lines                invoice_lines[]
+  companies                    companies                @relation("CompanyInvoices", fields: [company_id], references: [id], onUpdate: NoAction, map: "fk_invoices_company")
+  currencies                   currencies               @relation(fields: [currency_id], references: [id], onUpdate: NoAction, map: "fk_invoices_currency")
+  status_config                status_configs?          @relation("InvoiceStatusConfig", fields: [status_config_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_invoices_status_config")
+  boards                       boards[]                 @relation("BoardInvoice")
+  board_cards                  board_cards[]            @relation("BoardCardInvoice")
+  converted_from_opportunities opportunities[]          @relation("OpportunityConvertedInvoice")
+  contract_links               contract_invoice_links[]
 
   @@index([company_id], map: "idx_invoices_company_id")
   @@index([company_id, status], map: "idx_invoices_company_status")
@@ -861,6 +968,8 @@ model leads {
   stage_history lead_stage_history[]
   activities    lead_activities[]
   tags          lead_tag_links[]
+  opportunities opportunities[]      @relation("OpportunityLead")
+  contracts     contracts[]          @relation("ContractLead")
 
   @@index([tenant_id, status], map: "IDX_leads_tenant_status")
   @@index([tenant_id, status_config_id], map: "IDX_leads_tenant_status_config")
@@ -1395,6 +1504,279 @@ model service_tasks {
   @@index([tenant_id, status], map: "IDX_service_tasks_tenant_status")
 }
 
+model opportunities {
+  id                   String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String            @db.Uuid
+  name                 String            @db.VarChar(255)
+  description          String?
+  status               OpportunityStatus @default(OPEN)
+  company_id           String?           @db.Uuid
+  lead_id              String?           @db.Uuid
+  owner_user_id        String            @db.Uuid
+  currency_id          String?           @db.Uuid
+  expected_close_at    DateTime?         @db.Timestamp(6)
+  probability_percent  Int               @default(0)
+  subtotal             Decimal           @default(0) @db.Decimal(19, 4)
+  discount_percent     Int               @default(0)
+  discount_amount      Decimal           @default(0) @db.Decimal(19, 4)
+  tax_total            Decimal           @default(0) @db.Decimal(19, 4)
+  total                Decimal           @default(0) @db.Decimal(19, 4)
+  converted_invoice_id String?           @db.Uuid
+  converted_at         DateTime?         @db.Timestamp(6)
+  created_at           DateTime          @default(now()) @db.Timestamp(6)
+  updated_at           DateTime          @default(now()) @db.Timestamp(6)
+
+  company           companies?          @relation("OpportunityCompany", fields: [company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_opportunities_company")
+  lead              leads?              @relation("OpportunityLead", fields: [lead_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_opportunities_lead")
+  owner_user        users               @relation("OpportunityOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_opportunities_owner_user")
+  currency          currencies?         @relation("OpportunityCurrency", fields: [currency_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_opportunities_currency")
+  converted_invoice invoices?           @relation("OpportunityConvertedInvoice", fields: [converted_invoice_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_opportunities_converted_invoice")
+  lines             opportunity_lines[]
+  approvals         sales_approvals[]
+  contracts         contracts[]         @relation("ContractOpportunity")
+
+  @@index([tenant_id], map: "IDX_opportunities_tenant_id")
+  @@index([tenant_id, status], map: "IDX_opportunities_tenant_status")
+  @@index([tenant_id, company_id], map: "IDX_opportunities_tenant_company")
+  @@index([tenant_id, lead_id], map: "IDX_opportunities_tenant_lead")
+  @@index([tenant_id, owner_user_id], map: "IDX_opportunities_tenant_owner")
+}
+
+model opportunity_lines {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String   @db.Uuid
+  opportunity_id   String   @db.Uuid
+  line_number      Int
+  product_id       String?  @db.Uuid
+  description      String?
+  unit             String?  @db.VarChar(50)
+  unit_price       Decimal  @default(0) @db.Decimal(19, 4)
+  quantity         Decimal  @default(1) @db.Decimal(19, 4)
+  tax_rate         Decimal  @default(0) @db.Decimal(9, 4)
+  tax_amount       Decimal  @default(0) @db.Decimal(19, 4)
+  discount_percent Int      @default(0)
+  discount_amount  Decimal  @default(0) @db.Decimal(19, 4)
+  line_subtotal    Decimal  @default(0) @db.Decimal(19, 4)
+  line_total       Decimal  @default(0) @db.Decimal(19, 4)
+  created_at       DateTime @default(now()) @db.Timestamp(6)
+  updated_at       DateTime @default(now()) @db.Timestamp(6)
+
+  opportunity opportunities @relation(fields: [opportunity_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_opportunity_lines_opportunity")
+  product     products?     @relation(fields: [product_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_opportunity_lines_product")
+
+  @@unique([tenant_id, opportunity_id, line_number], map: "uq_opportunity_lines_tenant_opportunity_line")
+  @@index([tenant_id], map: "IDX_opportunity_lines_tenant_id")
+  @@index([tenant_id, opportunity_id], map: "IDX_opportunity_lines_tenant_opportunity")
+}
+
+model sales_approvals {
+  id                   String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String              @db.Uuid
+  entity_type          SalesApprovalEntity
+  entity_id            String              @db.Uuid
+  opportunity_id       String?             @db.Uuid
+  status               SalesApprovalStatus @default(PENDING)
+  title                String              @db.VarChar(255)
+  description          String?
+  amount               Decimal?            @db.Decimal(19, 4)
+  requested_by_user_id String              @db.Uuid
+  requested_at         DateTime            @default(now()) @db.Timestamp(6)
+  resolved_by_user_id  String?             @db.Uuid
+  resolved_at          DateTime?           @db.Timestamp(6)
+  resolution_note      String?
+  created_at           DateTime            @default(now()) @db.Timestamp(6)
+  updated_at           DateTime            @default(now()) @db.Timestamp(6)
+
+  opportunity       opportunities? @relation(fields: [opportunity_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_sales_approvals_opportunity")
+  requested_by_user users          @relation("SalesApprovalRequestedBy", fields: [requested_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sales_approvals_requested_by")
+  resolved_by_user  users?         @relation("SalesApprovalResolvedBy", fields: [resolved_by_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_sales_approvals_resolved_by")
+
+  @@index([tenant_id], map: "IDX_sales_approvals_tenant_id")
+  @@index([tenant_id, status], map: "IDX_sales_approvals_tenant_status")
+  @@index([tenant_id, entity_type, entity_id], map: "IDX_sales_approvals_tenant_entity")
+}
+
+model price_tables {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  name        String    @db.VarChar(150)
+  description String?
+  currency_id String?   @db.Uuid
+  is_default  Boolean   @default(false)
+  is_active   Boolean   @default(true)
+  valid_from  DateTime? @db.Date
+  valid_to    DateTime? @db.Date
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @default(now()) @db.Timestamp(6)
+
+  currency  currencies?         @relation("PriceTableCurrency", fields: [currency_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_price_tables_currency")
+  items     price_table_items[]
+  contracts contracts[]         @relation("ContractPriceTable")
+
+  @@unique([tenant_id, name], map: "uq_price_tables_tenant_name")
+  @@index([tenant_id], map: "IDX_price_tables_tenant_id")
+}
+
+model price_table_items {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String   @db.Uuid
+  price_table_id   String   @db.Uuid
+  product_id       String   @db.Uuid
+  min_quantity     Decimal  @default(1) @db.Decimal(19, 4)
+  max_quantity     Decimal? @db.Decimal(19, 4)
+  unit_price       Decimal  @default(0) @db.Decimal(19, 4)
+  discount_percent Int      @default(0)
+  notes            String?
+  created_at       DateTime @default(now()) @db.Timestamp(6)
+  updated_at       DateTime @default(now()) @db.Timestamp(6)
+
+  price_table price_tables @relation(fields: [price_table_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_price_table_items_table")
+  product     products     @relation(fields: [product_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_price_table_items_product")
+
+  @@unique([tenant_id, price_table_id, product_id, min_quantity], map: "uq_price_table_items_tenant_table_product_minq")
+  @@index([tenant_id], map: "IDX_price_table_items_tenant_id")
+  @@index([tenant_id, price_table_id], map: "IDX_price_table_items_tenant_table")
+}
+
+model sales_goals {
+  id                 String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String         @db.Uuid
+  owner_user_id      String         @db.Uuid
+  period_type        GoalPeriodType
+  period_start       DateTime       @db.Date
+  period_end         DateTime       @db.Date
+  target_amount      Decimal        @default(0) @db.Decimal(19, 4)
+  achieved_amount    Decimal        @default(0) @db.Decimal(19, 4)
+  commission_percent Decimal        @default(0) @db.Decimal(9, 4)
+  currency_id        String?        @db.Uuid
+  is_active          Boolean        @default(true)
+  created_at         DateTime       @default(now()) @db.Timestamp(6)
+  updated_at         DateTime       @default(now()) @db.Timestamp(6)
+
+  owner_user  users               @relation("SalesGoalOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sales_goals_owner")
+  currency    currencies?         @relation("SalesGoalCurrency", fields: [currency_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_sales_goals_currency")
+  commissions sales_commissions[]
+
+  @@unique([tenant_id, owner_user_id, period_type, period_start, period_end], map: "uq_sales_goals_tenant_owner_period")
+  @@index([tenant_id], map: "IDX_sales_goals_tenant_id")
+  @@index([tenant_id, owner_user_id], map: "IDX_sales_goals_tenant_owner")
+}
+
+model sales_commissions {
+  id            String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String                @db.Uuid
+  sales_goal_id String?               @db.Uuid
+  owner_user_id String                @db.Uuid
+  source_type   SalesCommissionSource @default(MANUAL)
+  source_id     String?               @db.Uuid
+  base_amount   Decimal               @default(0) @db.Decimal(19, 4)
+  percent       Decimal               @default(0) @db.Decimal(9, 4)
+  amount        Decimal               @default(0) @db.Decimal(19, 4)
+  status        SalesCommissionStatus @default(PENDING)
+  due_at        DateTime?             @db.Date
+  paid_at       DateTime?             @db.Timestamp(6)
+  notes         String?
+  created_at    DateTime              @default(now()) @db.Timestamp(6)
+  updated_at    DateTime              @default(now()) @db.Timestamp(6)
+
+  sales_goal sales_goals? @relation(fields: [sales_goal_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_sales_commissions_goal")
+  owner_user users        @relation("SalesCommissionOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_sales_commissions_owner")
+
+  @@index([tenant_id], map: "IDX_sales_commissions_tenant_id")
+  @@index([tenant_id, owner_user_id], map: "IDX_sales_commissions_tenant_owner")
+  @@index([tenant_id, status], map: "IDX_sales_commissions_tenant_status")
+}
+
+model contracts {
+  id               String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String         @db.Uuid
+  contract_number  String         @db.VarChar(50)
+  name             String         @db.VarChar(255)
+  company_id       String         @db.Uuid
+  lead_id          String?        @db.Uuid
+  opportunity_id   String?        @db.Uuid
+  owner_user_id    String         @db.Uuid
+  currency_id      String         @db.Uuid
+  price_table_id   String?        @db.Uuid
+  status           ContractStatus @default(DRAFT)
+  start_at         DateTime?      @db.Date
+  end_at           DateTime?      @db.Date
+  renewal_date     DateTime?      @db.Date
+  billing_day      Int?
+  auto_renew       Boolean        @default(false)
+  subtotal         Decimal        @default(0) @db.Decimal(19, 4)
+  discount_percent Int            @default(0)
+  discount_amount  Decimal        @default(0) @db.Decimal(19, 4)
+  tax_total        Decimal        @default(0) @db.Decimal(19, 4)
+  total            Decimal        @default(0) @db.Decimal(19, 4)
+  terms            String?
+  notes            String?
+  created_at       DateTime       @default(now()) @db.Timestamp(6)
+  updated_at       DateTime       @default(now()) @db.Timestamp(6)
+
+  company     companies                @relation("ContractCompany", fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_contracts_company")
+  lead        leads?                   @relation("ContractLead", fields: [lead_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_contracts_lead")
+  opportunity opportunities?           @relation("ContractOpportunity", fields: [opportunity_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_contracts_opportunity")
+  owner_user  users                    @relation("ContractOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_contracts_owner")
+  currency    currencies               @relation("ContractCurrency", fields: [currency_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_contracts_currency")
+  price_table price_tables?            @relation("ContractPriceTable", fields: [price_table_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_contracts_price_table")
+  lines       contract_lines[]
+  invoices    contract_invoice_links[]
+
+  @@unique([tenant_id, contract_number], map: "uq_contracts_tenant_number")
+  @@index([tenant_id], map: "IDX_contracts_tenant_id")
+  @@index([tenant_id, company_id], map: "IDX_contracts_tenant_company")
+  @@index([tenant_id, status], map: "IDX_contracts_tenant_status")
+}
+
+model contract_lines {
+  id                String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id         String                   @db.Uuid
+  contract_id       String                   @db.Uuid
+  line_number       Int
+  product_id        String?                  @db.Uuid
+  description       String?
+  unit              String?                  @db.VarChar(50)
+  unit_price        Decimal                  @default(0) @db.Decimal(19, 4)
+  quantity          Decimal                  @default(1) @db.Decimal(19, 4)
+  tax_rate          Decimal                  @default(0) @db.Decimal(9, 4)
+  tax_amount        Decimal                  @default(0) @db.Decimal(19, 4)
+  discount_percent  Int                      @default(0)
+  discount_amount   Decimal                  @default(0) @db.Decimal(19, 4)
+  line_subtotal     Decimal                  @default(0) @db.Decimal(19, 4)
+  line_total        Decimal                  @default(0) @db.Decimal(19, 4)
+  start_at          DateTime?                @db.Date
+  end_at            DateTime?                @db.Date
+  billing_frequency ContractBillingFrequency @default(MONTHLY)
+  is_recurring      Boolean                  @default(true)
+  created_at        DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at        DateTime                 @default(now()) @db.Timestamp(6)
+
+  contract contracts @relation(fields: [contract_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_contract_lines_contract")
+  product  products? @relation(fields: [product_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_contract_lines_product")
+
+  @@unique([tenant_id, contract_id, line_number], map: "uq_contract_lines_tenant_contract_line")
+  @@index([tenant_id], map: "IDX_contract_lines_tenant_id")
+  @@index([tenant_id, contract_id], map: "IDX_contract_lines_tenant_contract")
+}
+
+model contract_invoice_links {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id    String    @db.Uuid
+  contract_id  String    @db.Uuid
+  invoice_id   String    @db.Uuid
+  period_start DateTime? @db.Date
+  period_end   DateTime? @db.Date
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
+
+  contract contracts @relation(fields: [contract_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_contract_invoice_links_contract")
+  invoice  invoices  @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_contract_invoice_links_invoice")
+
+  @@unique([tenant_id, contract_id, invoice_id], map: "uq_contract_invoice_links_tenant_contract_invoice")
+  @@index([tenant_id], map: "IDX_contract_invoice_links_tenant_id")
+  @@index([tenant_id, contract_id], map: "IDX_contract_invoice_links_tenant_contract")
+}
+
 enum IncidentStatus {
   NEW
   IN_PROGRESS
@@ -1610,6 +1992,8 @@ enum status_config_entity {
   PROCESS
   LEAD
   INVOICE
+  OPPORTUNITY
+  CONTRACT
 }
 
 enum lead_activity_type_enum {
@@ -1679,4 +2063,70 @@ enum NcmTaxRuleSource {
   MANUAL
   IMPORT
   API
+}
+
+enum OpportunityStatus {
+  OPEN
+  PROPOSAL
+  WON
+  LOST
+  CANCELLED
+}
+
+enum SalesApprovalEntity {
+  OPPORTUNITY
+  INVOICE
+  CONTRACT
+  PRICE_TABLE
+  OTHER
+}
+
+enum SalesApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum GoalPeriodType {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  CUSTOM
+}
+
+enum SalesCommissionSource {
+  OPPORTUNITY
+  INVOICE
+  CONTRACT
+  MANUAL
+}
+
+enum SalesCommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  EXPIRED
+}
+
+enum TenantSubscriptionStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELED
+}
+
+enum ContractBillingFrequency {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  ONE_TIME
 }
