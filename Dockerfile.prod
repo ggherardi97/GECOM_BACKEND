@@ -20,8 +20,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY ormconfig.ts ./
+COPY ormconfig.prod.js ./
 RUN node -e "const c=require('@prisma/client'); if(!c.status_config_entity || !c.lead_status_enum){console.error('Prisma client not generated in runtime image'); process.exit(1)}"
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["node", "dist/main.js"]
+CMD ["sh", "-lc", "if [ \"${RUN_MIGRATIONS_ON_START:-true}\" = \"true\" ]; then npm run migration:up:prod; fi && node dist/main.js"]
