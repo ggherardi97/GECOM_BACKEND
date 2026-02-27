@@ -6,9 +6,14 @@ export class CreateHrModule1770000001900 implements MigrationInterface {
   name = 'CreateHrModule1770000001900';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const sqlPath = path.resolve(process.cwd(), 'src', 'typeorm', 'sql', 'hr-module.sql');
-    if (!fs.existsSync(sqlPath)) {
-      throw new Error(`Missing SQL migration file: ${sqlPath}`);
+    const candidates = [
+      path.resolve(process.cwd(), 'src', 'typeorm', 'sql', 'hr-module.sql'),
+      path.resolve(process.cwd(), 'dist', 'typeorm', 'sql', 'hr-module.sql'),
+      path.resolve(__dirname, '..', 'sql', 'hr-module.sql'),
+    ];
+    const sqlPath = candidates.find((candidate) => fs.existsSync(candidate));
+    if (!sqlPath) {
+      throw new Error(`Missing SQL migration file. Tried: ${candidates.join(' | ')}`);
     }
 
     const sql = fs.readFileSync(sqlPath, 'utf8');
@@ -19,4 +24,3 @@ export class CreateHrModule1770000001900 implements MigrationInterface {
     // no-op intentionally (reconciliation migration)
   }
 }
-

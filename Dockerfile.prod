@@ -19,6 +19,7 @@ COPY package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/src/typeorm/sql ./src/typeorm/sql
 COPY ormconfig.ts ./
 COPY ormconfig.prod.js ./
 RUN node -e "const c=require('@prisma/client'); if(!c.status_config_entity || !c.lead_status_enum){console.error('Prisma client not generated in runtime image'); process.exit(1)}"
