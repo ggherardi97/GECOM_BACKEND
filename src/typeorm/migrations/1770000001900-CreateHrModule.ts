@@ -1,6 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
+import { HR_MODULE_SQL } from '../sql/hr-module.inline';
 
 export class CreateHrModule1770000001900 implements MigrationInterface {
   name = 'CreateHrModule1770000001900';
@@ -12,11 +13,7 @@ export class CreateHrModule1770000001900 implements MigrationInterface {
       path.resolve(__dirname, '..', 'sql', 'hr-module.sql'),
     ];
     const sqlPath = candidates.find((candidate) => fs.existsSync(candidate));
-    if (!sqlPath) {
-      throw new Error(`Missing SQL migration file. Tried: ${candidates.join(' | ')}`);
-    }
-
-    const sql = fs.readFileSync(sqlPath, 'utf8');
+    const sql = sqlPath ? fs.readFileSync(sqlPath, 'utf8') : HR_MODULE_SQL;
     await queryRunner.query(sql);
   }
 

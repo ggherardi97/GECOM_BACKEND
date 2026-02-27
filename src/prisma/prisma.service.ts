@@ -190,6 +190,19 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'hr_lifecycle_tasks',
     'hr_employee_lifecycles',
     'hr_employee_lifecycle_tasks',
+    'po_project_statuses',
+    'po_deliverable_statuses',
+    'po_work_order_statuses',
+    'po_resource_roles',
+    'po_projects',
+    'po_project_processes',
+    'po_milestones',
+    'po_deliverables',
+    'po_checklists',
+    'po_checklist_items',
+    'po_work_orders',
+    'po_work_order_assignments',
+    'po_work_order_appointments',
 
     // add others that have tenant_id
   ]);

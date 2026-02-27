@@ -170,6 +170,10 @@ model users {
   hr_employees               hr_employees[]          @relation("HrEmployeeUser")
   hr_lifecycles_created      hr_employee_lifecycles[] @relation("HrEmployeeLifecycleCreatedByUser")
   hr_lifecycle_tasks_done    hr_employee_lifecycle_tasks[] @relation("HrEmployeeLifecycleTaskCompletedByUser")
+  po_owned_projects          po_projects[]            @relation("PoProjectOwner")
+  po_created_work_orders     po_work_orders[]         @relation("PoWorkOrderCreatedBy")
+  po_owned_work_orders       po_work_orders[]         @relation("PoWorkOrderOwner")
+  po_assigned_checklist_items po_checklist_items[]    @relation("PoChecklistItemAssignedUser")
 
   password_resets password_resets?
   processes       processes[]
@@ -257,6 +261,7 @@ model companies {
   contracts         contracts[]         @relation("ContractCompany")
   receivables       financial_receivables[] @relation("FinancialReceivableCompany")
   payables          financial_payables[]    @relation("FinancialPayableCompany")
+  po_projects       po_projects[]           @relation("PoProjectCompany")
 
   // opposite side of tenants.company
   tenant tenants?
@@ -307,6 +312,11 @@ model processes {
   transports    transports[]
   boards        boards[]        @relation("BoardProcess")
   board_cards   board_cards[]   @relation("BoardCardProcess")
+  po_project_links po_project_processes[]
+  po_milestones    po_milestones[]
+  po_deliverables  po_deliverables[]
+  po_checklists    po_checklists[]
+  po_work_orders   po_work_orders[]
 
   @@unique([process_number])
   @@index([company_id], map: "IDX_PROCESS_COMPANY_ID")
@@ -333,6 +343,7 @@ model currencies {
   bank_accounts financial_bank_accounts[] @relation("FinancialBankAccountCurrency")
   receivables   financial_receivables[]   @relation("FinancialReceivableCurrency")
   payables      financial_payables[]      @relation("FinancialPayableCurrency")
+  po_deliverables po_deliverables[]       @relation("PoDeliverableCurrency")
 }
 
 model products {
@@ -1444,6 +1455,7 @@ model service_resources {
   user         users                  @relation("ServiceResourceUser", fields: [user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_service_resources_user")
   calendar     service_calendars?     @relation("ServiceResourceCalendar", fields: [calendar_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_resources_calendar")
   appointments service_appointments[]
+  po_work_order_assignments po_work_order_assignments[] @relation("PoWorkOrderAssignmentResource")
 
   @@unique([tenant_id, user_id], map: "uq_service_resources_tenant_user")
   @@index([tenant_id], map: "IDX_service_resources_tenant_id")
@@ -1464,6 +1476,7 @@ model service_appointments {
 
   resource service_resources @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_appointments_resource")
   incident incidents?        @relation(fields: [incident_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_service_appointments_incident")
+  po_work_order_links po_work_order_appointments[] @relation("PoWorkOrderAppointmentService")
 
   @@index([tenant_id], map: "IDX_service_appointments_tenant_id")
   @@index([tenant_id, resource_id, start_at], map: "IDX_service_appointments_tenant_resource_start")
@@ -2501,6 +2514,286 @@ model hr_employee_lifecycle_tasks {
   @@index([tenant_id, employee_lifecycle_id], map: "IDX_hr_employee_lifecycle_tasks_tenant_lifecycle")
 }
 
+model po_project_statuses {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(120)
+  code       String   @db.VarChar(40)
+  color      String?  @db.VarChar(20)
+  sort_order Int      @default(0)
+  is_default Boolean  @default(false)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  projects po_projects[]
+
+  @@unique([tenant_id, code], map: "uq_po_project_statuses_tenant_code")
+  @@index([tenant_id], map: "IDX_po_project_statuses_tenant_id")
+  @@index([tenant_id, is_active], map: "IDX_po_project_statuses_tenant_active")
+}
+
+model po_deliverable_statuses {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(120)
+  code       String   @db.VarChar(40)
+  color      String?  @db.VarChar(20)
+  sort_order Int      @default(0)
+  is_default Boolean  @default(false)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  deliverables po_deliverables[]
+
+  @@unique([tenant_id, code], map: "uq_po_deliverable_statuses_tenant_code")
+  @@index([tenant_id], map: "IDX_po_deliverable_statuses_tenant_id")
+  @@index([tenant_id, is_active], map: "IDX_po_deliverable_statuses_tenant_active")
+}
+
+model po_work_order_statuses {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(120)
+  code       String   @db.VarChar(40)
+  color      String?  @db.VarChar(20)
+  sort_order Int      @default(0)
+  is_default Boolean  @default(false)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  work_orders po_work_orders[]
+
+  @@unique([tenant_id, code], map: "uq_po_work_order_statuses_tenant_code")
+  @@index([tenant_id], map: "IDX_po_work_order_statuses_tenant_id")
+  @@index([tenant_id, is_active], map: "IDX_po_work_order_statuses_tenant_active")
+}
+
+model po_resource_roles {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String   @db.Uuid
+  name        String   @db.VarChar(120)
+  code        String?  @db.VarChar(40)
+  description String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  updated_at  DateTime @default(now()) @db.Timestamp(6)
+  deleted_at  DateTime? @db.Timestamp(6)
+
+  assignments po_work_order_assignments[]
+
+  @@unique([tenant_id, name], map: "uq_po_resource_roles_tenant_name")
+  @@unique([tenant_id, code], map: "uq_po_resource_roles_tenant_code")
+  @@index([tenant_id], map: "IDX_po_resource_roles_tenant_id")
+}
+
+model po_projects {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String    @db.Uuid
+  code            String?   @db.VarChar(40)
+  name            String    @db.VarChar(160)
+  description     String?
+  status_id       String?   @db.Uuid
+  start_date      DateTime? @db.Date
+  target_end_date DateTime? @db.Date
+  actual_end_date DateTime? @db.Date
+  owner_user_id   String    @db.Uuid
+  company_id      String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime  @default(now()) @db.Timestamp(6)
+  deleted_at      DateTime? @db.Timestamp(6)
+
+  status          po_project_statuses?  @relation(fields: [status_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_projects_status")
+  owner_user      users                 @relation("PoProjectOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_po_projects_owner_user")
+  company         companies?            @relation("PoProjectCompany", fields: [company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_projects_company")
+  project_processes po_project_processes[]
+  work_orders     po_work_orders[]
+
+  @@unique([tenant_id, code], map: "uq_po_projects_tenant_code")
+  @@index([tenant_id], map: "IDX_po_projects_tenant_id")
+  @@index([tenant_id, status_id], map: "IDX_po_projects_tenant_status")
+  @@index([tenant_id, company_id], map: "IDX_po_projects_tenant_company")
+}
+
+model po_project_processes {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  project_id String   @db.Uuid
+  process_id String   @db.Uuid
+  sort_order Int      @default(0)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+
+  project po_projects @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_project_processes_project")
+  process processes   @relation(fields: [process_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_po_project_processes_process")
+
+  @@unique([tenant_id, project_id, process_id], map: "uq_po_project_processes_tenant_project_process")
+  @@index([tenant_id], map: "IDX_po_project_processes_tenant_id")
+  @@index([tenant_id, project_id], map: "IDX_po_project_processes_tenant_project")
+  @@index([tenant_id, process_id], map: "IDX_po_project_processes_tenant_process")
+}
+
+model po_milestones {
+  id          String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String            @db.Uuid
+  process_id  String            @db.Uuid
+  title       String            @db.VarChar(160)
+  description String?
+  due_date    DateTime?         @db.Date
+  status      PoMilestoneStatus @default(PLANNED)
+  sort_order  Int               @default(0)
+  created_at  DateTime          @default(now()) @db.Timestamp(6)
+  updated_at  DateTime          @default(now()) @db.Timestamp(6)
+  deleted_at  DateTime?         @db.Timestamp(6)
+
+  process processes @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_milestones_process")
+
+  @@index([tenant_id], map: "IDX_po_milestones_tenant_id")
+  @@index([tenant_id, process_id], map: "IDX_po_milestones_tenant_process")
+  @@index([tenant_id, status], map: "IDX_po_milestones_tenant_status")
+}
+
+model po_deliverables {
+  id          String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String                   @db.Uuid
+  process_id  String                   @db.Uuid
+  title       String                   @db.VarChar(160)
+  description String?
+  due_date    DateTime?                @db.Date
+  value_amount Decimal?                @db.Decimal(19, 4)
+  currency_id String?                  @db.Uuid
+  status_id   String?                  @db.Uuid
+  created_at  DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at  DateTime                 @default(now()) @db.Timestamp(6)
+  deleted_at  DateTime?                @db.Timestamp(6)
+
+  process  processes               @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_deliverables_process")
+  currency currencies?             @relation("PoDeliverableCurrency", fields: [currency_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_deliverables_currency")
+  status   po_deliverable_statuses? @relation(fields: [status_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_deliverables_status")
+
+  @@index([tenant_id], map: "IDX_po_deliverables_tenant_id")
+  @@index([tenant_id, process_id], map: "IDX_po_deliverables_tenant_process")
+  @@index([tenant_id, status_id], map: "IDX_po_deliverables_tenant_status")
+}
+
+model po_checklists {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  process_id String   @db.Uuid
+  name       String   @db.VarChar(160)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  process processes           @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_checklists_process")
+  items   po_checklist_items[]
+
+  @@index([tenant_id], map: "IDX_po_checklists_tenant_id")
+  @@index([tenant_id, process_id], map: "IDX_po_checklists_tenant_process")
+}
+
+model po_checklist_items {
+  id               String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String                @db.Uuid
+  checklist_id     String                @db.Uuid
+  title            String                @db.VarChar(160)
+  is_required      Boolean               @default(true)
+  status           PoChecklistItemStatus @default(OPEN)
+  assigned_user_id String?               @db.Uuid
+  due_date         DateTime?             @db.Date
+  sort_order       Int                   @default(0)
+  created_at       DateTime              @default(now()) @db.Timestamp(6)
+  updated_at       DateTime              @default(now()) @db.Timestamp(6)
+  deleted_at       DateTime?             @db.Timestamp(6)
+
+  checklist      po_checklists @relation(fields: [checklist_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_checklist_items_checklist")
+  assigned_user  users?        @relation("PoChecklistItemAssignedUser", fields: [assigned_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_checklist_items_assigned_user")
+
+  @@index([tenant_id], map: "IDX_po_checklist_items_tenant_id")
+  @@index([tenant_id, checklist_id], map: "IDX_po_checklist_items_tenant_checklist")
+  @@index([tenant_id, status], map: "IDX_po_checklist_items_tenant_status")
+}
+
+model po_work_orders {
+  id                 String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String              @db.Uuid
+  code               String              @db.VarChar(60)
+  title              String              @db.VarChar(160)
+  description        String?
+  process_id         String?             @db.Uuid
+  project_id         String?             @db.Uuid
+  priority           PoWorkOrderPriority @default(MEDIUM)
+  status_id          String?             @db.Uuid
+  planned_start      DateTime?           @db.Timestamp(6)
+  planned_end        DateTime?           @db.Timestamp(6)
+  actual_start       DateTime?           @db.Timestamp(6)
+  actual_end         DateTime?           @db.Timestamp(6)
+  estimated_hours    Decimal?            @db.Decimal(10, 2)
+  created_by_user_id String              @db.Uuid
+  owner_user_id      String?             @db.Uuid
+  created_at         DateTime            @default(now()) @db.Timestamp(6)
+  updated_at         DateTime            @default(now()) @db.Timestamp(6)
+  deleted_at         DateTime?           @db.Timestamp(6)
+
+  process            processes?             @relation(fields: [process_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_orders_process")
+  project            po_projects?           @relation(fields: [project_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_orders_project")
+  status             po_work_order_statuses? @relation(fields: [status_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_orders_status")
+  created_by_user    users                  @relation("PoWorkOrderCreatedBy", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_po_work_orders_created_by")
+  owner_user         users?                 @relation("PoWorkOrderOwner", fields: [owner_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_orders_owner")
+  assignments        po_work_order_assignments[]
+  appointments       po_work_order_appointments[]
+
+  @@unique([tenant_id, code], map: "uq_po_work_orders_tenant_code")
+  @@index([tenant_id], map: "IDX_po_work_orders_tenant_id")
+  @@index([tenant_id, status_id], map: "IDX_po_work_orders_tenant_status")
+  @@index([tenant_id, priority], map: "IDX_po_work_orders_tenant_priority")
+  @@index([tenant_id, project_id], map: "IDX_po_work_orders_tenant_project")
+  @@index([tenant_id, process_id], map: "IDX_po_work_orders_tenant_process")
+}
+
+model po_work_order_assignments {
+  id                String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id         String   @db.Uuid
+  work_order_id     String   @db.Uuid
+  resource_id       String   @db.Uuid
+  role_id           String?  @db.Uuid
+  allocation_percent Int?
+  planned_hours     Decimal? @db.Decimal(10, 2)
+  created_at        DateTime @default(now()) @db.Timestamp(6)
+  updated_at        DateTime @default(now()) @db.Timestamp(6)
+
+  work_order po_work_orders      @relation(fields: [work_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_work_order_assignments_work_order")
+  resource   service_resources   @relation("PoWorkOrderAssignmentResource", fields: [resource_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_po_work_order_assignments_resource")
+  role       po_resource_roles?  @relation(fields: [role_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_order_assignments_role")
+
+  @@unique([tenant_id, work_order_id, resource_id], map: "uq_po_work_order_assignments_tenant_work_order_resource")
+  @@index([tenant_id], map: "IDX_po_work_order_assignments_tenant_id")
+  @@index([tenant_id, work_order_id], map: "IDX_po_work_order_assignments_tenant_work_order")
+  @@index([tenant_id, resource_id], map: "IDX_po_work_order_assignments_tenant_resource")
+}
+
+model po_work_order_appointments {
+  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id      String   @db.Uuid
+  work_order_id  String   @db.Uuid
+  appointment_id String   @db.Uuid
+  created_at     DateTime @default(now()) @db.Timestamp(6)
+  updated_at     DateTime @default(now()) @db.Timestamp(6)
+
+  work_order  po_work_orders       @relation(fields: [work_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_work_order_appointments_work_order")
+  appointment service_appointments  @relation("PoWorkOrderAppointmentService", fields: [appointment_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_work_order_appointments_appointment")
+
+  @@unique([tenant_id, work_order_id, appointment_id], map: "uq_po_work_order_appointments_tenant_pair")
+  @@unique([appointment_id], map: "uq_po_work_order_appointments_appointment")
+  @@index([tenant_id], map: "IDX_po_work_order_appointments_tenant_id")
+  @@index([tenant_id, work_order_id], map: "IDX_po_work_order_appointments_tenant_work_order")
+}
+
 model automations {
   id                 String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id          String                  @db.Uuid
@@ -2980,6 +3273,24 @@ enum HrLifecycleTaskStatus {
   DONE
   BLOCKED
   CANCELED
+}
+
+enum PoMilestoneStatus {
+  PLANNED
+  DONE
+  CANCELED
+}
+
+enum PoChecklistItemStatus {
+  OPEN
+  DONE
+  BLOCKED
+}
+
+enum PoWorkOrderPriority {
+  LOW
+  MEDIUM
+  HIGH
 }
 
 enum AutomationExecutionStatus {
