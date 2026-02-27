@@ -3,6 +3,14 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class CreateSalesModules1770000001300 implements MigrationInterface {
   name = 'CreateSalesModules1770000001300';
 
+  private sqlLiteral(value: string): string {
+    return String(value).replace(/'/g, "''");
+  }
+
+  private sqlIdentifier(value: string): string {
+    return String(value).replace(/"/g, '""');
+  }
+
   private async enumExists(queryRunner: QueryRunner, enumName: string): Promise<boolean> {
     const result = await queryRunner.query(
       `
@@ -24,6 +32,9 @@ export class CreateSalesModules1770000001300 implements MigrationInterface {
     }
 
     for (const value of values) {
+      const enumNameLiteral = this.sqlLiteral(enumName);
+      const enumValueLiteral = this.sqlLiteral(value);
+      const enumNameIdentifier = this.sqlIdentifier(enumName);
       await queryRunner.query(
         `
         DO $$
@@ -31,19 +42,18 @@ export class CreateSalesModules1770000001300 implements MigrationInterface {
           IF EXISTS (
             SELECT 1
             FROM pg_type t
-            WHERE t.typname = $1
+            WHERE t.typname = '${enumNameLiteral}'
           ) AND NOT EXISTS (
             SELECT 1
             FROM pg_type t
             JOIN pg_enum e ON e.enumtypid = t.oid
-            WHERE t.typname = $1
-              AND e.enumlabel = $2
+            WHERE t.typname = '${enumNameLiteral}'
+              AND e.enumlabel = '${enumValueLiteral}'
           ) THEN
-            EXECUTE format('ALTER TYPE "%s" ADD VALUE ''%s''', $1, $2);
+            EXECUTE 'ALTER TYPE "${enumNameIdentifier}" ADD VALUE ''${enumValueLiteral}''';
           END IF;
         END $$;
         `,
-        [enumName, value],
       );
     }
   }
