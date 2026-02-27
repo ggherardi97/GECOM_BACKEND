@@ -42,6 +42,11 @@ export class InvoiceController {
     return tenantId;
   }
 
+  private getUserId(req: Request): string | undefined {
+    const userId = String((req as any)?.user?.user_id ?? (req as any)?.user?.id ?? (req as any)?.user?.sub ?? '').trim();
+    return userId || undefined;
+  }
+
 @Get()
 @ApiOkResponse({ description: 'List of invoices' })
 @ApiOperation({
@@ -80,7 +85,7 @@ async findAll(
   @ApiOkResponse({ description: 'Invoice updated' })
   async update(@Req() req: Request, @Param('id') id: string, @Body() data: UpdateInvoiceDTO) {
     const tenantId = this.getTenantId(req);
-    return this.service.update(id, tenantId, data);
+    return this.service.update(id, tenantId, data, this.getUserId(req));
   }
 
   @Delete(':id')

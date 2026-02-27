@@ -42,6 +42,9 @@ import { PriceTablesModule } from './modules/price-tables/price-tables.module';
 import { SalesApprovalsModule } from './modules/sales-approvals/sales-approvals.module';
 import { SalesGoalsModule } from './modules/sales-goals/sales-goals.module';
 import { BillingPlansModule } from './modules/billing-plans/billing-plans.module';
+import { AutomationModule } from './modules/automation/automation.module';
+import { FinanceModule } from './modules/finance/finance.module';
+import { HrModule } from './modules/hr/hr.module';
 
 @Module({
   imports: [
@@ -91,6 +94,9 @@ import { BillingPlansModule } from './modules/billing-plans/billing-plans.module
     SalesApprovalsModule,
     SalesGoalsModule,
     BillingPlansModule,
+    AutomationModule,
+    FinanceModule,
+    HrModule,
   ],
   controllers: [AppController],
   providers: [

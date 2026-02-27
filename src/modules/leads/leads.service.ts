@@ -13,6 +13,7 @@ import { SetLeadTagsDto } from './dto/set-lead-tags.dto';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
 import { ListLeadsQueryDto } from './dto/list-leads.dto';
 import { StatusConfigService } from '../status-config/status-config.service';
+import { AutomationDispatcherService } from '../automation/automation-dispatcher.service';
 
 type AuthUser = {
   id?: string;
@@ -26,6 +27,7 @@ export class LeadsService {
   constructor(
     private readonly repository: LeadRepository,
     private readonly statusConfigService: StatusConfigService,
+    private readonly automationDispatcher: AutomationDispatcherService,
   ) {}
 
   private getUserId(user: AuthUser): string {
@@ -187,7 +189,18 @@ export class LeadsService {
       });
     }
 
-    return this.repository.findLeadById(user.tenant_id, lead.id);
+    const completeLead = await this.repository.findLeadById(user.tenant_id, lead.id);
+
+    this.automationDispatcher.dispatch({
+      tenantId: user.tenant_id,
+      userId,
+      entityName: 'leads',
+      eventType: 'CREATE',
+      recordId: lead.id,
+      payload: (completeLead ?? lead) as unknown as Record<string, unknown>,
+    });
+
+    return completeLead ?? lead;
   }
 
   async updateLead(user: AuthUser, leadId: string, dto: UpdateLeadDto) {

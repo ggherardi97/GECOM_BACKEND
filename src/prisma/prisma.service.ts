@@ -83,6 +83,8 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly contracts: PrismaClient['contracts'];
   public readonly contract_lines: PrismaClient['contract_lines'];
   public readonly contract_invoice_links: PrismaClient['contract_invoice_links'];
+  public readonly automations: PrismaClient['automations'];
+  public readonly automation_executions: PrismaClient['automation_executions'];
   public readonly modules: PrismaClient['modules'];
   public readonly plans: PrismaClient['plans'];
   public readonly plan_modules: PrismaClient['plan_modules'];
@@ -156,6 +158,38 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'contracts',
     'contract_lines',
     'contract_invoice_links',
+    'automations',
+    'automation_executions',
+    'financial_cost_centers',
+    'financial_categories',
+    'financial_bank_accounts',
+    'financial_bank_movements',
+    'financial_receivables',
+    'financial_receivable_payments',
+    'financial_payables',
+    'financial_payable_payments',
+    'hr_employment_statuses',
+    'hr_document_types',
+    'hr_marital_statuses',
+    'hr_positions',
+    'hr_work_locations',
+    'hr_departments',
+    'hr_employees',
+    'hr_department_assignments',
+    'hr_work_schedules',
+    'hr_employee_schedule_assignments',
+    'hr_leave_types',
+    'hr_leave_requests',
+    'hr_skill_categories',
+    'hr_skills',
+    'hr_employee_skills',
+    'hr_certifications',
+    'hr_employee_certifications',
+    'hr_lifecycle_templates',
+    'hr_lifecycle_stages',
+    'hr_lifecycle_tasks',
+    'hr_employee_lifecycles',
+    'hr_employee_lifecycle_tasks',
 
     // add others that have tenant_id
   ]);
@@ -295,6 +329,8 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.contracts = this.client.contracts;
     this.contract_lines = this.client.contract_lines;
     this.contract_invoice_links = this.client.contract_invoice_links;
+    this.automations = this.client.automations;
+    this.automation_executions = this.client.automation_executions;
     this.modules = this.client.modules;
     this.plans = this.client.plans;
     this.plan_modules = this.client.plan_modules;

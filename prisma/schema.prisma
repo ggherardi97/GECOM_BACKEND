@@ -167,6 +167,9 @@ model users {
   owned_contracts            contracts[]             @relation("ContractOwner")
   owned_sales_goals          sales_goals[]           @relation("SalesGoalOwner")
   sales_commissions          sales_commissions[]     @relation("SalesCommissionOwner")
+  hr_employees               hr_employees[]          @relation("HrEmployeeUser")
+  hr_lifecycles_created      hr_employee_lifecycles[] @relation("HrEmployeeLifecycleCreatedByUser")
+  hr_lifecycle_tasks_done    hr_employee_lifecycle_tasks[] @relation("HrEmployeeLifecycleTaskCompletedByUser")
 
   password_resets password_resets?
   processes       processes[]
@@ -252,6 +255,8 @@ model companies {
   trade_simulations trade_simulations[]
   opportunities     opportunities[]     @relation("OpportunityCompany")
   contracts         contracts[]         @relation("ContractCompany")
+  receivables       financial_receivables[] @relation("FinancialReceivableCompany")
+  payables          financial_payables[]    @relation("FinancialPayableCompany")
 
   // opposite side of tenants.company
   tenant tenants?
@@ -325,6 +330,9 @@ model currencies {
   price_tables  price_tables[]  @relation("PriceTableCurrency")
   contracts     contracts[]     @relation("ContractCurrency")
   sales_goals   sales_goals[]   @relation("SalesGoalCurrency")
+  bank_accounts financial_bank_accounts[] @relation("FinancialBankAccountCurrency")
+  receivables   financial_receivables[]   @relation("FinancialReceivableCurrency")
+  payables      financial_payables[]      @relation("FinancialPayableCurrency")
 }
 
 model products {
@@ -392,6 +400,7 @@ model invoices {
   board_cards                  board_cards[]            @relation("BoardCardInvoice")
   converted_from_opportunities opportunities[]          @relation("OpportunityConvertedInvoice")
   contract_links               contract_invoice_links[]
+  receivables                  financial_receivables[]  @relation("FinancialReceivableInvoice")
 
   @@index([company_id], map: "idx_invoices_company_id")
   @@index([company_id, status], map: "idx_invoices_company_status")
@@ -615,6 +624,8 @@ model documents {
 
   parent   documents?  @relation("documents_children", fields: [parent_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_documents_parent_id")
   children documents[] @relation("documents_children")
+  receivables financial_receivables[] @relation("FinancialReceivableDocument")
+  payables    financial_payables[]    @relation("FinancialPayableDocument")
 
   @@index([account_id], map: "IDX_DOCUMENTS_ACCOUNT")
   @@index([parent_id], map: "IDX_DOCUMENTS_PARENT")
@@ -1777,6 +1788,754 @@ model contract_invoice_links {
   @@index([tenant_id, contract_id], map: "IDX_contract_invoice_links_tenant_contract")
 }
 
+model financial_cost_centers {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  code        String    @db.VarChar(40)
+  name        String    @db.VarChar(150)
+  description String?
+  is_active   Boolean   @default(true)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @default(now()) @db.Timestamp(6)
+
+  categories    financial_categories[]
+  receivables   financial_receivables[]
+  payables      financial_payables[]
+  bank_movements financial_bank_movements[]
+
+  @@unique([tenant_id, code], map: "uq_financial_cost_centers_tenant_code")
+  @@index([tenant_id], map: "IDX_financial_cost_centers_tenant_id")
+  @@index([tenant_id, is_active], map: "IDX_financial_cost_centers_tenant_active")
+}
+
+model financial_categories {
+  id                 String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String                @db.Uuid
+  code               String                @db.VarChar(40)
+  name               String                @db.VarChar(150)
+  kind               FinancialCategoryKind @default(EXPENSE)
+  parent_category_id String?               @db.Uuid
+  cost_center_id     String?               @db.Uuid
+  description        String?
+  is_active          Boolean               @default(true)
+  created_at         DateTime              @default(now()) @db.Timestamp(6)
+  updated_at         DateTime              @default(now()) @db.Timestamp(6)
+
+  parent       financial_categories?  @relation("FinancialCategoryTree", fields: [parent_category_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_categories_parent")
+  children     financial_categories[] @relation("FinancialCategoryTree")
+  cost_center  financial_cost_centers? @relation(fields: [cost_center_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_categories_cost_center")
+  receivables  financial_receivables[]
+  payables     financial_payables[]
+  bank_movements financial_bank_movements[]
+
+  @@unique([tenant_id, code], map: "uq_financial_categories_tenant_code")
+  @@index([tenant_id], map: "IDX_financial_categories_tenant_id")
+  @@index([tenant_id, kind], map: "IDX_financial_categories_tenant_kind")
+  @@index([tenant_id, parent_category_id], map: "IDX_financial_categories_tenant_parent")
+}
+
+model financial_bank_accounts {
+  id                  String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String               @db.Uuid
+  name                String               @db.VarChar(150)
+  bank_name           String?              @db.VarChar(120)
+  agency              String?              @db.VarChar(20)
+  account_number      String?              @db.VarChar(40)
+  account_type        FinancialAccountType @default(CHECKING)
+  currency_id         String               @db.Uuid
+  opening_balance     Decimal              @default(0) @db.Decimal(19, 4)
+  current_balance     Decimal              @default(0) @db.Decimal(19, 4)
+  allow_negative      Boolean              @default(false)
+  is_active           Boolean              @default(true)
+  reconciliation_date DateTime?            @db.Date
+  notes               String?
+  created_at          DateTime             @default(now()) @db.Timestamp(6)
+  updated_at          DateTime             @default(now()) @db.Timestamp(6)
+
+  currency            currencies                    @relation("FinancialBankAccountCurrency", fields: [currency_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_financial_bank_accounts_currency")
+  movements           financial_bank_movements[]
+  receivable_payments financial_receivable_payments[]
+  payable_payments    financial_payable_payments[]
+
+  @@index([tenant_id], map: "IDX_financial_bank_accounts_tenant_id")
+  @@index([tenant_id, currency_id], map: "IDX_financial_bank_accounts_tenant_currency")
+  @@index([tenant_id, is_active], map: "IDX_financial_bank_accounts_tenant_active")
+}
+
+model financial_bank_movements {
+  id                  String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String                @db.Uuid
+  bank_account_id     String                @db.Uuid
+  movement_date       DateTime              @default(now()) @db.Timestamp(6)
+  movement_type       FinancialMovementType
+  amount              Decimal               @db.Decimal(19, 4)
+  description         String?
+  category_id         String?               @db.Uuid
+  cost_center_id      String?               @db.Uuid
+  reference_table     String?               @db.VarChar(60)
+  reference_id        String?               @db.Uuid
+  reconciled          Boolean               @default(false)
+  reconciliation_note String?
+  created_at          DateTime              @default(now()) @db.Timestamp(6)
+  updated_at          DateTime              @default(now()) @db.Timestamp(6)
+
+  bank_account       financial_bank_accounts      @relation(fields: [bank_account_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_financial_bank_movements_account")
+  category           financial_categories?        @relation(fields: [category_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_bank_movements_category")
+  cost_center        financial_cost_centers?      @relation(fields: [cost_center_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_bank_movements_cost_center")
+  receivable_payment financial_receivable_payments?
+  payable_payment    financial_payable_payments?
+
+  @@index([tenant_id], map: "IDX_financial_bank_movements_tenant_id")
+  @@index([tenant_id, bank_account_id], map: "IDX_financial_bank_movements_tenant_account")
+  @@index([tenant_id, movement_date], map: "IDX_financial_bank_movements_tenant_date")
+  @@index([tenant_id, reconciled], map: "IDX_financial_bank_movements_tenant_reconciled")
+}
+
+model financial_receivables {
+  id                 String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String               @db.Uuid
+  title_number       String               @db.VarChar(80)
+  description        String?
+  company_id         String               @db.Uuid
+  invoice_id         String?              @db.Uuid
+  document_id        String?              @db.Uuid
+  currency_id        String               @db.Uuid
+  category_id        String?              @db.Uuid
+  cost_center_id     String?              @db.Uuid
+  issue_date         DateTime?            @db.Date
+  due_date           DateTime             @db.Date
+  original_amount    Decimal              @default(0) @db.Decimal(19, 4)
+  paid_amount        Decimal              @default(0) @db.Decimal(19, 4)
+  outstanding_amount Decimal              @default(0) @db.Decimal(19, 4)
+  installment_number Int                  @default(1)
+  installment_total  Int                  @default(1)
+  status             FinancialEntryStatus @default(OPEN)
+  is_delinquent      Boolean              @default(false)
+  delinquent_days    Int                  @default(0)
+  notes              String?
+  created_at         DateTime             @default(now()) @db.Timestamp(6)
+  updated_at         DateTime             @default(now()) @db.Timestamp(6)
+
+  company     companies              @relation("FinancialReceivableCompany", fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_financial_receivables_company")
+  invoice     invoices?              @relation("FinancialReceivableInvoice", fields: [invoice_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_receivables_invoice")
+  document    documents?             @relation("FinancialReceivableDocument", fields: [document_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_receivables_document")
+  currency    currencies             @relation("FinancialReceivableCurrency", fields: [currency_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_financial_receivables_currency")
+  category    financial_categories?  @relation(fields: [category_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_receivables_category")
+  cost_center financial_cost_centers? @relation(fields: [cost_center_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_receivables_cost_center")
+  payments    financial_receivable_payments[]
+
+  @@unique([tenant_id, title_number], map: "uq_financial_receivables_tenant_title")
+  @@index([tenant_id], map: "IDX_financial_receivables_tenant_id")
+  @@index([tenant_id, status], map: "IDX_financial_receivables_tenant_status")
+  @@index([tenant_id, due_date], map: "IDX_financial_receivables_tenant_due")
+  @@index([tenant_id, company_id], map: "IDX_financial_receivables_tenant_company")
+}
+
+model financial_receivable_payments {
+  id              String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String                 @db.Uuid
+  receivable_id   String                 @db.Uuid
+  bank_account_id String?                @db.Uuid
+  bank_movement_id String?               @unique(map: "uq_financial_receivable_payments_bank_movement") @db.Uuid
+  payment_date    DateTime               @default(now()) @db.Timestamp(6)
+  amount          Decimal                @default(0) @db.Decimal(19, 4)
+  fee_amount      Decimal                @default(0) @db.Decimal(19, 4)
+  interest_amount Decimal                @default(0) @db.Decimal(19, 4)
+  discount_amount Decimal                @default(0) @db.Decimal(19, 4)
+  payment_method  FinancialPaymentMethod @default(OTHER)
+  reference       String?                @db.VarChar(120)
+  notes           String?
+  created_at      DateTime               @default(now()) @db.Timestamp(6)
+  updated_at      DateTime               @default(now()) @db.Timestamp(6)
+
+  receivable    financial_receivables   @relation(fields: [receivable_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_financial_receivable_payments_receivable")
+  bank_account  financial_bank_accounts? @relation(fields: [bank_account_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_receivable_payments_bank_account")
+  bank_movement financial_bank_movements? @relation(fields: [bank_movement_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_receivable_payments_bank_movement")
+
+  @@index([tenant_id], map: "IDX_financial_receivable_payments_tenant_id")
+  @@index([tenant_id, receivable_id], map: "IDX_financial_receivable_payments_tenant_receivable")
+  @@index([tenant_id, payment_date], map: "IDX_financial_receivable_payments_tenant_date")
+}
+
+model financial_payables {
+  id                 String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String               @db.Uuid
+  payable_number     String               @db.VarChar(80)
+  description        String?
+  company_id         String?              @db.Uuid
+  document_id        String?              @db.Uuid
+  currency_id        String               @db.Uuid
+  category_id        String?              @db.Uuid
+  cost_center_id     String?              @db.Uuid
+  issue_date         DateTime?            @db.Date
+  due_date           DateTime             @db.Date
+  original_amount    Decimal              @default(0) @db.Decimal(19, 4)
+  paid_amount        Decimal              @default(0) @db.Decimal(19, 4)
+  outstanding_amount Decimal              @default(0) @db.Decimal(19, 4)
+  installment_number Int                  @default(1)
+  installment_total  Int                  @default(1)
+  status             FinancialEntryStatus @default(OPEN)
+  is_delinquent      Boolean              @default(false)
+  delinquent_days    Int                  @default(0)
+  notes              String?
+  created_at         DateTime             @default(now()) @db.Timestamp(6)
+  updated_at         DateTime             @default(now()) @db.Timestamp(6)
+
+  company     companies?              @relation("FinancialPayableCompany", fields: [company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_payables_company")
+  document    documents?              @relation("FinancialPayableDocument", fields: [document_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_payables_document")
+  currency    currencies              @relation("FinancialPayableCurrency", fields: [currency_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_financial_payables_currency")
+  category    financial_categories?   @relation(fields: [category_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_payables_category")
+  cost_center financial_cost_centers? @relation(fields: [cost_center_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_payables_cost_center")
+  payments    financial_payable_payments[]
+
+  @@unique([tenant_id, payable_number], map: "uq_financial_payables_tenant_number")
+  @@index([tenant_id], map: "IDX_financial_payables_tenant_id")
+  @@index([tenant_id, status], map: "IDX_financial_payables_tenant_status")
+  @@index([tenant_id, due_date], map: "IDX_financial_payables_tenant_due")
+  @@index([tenant_id, company_id], map: "IDX_financial_payables_tenant_company")
+}
+
+model financial_payable_payments {
+  id               String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String                 @db.Uuid
+  payable_id       String                 @db.Uuid
+  bank_account_id  String?                @db.Uuid
+  bank_movement_id String?                @unique(map: "uq_financial_payable_payments_bank_movement") @db.Uuid
+  payment_date     DateTime               @default(now()) @db.Timestamp(6)
+  amount           Decimal                @default(0) @db.Decimal(19, 4)
+  fee_amount       Decimal                @default(0) @db.Decimal(19, 4)
+  interest_amount  Decimal                @default(0) @db.Decimal(19, 4)
+  discount_amount  Decimal                @default(0) @db.Decimal(19, 4)
+  payment_method   FinancialPaymentMethod @default(OTHER)
+  reference        String?                @db.VarChar(120)
+  notes            String?
+  created_at       DateTime               @default(now()) @db.Timestamp(6)
+  updated_at       DateTime               @default(now()) @db.Timestamp(6)
+
+  payable       financial_payables      @relation(fields: [payable_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_financial_payable_payments_payable")
+  bank_account  financial_bank_accounts? @relation(fields: [bank_account_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_payable_payments_bank_account")
+  bank_movement financial_bank_movements? @relation(fields: [bank_movement_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_payable_payments_bank_movement")
+
+  @@index([tenant_id], map: "IDX_financial_payable_payments_tenant_id")
+  @@index([tenant_id, payable_id], map: "IDX_financial_payable_payments_tenant_payable")
+  @@index([tenant_id, payment_date], map: "IDX_financial_payable_payments_tenant_date")
+}
+
+model hr_employment_statuses {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(120)
+  code       String   @db.VarChar(40)
+  color      String?  @db.VarChar(20)
+  is_default Boolean  @default(false)
+  sort_order Int      @default(0)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  employees hr_employees[]
+
+  @@unique([tenant_id, code], map: "uq_hr_employment_statuses_tenant_code")
+  @@index([tenant_id], map: "IDX_hr_employment_statuses_tenant_id")
+}
+
+model hr_document_types {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(120)
+  code       String   @db.VarChar(40)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  employees hr_employees[]
+
+  @@unique([tenant_id, code], map: "uq_hr_document_types_tenant_code")
+  @@index([tenant_id], map: "IDX_hr_document_types_tenant_id")
+}
+
+model hr_marital_statuses {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(120)
+  code       String   @db.VarChar(40)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  employees hr_employees[]
+
+  @@unique([tenant_id, code], map: "uq_hr_marital_statuses_tenant_code")
+  @@index([tenant_id], map: "IDX_hr_marital_statuses_tenant_id")
+}
+
+model hr_positions {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String   @db.Uuid
+  name          String   @db.VarChar(120)
+  code          String?  @db.VarChar(40)
+  level         Int?
+  description   String?
+  is_leadership Boolean  @default(false)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+  updated_at    DateTime @default(now()) @db.Timestamp(6)
+  deleted_at    DateTime? @db.Timestamp(6)
+
+  assignments hr_department_assignments[]
+
+  @@unique([tenant_id, name], map: "uq_hr_positions_tenant_name")
+  @@index([tenant_id], map: "IDX_hr_positions_tenant_id")
+}
+
+model hr_work_locations {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id    String   @db.Uuid
+  name         String   @db.VarChar(120)
+  code         String?  @db.VarChar(40)
+  address_json Json?
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now()) @db.Timestamp(6)
+  updated_at   DateTime @default(now()) @db.Timestamp(6)
+  deleted_at   DateTime? @db.Timestamp(6)
+
+  assignments hr_department_assignments[]
+
+  @@unique([tenant_id, name], map: "uq_hr_work_locations_tenant_name")
+  @@index([tenant_id], map: "IDX_hr_work_locations_tenant_id")
+}
+
+model hr_departments {
+  id                   String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String   @db.Uuid
+  name                 String   @db.VarChar(120)
+  code                 String?  @db.VarChar(40)
+  description          String?
+  parent_department_id String?  @db.Uuid
+  manager_employee_id  String?  @db.Uuid
+  is_active            Boolean  @default(true)
+  created_at           DateTime @default(now()) @db.Timestamp(6)
+  updated_at           DateTime @default(now()) @db.Timestamp(6)
+  deleted_at           DateTime? @db.Timestamp(6)
+
+  parent      hr_departments?  @relation("HrDepartmentTree", fields: [parent_department_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_departments_parent")
+  children    hr_departments[] @relation("HrDepartmentTree")
+  manager     hr_employees?    @relation("HrDepartmentManager", fields: [manager_employee_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_departments_manager")
+  assignments hr_department_assignments[]
+
+  @@unique([tenant_id, name], map: "uq_hr_departments_tenant_name")
+  @@index([tenant_id], map: "IDX_hr_departments_tenant_id")
+}
+
+model hr_employees {
+  id                   String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String            @db.Uuid
+  employee_number      String?           @db.VarChar(40)
+  full_name            String            @db.VarChar(160)
+  preferred_name       String?           @db.VarChar(80)
+  email_work           String?           @db.VarChar(160)
+  phone_work           String?           @db.VarChar(40)
+  phone_mobile         String?           @db.VarChar(40)
+  birth_date           DateTime?         @db.Date
+  gender               HrEmployeeGender?
+  marital_status_id    String?           @db.Uuid
+  document_type_id     String?           @db.Uuid
+  document_number      String?           @db.VarChar(60)
+  nationality          String?           @db.VarChar(80)
+  address_json         Json?
+  profile_picture_key  String?           @db.VarChar(255)
+  notes                String?
+  user_id              String?           @db.Uuid
+  employment_status_id String            @db.Uuid
+  is_active            Boolean           @default(true)
+  created_at           DateTime          @default(now()) @db.Timestamp(6)
+  updated_at           DateTime          @default(now()) @db.Timestamp(6)
+  deleted_at           DateTime?         @db.Timestamp(6)
+
+  employment_status hr_employment_statuses  @relation(fields: [employment_status_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_employees_employment_status")
+  marital_status   hr_marital_statuses?     @relation(fields: [marital_status_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_employees_marital_status")
+  document_type    hr_document_types?       @relation(fields: [document_type_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_employees_document_type")
+  user             users?                   @relation("HrEmployeeUser", fields: [user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_employees_user")
+  managed_departments hr_departments[]      @relation("HrDepartmentManager")
+  assignments         hr_department_assignments[] @relation("HrEmployeeAssignments")
+  managed_assignments hr_department_assignments[] @relation("HrAssignmentManager")
+  schedule_assignments hr_employee_schedule_assignments[]
+  leave_requests      hr_leave_requests[]   @relation("HrLeaveEmployee")
+  leave_approvals     hr_leave_requests[]   @relation("HrLeaveApprover")
+  employee_skills     hr_employee_skills[]
+  employee_certifications hr_employee_certifications[]
+  lifecycles          hr_employee_lifecycles[]
+  lifecycle_tasks_responsible hr_employee_lifecycle_tasks[] @relation("HrLifecycleTaskResponsible")
+
+  @@unique([tenant_id, employee_number], map: "uq_hr_employees_tenant_employee_number")
+  @@unique([tenant_id, user_id], map: "uq_hr_employees_tenant_user")
+  @@index([tenant_id], map: "IDX_hr_employees_tenant_id")
+  @@index([tenant_id, employment_status_id], map: "IDX_hr_employees_tenant_status")
+}
+
+model hr_department_assignments {
+  id                  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String    @db.Uuid
+  employee_id         String    @db.Uuid
+  department_id       String    @db.Uuid
+  position_id         String    @db.Uuid
+  manager_employee_id String?   @db.Uuid
+  start_date          DateTime  @db.Date
+  end_date            DateTime? @db.Date
+  work_location_id    String?   @db.Uuid
+  cost_center         String?   @db.VarChar(60)
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+  updated_at          DateTime  @default(now()) @db.Timestamp(6)
+  deleted_at          DateTime? @db.Timestamp(6)
+
+  employee         hr_employees       @relation("HrEmployeeAssignments", fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_department_assignments_employee")
+  department       hr_departments     @relation(fields: [department_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_department_assignments_department")
+  position         hr_positions       @relation(fields: [position_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_department_assignments_position")
+  manager_employee hr_employees?      @relation("HrAssignmentManager", fields: [manager_employee_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_department_assignments_manager")
+  work_location    hr_work_locations? @relation(fields: [work_location_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_department_assignments_location")
+
+  @@index([tenant_id], map: "IDX_hr_department_assignments_tenant_id")
+  @@index([tenant_id, employee_id], map: "IDX_hr_department_assignments_tenant_employee")
+  @@index([tenant_id, department_id], map: "IDX_hr_department_assignments_tenant_department")
+}
+
+model hr_work_schedules {
+  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id      String   @db.Uuid
+  name           String   @db.VarChar(120)
+  weekly_minutes Int?
+  schedule_json  Json
+  is_default     Boolean  @default(false)
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now()) @db.Timestamp(6)
+  updated_at     DateTime @default(now()) @db.Timestamp(6)
+  deleted_at     DateTime? @db.Timestamp(6)
+
+  employee_assignments hr_employee_schedule_assignments[]
+
+  @@unique([tenant_id, name], map: "uq_hr_work_schedules_tenant_name")
+  @@index([tenant_id], map: "IDX_hr_work_schedules_tenant_id")
+}
+
+model hr_employee_schedule_assignments {
+  id               String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String    @db.Uuid
+  employee_id      String    @db.Uuid
+  work_schedule_id String    @db.Uuid
+  start_date       DateTime  @db.Date
+  end_date         DateTime? @db.Date
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at       DateTime  @default(now()) @db.Timestamp(6)
+  deleted_at       DateTime? @db.Timestamp(6)
+
+  employee      hr_employees      @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_employee_schedule_assignments_employee")
+  work_schedule hr_work_schedules @relation(fields: [work_schedule_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_employee_schedule_assignments_schedule")
+
+  @@index([tenant_id], map: "IDX_hr_employee_schedule_assignments_tenant_id")
+  @@index([tenant_id, employee_id], map: "IDX_hr_employee_schedule_assignments_tenant_employee")
+}
+
+model hr_leave_types {
+  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String   @db.Uuid
+  name               String   @db.VarChar(120)
+  code               String   @db.VarChar(40)
+  requires_approval  Boolean  @default(true)
+  is_paid            Boolean  @default(true)
+  counts_as_vacation Boolean  @default(false)
+  max_days_per_year  Int?
+  allow_hourly       Boolean  @default(false)
+  color              String?  @db.VarChar(20)
+  sort_order         Int      @default(0)
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now()) @db.Timestamp(6)
+  updated_at         DateTime @default(now()) @db.Timestamp(6)
+  deleted_at         DateTime? @db.Timestamp(6)
+
+  leave_requests hr_leave_requests[]
+
+  @@unique([tenant_id, code], map: "uq_hr_leave_types_tenant_code")
+  @@index([tenant_id], map: "IDX_hr_leave_types_tenant_id")
+}
+
+model hr_leave_requests {
+  id                   String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String               @db.Uuid
+  employee_id          String               @db.Uuid
+  leave_type_id        String               @db.Uuid
+  start_datetime       DateTime             @db.Timestamptz(6)
+  end_datetime         DateTime             @db.Timestamptz(6)
+  duration_minutes     Int
+  reason               String?
+  attachment_key       String?              @db.VarChar(255)
+  approver_employee_id String?              @db.Uuid
+  status               HrLeaveRequestStatus @default(DRAFT)
+  decision_reason      String?
+  decided_at           DateTime?            @db.Timestamptz(6)
+  created_at           DateTime             @default(now()) @db.Timestamp(6)
+  updated_at           DateTime             @default(now()) @db.Timestamp(6)
+  deleted_at           DateTime?            @db.Timestamp(6)
+
+  employee          hr_employees   @relation("HrLeaveEmployee", fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_leave_requests_employee")
+  leave_type        hr_leave_types @relation(fields: [leave_type_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_leave_requests_type")
+  approver_employee hr_employees?  @relation("HrLeaveApprover", fields: [approver_employee_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_leave_requests_approver")
+
+  @@index([tenant_id], map: "IDX_hr_leave_requests_tenant_id")
+  @@index([tenant_id, employee_id], map: "IDX_hr_leave_requests_tenant_employee")
+  @@index([tenant_id, status], map: "IDX_hr_leave_requests_tenant_status")
+}
+
+model hr_skill_categories {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(120)
+  sort_order Int      @default(0)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  skills hr_skills[]
+
+  @@unique([tenant_id, name], map: "uq_hr_skill_categories_tenant_name")
+  @@index([tenant_id], map: "IDX_hr_skill_categories_tenant_id")
+}
+
+model hr_skills {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String   @db.Uuid
+  name        String   @db.VarChar(120)
+  category_id String?  @db.Uuid
+  description String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  updated_at  DateTime @default(now()) @db.Timestamp(6)
+  deleted_at  DateTime? @db.Timestamp(6)
+
+  category        hr_skill_categories? @relation(fields: [category_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_skills_category")
+  employee_skills hr_employee_skills[]
+
+  @@unique([tenant_id, name], map: "uq_hr_skills_tenant_name")
+  @@index([tenant_id], map: "IDX_hr_skills_tenant_id")
+  @@index([tenant_id, category_id], map: "IDX_hr_skills_tenant_category")
+}
+
+model hr_employee_skills {
+  id                String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id         String                  @db.Uuid
+  employee_id       String                  @db.Uuid
+  skill_id          String                  @db.Uuid
+  proficiency_level HrSkillProficiencyLevel @default(BEGINNER)
+  years_experience  Int?
+  notes             String?
+  created_at        DateTime                @default(now()) @db.Timestamp(6)
+  updated_at        DateTime                @default(now()) @db.Timestamp(6)
+  deleted_at        DateTime?               @db.Timestamp(6)
+
+  employee hr_employees @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_employee_skills_employee")
+  skill    hr_skills    @relation(fields: [skill_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_employee_skills_skill")
+
+  @@unique([tenant_id, employee_id, skill_id], map: "uq_hr_employee_skills_tenant_employee_skill")
+  @@index([tenant_id], map: "IDX_hr_employee_skills_tenant_id")
+}
+
+model hr_certifications {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String   @db.Uuid
+  name            String   @db.VarChar(120)
+  issuer          String?  @db.VarChar(120)
+  validity_months Int?
+  description     String?
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now()) @db.Timestamp(6)
+  updated_at      DateTime @default(now()) @db.Timestamp(6)
+  deleted_at      DateTime? @db.Timestamp(6)
+
+  employee_certifications hr_employee_certifications[]
+
+  @@unique([tenant_id, name], map: "uq_hr_certifications_tenant_name")
+  @@index([tenant_id], map: "IDX_hr_certifications_tenant_id")
+}
+
+model hr_employee_certifications {
+  id                 String                        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String                        @db.Uuid
+  employee_id        String                        @db.Uuid
+  certification_id   String                        @db.Uuid
+  issued_at          DateTime?                     @db.Date
+  expires_at         DateTime?                     @db.Date
+  certificate_number String?                       @db.VarChar(80)
+  attachment_key     String?                       @db.VarChar(255)
+  status             HrEmployeeCertificationStatus @default(VALID)
+  created_at         DateTime                      @default(now()) @db.Timestamp(6)
+  updated_at         DateTime                      @default(now()) @db.Timestamp(6)
+  deleted_at         DateTime?                     @db.Timestamp(6)
+
+  employee      hr_employees      @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_employee_certifications_employee")
+  certification hr_certifications @relation(fields: [certification_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_employee_certifications_certification")
+
+  @@index([tenant_id], map: "IDX_hr_employee_certifications_tenant_id")
+  @@index([tenant_id, employee_id], map: "IDX_hr_employee_certifications_tenant_employee")
+}
+
+model hr_lifecycle_templates {
+  id          String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String                  @db.Uuid
+  name        String                  @db.VarChar(160)
+  type        HrLifecycleTemplateType
+  description String?
+  is_active   Boolean                 @default(true)
+  created_at  DateTime                @default(now()) @db.Timestamp(6)
+  updated_at  DateTime                @default(now()) @db.Timestamp(6)
+  deleted_at  DateTime?               @db.Timestamp(6)
+
+  stages            hr_lifecycle_stages[]
+  tasks             hr_lifecycle_tasks[]
+  employee_instances hr_employee_lifecycles[]
+
+  @@unique([tenant_id, name, type], map: "uq_hr_lifecycle_templates_tenant_name_type")
+  @@index([tenant_id], map: "IDX_hr_lifecycle_templates_tenant_id")
+}
+
+model hr_lifecycle_stages {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  template_id String   @db.Uuid
+  name       String    @db.VarChar(120)
+  sort_order Int       @default(0)
+  wip_limit  Int?
+  color      String?   @db.VarChar(20)
+  is_active  Boolean   @default(true)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+  updated_at DateTime  @default(now()) @db.Timestamp(6)
+  deleted_at DateTime? @db.Timestamp(6)
+
+  template            hr_lifecycle_templates @relation(fields: [template_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_lifecycle_stages_template")
+  template_tasks      hr_lifecycle_tasks[]   @relation("HrTemplateTaskStage")
+  employee_tasks      hr_employee_lifecycle_tasks[] @relation("HrEmployeeTaskStage")
+  current_lifecycles  hr_employee_lifecycles[] @relation("HrEmployeeLifecycleCurrentStage")
+
+  @@index([tenant_id], map: "IDX_hr_lifecycle_stages_tenant_id")
+  @@unique([template_id, sort_order], map: "uq_hr_lifecycle_stages_template_order")
+}
+
+model hr_lifecycle_tasks {
+  id                   String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String                    @db.Uuid
+  template_id          String                    @db.Uuid
+  stage_id             String?                   @db.Uuid
+  title                String                    @db.VarChar(160)
+  description          String?
+  responsible_role     HrLifecycleResponsibleRole @default(HR)
+  due_days_after_start Int?
+  requires_attachment  Boolean                   @default(false)
+  is_mandatory         Boolean                   @default(true)
+  sort_order           Int                       @default(0)
+  is_active            Boolean                   @default(true)
+  created_at           DateTime                  @default(now()) @db.Timestamp(6)
+  updated_at           DateTime                  @default(now()) @db.Timestamp(6)
+  deleted_at           DateTime?                 @db.Timestamp(6)
+
+  template              hr_lifecycle_templates @relation(fields: [template_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_lifecycle_tasks_template")
+  stage                 hr_lifecycle_stages?   @relation("HrTemplateTaskStage", fields: [stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_lifecycle_tasks_stage")
+  employee_instance_tasks hr_employee_lifecycle_tasks[] @relation("HrEmployeeTaskTemplateTask")
+
+  @@index([tenant_id], map: "IDX_hr_lifecycle_tasks_tenant_id")
+  @@index([tenant_id, template_id], map: "IDX_hr_lifecycle_tasks_tenant_template")
+}
+
+model hr_employee_lifecycles {
+  id                 String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String             @db.Uuid
+  employee_id        String             @db.Uuid
+  template_id        String             @db.Uuid
+  start_date         DateTime           @db.Date
+  target_end_date    DateTime?          @db.Date
+  status             HrLifecycleStatus  @default(ACTIVE)
+  current_stage_id   String?            @db.Uuid
+  created_by_user_id String             @db.Uuid
+  created_at         DateTime           @default(now()) @db.Timestamp(6)
+  updated_at         DateTime           @default(now()) @db.Timestamp(6)
+  deleted_at         DateTime?          @db.Timestamp(6)
+
+  employee       hr_employees          @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_employee_lifecycles_employee")
+  template       hr_lifecycle_templates @relation(fields: [template_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_employee_lifecycles_template")
+  current_stage  hr_lifecycle_stages?  @relation("HrEmployeeLifecycleCurrentStage", fields: [current_stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_employee_lifecycles_current_stage")
+  created_by_user users                @relation("HrEmployeeLifecycleCreatedByUser", fields: [created_by_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_hr_employee_lifecycles_created_by")
+  tasks          hr_employee_lifecycle_tasks[]
+
+  @@index([tenant_id], map: "IDX_hr_employee_lifecycles_tenant_id")
+  @@index([tenant_id, employee_id], map: "IDX_hr_employee_lifecycles_tenant_employee")
+}
+
+model hr_employee_lifecycle_tasks {
+  id                      String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id               String               @db.Uuid
+  employee_lifecycle_id   String               @db.Uuid
+  template_task_id        String?              @db.Uuid
+  stage_id                String?              @db.Uuid
+  title                   String               @db.VarChar(160)
+  description             String?
+  responsible_employee_id String?              @db.Uuid
+  due_date                DateTime?            @db.Date
+  completed_at            DateTime?            @db.Timestamptz(6)
+  completed_by_user_id    String?              @db.Uuid
+  status                  HrLifecycleTaskStatus @default(OPEN)
+  attachment_key          String?              @db.VarChar(255)
+  notes                   String?
+  sort_order              Int                  @default(0)
+  created_at              DateTime             @default(now()) @db.Timestamp(6)
+  updated_at              DateTime             @default(now()) @db.Timestamp(6)
+  deleted_at              DateTime?            @db.Timestamp(6)
+
+  employee_lifecycle   hr_employee_lifecycles @relation(fields: [employee_lifecycle_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hr_employee_lifecycle_tasks_lifecycle")
+  template_task        hr_lifecycle_tasks?    @relation("HrEmployeeTaskTemplateTask", fields: [template_task_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_employee_lifecycle_tasks_template_task")
+  stage                hr_lifecycle_stages?   @relation("HrEmployeeTaskStage", fields: [stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_employee_lifecycle_tasks_stage")
+  responsible_employee hr_employees?          @relation("HrLifecycleTaskResponsible", fields: [responsible_employee_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_employee_lifecycle_tasks_responsible")
+  completed_by_user    users?                 @relation("HrEmployeeLifecycleTaskCompletedByUser", fields: [completed_by_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_hr_employee_lifecycle_tasks_completed_by")
+
+  @@index([tenant_id], map: "IDX_hr_employee_lifecycle_tasks_tenant_id")
+  @@index([tenant_id, employee_lifecycle_id], map: "IDX_hr_employee_lifecycle_tasks_tenant_lifecycle")
+}
+
+model automations {
+  id                 String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String                  @db.Uuid
+  name               String                  @db.VarChar(255)
+  description        String?
+  entity_name        String                  @db.VarChar(100)
+  is_active          Boolean                 @default(true)
+  workflow_json      Json
+  created_by_user_id String                  @db.Uuid
+  updated_by_user_id String?                 @db.Uuid
+  created_at         DateTime                @default(now()) @db.Timestamp(6)
+  updated_at         DateTime                @default(now()) @db.Timestamp(6)
+  executions         automation_executions[]
+
+  @@unique([tenant_id, name], map: "uq_automations_tenant_name")
+  @@index([tenant_id], map: "IDX_automations_tenant_id")
+  @@index([tenant_id, entity_name, is_active], map: "IDX_automations_tenant_entity_active")
+  @@index([tenant_id, is_active], map: "IDX_automations_tenant_active")
+}
+
+model automation_executions {
+  id            String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String                    @db.Uuid
+  automation_id String                    @db.Uuid
+  status        AutomationExecutionStatus
+  input_payload Json
+  output_payload Json?
+  error_message String?
+  executed_at   DateTime                  @default(now()) @db.Timestamp(6)
+  automation    automations               @relation(fields: [automation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_automation_executions_automation")
+
+  @@index([tenant_id], map: "IDX_automation_executions_tenant_id")
+  @@index([tenant_id, automation_id, executed_at], map: "IDX_automation_executions_tenant_automation_executed")
+}
+
 enum IncidentStatus {
   NEW
   IN_PROGRESS
@@ -2129,4 +2888,101 @@ enum ContractBillingFrequency {
   QUARTERLY
   YEARLY
   ONE_TIME
+}
+
+enum FinancialCategoryKind {
+  REVENUE
+  EXPENSE
+  TRANSFER
+}
+
+enum FinancialAccountType {
+  CASH
+  CHECKING
+  SAVINGS
+  INVESTMENT
+  DIGITAL_WALLET
+}
+
+enum FinancialEntryStatus {
+  OPEN
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELED
+}
+
+enum FinancialPaymentMethod {
+  BANK_TRANSFER
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  CASH
+  BOLETO
+  CHECK
+  OTHER
+}
+
+enum FinancialMovementType {
+  CREDIT
+  DEBIT
+}
+
+enum HrEmployeeGender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum HrLeaveRequestStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
+enum HrSkillProficiencyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum HrEmployeeCertificationStatus {
+  VALID
+  EXPIRED
+  REVOKED
+}
+
+enum HrLifecycleTemplateType {
+  ONBOARDING
+  OFFBOARDING
+}
+
+enum HrLifecycleResponsibleRole {
+  HR
+  MANAGER
+  IT
+  FINANCE
+  EMPLOYEE
+}
+
+enum HrLifecycleStatus {
+  ACTIVE
+  COMPLETED
+  CANCELED
+}
+
+enum HrLifecycleTaskStatus {
+  OPEN
+  DOING
+  DONE
+  BLOCKED
+  CANCELED
+}
+
+enum AutomationExecutionStatus {
+  SUCCESS
+  ERROR
 }

@@ -6,9 +6,10 @@ import { LeadsController } from './leads.controller';
 import { LeadRepository } from './leads.repository';
 import { LeadsService } from './leads.service';
 import { StatusConfigModule } from '../status-config/status-config.module';
+import { AutomationModule } from '../automation/automation.module';
 
 @Module({
-  imports: [StatusConfigModule],
+  imports: [StatusConfigModule, AutomationModule],
   controllers: [LeadsController],
   providers: [PrismaService, LeadRepository, LeadsService, JwtAuthGuard, RolesGuard],
   exports: [LeadRepository, LeadsService],

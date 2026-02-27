@@ -4,12 +4,14 @@ import { InvoiceRepository } from './invoices.repository';
 import { CreateInvoiceDTO } from './dto/create.dto';
 import { UpdateInvoiceDTO } from './dto/update.dto';
 import { StatusConfigService } from '../status-config/status-config.service';
+import { AutomationDispatcherService } from '../automation/automation-dispatcher.service';
 
 @Injectable()
 export class InvoiceService {
   constructor(
     private readonly repository: InvoiceRepository,
     private readonly statusConfigService: StatusConfigService,
+    private readonly automationDispatcher: AutomationDispatcherService,
   ) {}
 
   async findAll(
@@ -126,7 +128,7 @@ export class InvoiceService {
     return created;
   }
 
-  async update(id: string, tenantId: string, data: UpdateInvoiceDTO) {
+  async update(id: string, tenantId: string, data: UpdateInvoiceDTO, userId?: string) {
     const existing = await this.repository.findById(id, tenantId);
     if (!existing) throw new NotFoundException('Invoice not found');
 
@@ -179,7 +181,23 @@ export class InvoiceService {
         if (!updatedHeader) throw new NotFoundException('Invoice not found');
 
         await this.repository.replaceLines(id, tenantId, []);
-        return this.findById(id, tenantId);
+        const refreshed = await this.findById(id, tenantId);
+
+        this.automationDispatcher.dispatch({
+          tenantId,
+          userId,
+          entityName: 'invoices',
+          eventType: 'UPDATE',
+          recordId: id,
+          changedFields: Object.keys(data ?? {}),
+          payload: {
+            before: existing as unknown as Record<string, unknown>,
+            after: refreshed as unknown as Record<string, unknown>,
+            changedFields: Object.keys(data ?? {}),
+          },
+        });
+
+        return refreshed;
       }
 
       const computed = this.computeTotals(data.lines, headerDiscountPercent);
@@ -213,13 +231,43 @@ export class InvoiceService {
         })),
       );
 
-      return this.findById(id, tenantId);
+      const refreshed = await this.findById(id, tenantId);
+
+      this.automationDispatcher.dispatch({
+        tenantId,
+        userId,
+        entityName: 'invoices',
+        eventType: 'UPDATE',
+        recordId: id,
+        changedFields: Object.keys(data ?? {}),
+        payload: {
+          before: existing as unknown as Record<string, unknown>,
+          after: refreshed as unknown as Record<string, unknown>,
+          changedFields: Object.keys(data ?? {}),
+        },
+      });
+
+      return refreshed;
     }
 
     if (data.discount_percent !== undefined) patch.discount_percent = this.normalizePercent(data.discount_percent);
 
     const updated = await this.repository.update(id, tenantId, patch);
     if (!updated) throw new NotFoundException('Invoice not found');
+    this.automationDispatcher.dispatch({
+      tenantId,
+      userId,
+      entityName: 'invoices',
+      eventType: 'UPDATE',
+      recordId: id,
+      changedFields: Object.keys(data ?? {}),
+      payload: {
+        before: existing as unknown as Record<string, unknown>,
+        after: updated as unknown as Record<string, unknown>,
+        changedFields: Object.keys(data ?? {}),
+      },
+    });
+
     return updated;
   }
 

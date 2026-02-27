@@ -34,4 +34,29 @@ export class MailerService {
       html: '<p>If you received this, your <b>Brevo SMTP</b> setup is working.</p>',
     });
   }
+
+  async sendAutomationEmail(options: {
+    to: string | string[];
+    cc?: string | string[];
+    bcc?: string | string[];
+    subject: string;
+    html?: string;
+    text?: string;
+    from?: string;
+  }): Promise<void> {
+    try {
+      await this.nestMailerService.sendMail({
+        ...(options.from ? { from: options.from } : {}),
+        to: options.to,
+        ...(options.cc ? { cc: options.cc } : {}),
+        ...(options.bcc ? { bcc: options.bcc } : {}),
+        subject: options.subject,
+        ...(options.html ? { html: options.html } : {}),
+        ...(options.text ? { text: options.text } : {}),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to send automation email';
+      throw new Error(message);
+    }
+  }
 }
