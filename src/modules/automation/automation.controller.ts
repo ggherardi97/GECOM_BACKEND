@@ -62,13 +62,13 @@ export class AutomationController {
   }
 
   @Get('metadata/entities')
-  async listEntities() {
-    return this.metadataService.listEntities();
+  async listEntities(@Req() req: Request) {
+    return this.metadataService.listEntities(this.getUser(req).tenant_id);
   }
 
   @Get('metadata/entities/:entityName/fields')
-  async listEntityFields(@Param('entityName') entityName: string) {
-    return this.metadataService.listUpdatableFields(entityName);
+  async listEntityFields(@Req() req: Request, @Param('entityName') entityName: string) {
+    return this.metadataService.listUpdatableFields(entityName, this.getUser(req).tenant_id);
   }
 
   @Get('metadata/entities/:entityName/records')

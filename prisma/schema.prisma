@@ -37,6 +37,7 @@ model modules {
   code              String   @unique(map: "uq_modules_code") @db.VarChar(80)
   name_pt_br        String   @db.VarChar(255)
   description_pt_br String?
+  area_keys_json    Json     @default(dbgenerated("'[]'::jsonb"))
   monthly_price     Decimal  @default(0) @db.Decimal(19, 4)
   is_active         Boolean  @default(true)
   created_at        DateTime @default(now()) @db.Timestamptz(6)
@@ -174,6 +175,7 @@ model users {
   po_created_work_orders     po_work_orders[]         @relation("PoWorkOrderCreatedBy")
   po_owned_work_orders       po_work_orders[]         @relation("PoWorkOrderOwner")
   po_assigned_checklist_items po_checklist_items[]    @relation("PoChecklistItemAssignedUser")
+  admin_audit_logs           admin_audit_log[]        @relation("AdminAuditLogUser")
 
   password_resets password_resets?
   processes       processes[]
@@ -3055,6 +3057,100 @@ enum lead_activity_type_enum {
   MEETING
   WHATSAPP
   TASK
+}
+
+model tenant_menu_config {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @unique @db.Uuid
+  config_json Json
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([tenant_id], map: "IDX_tenant_menu_config_tenant_id")
+}
+
+model tenant_theme_settings {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String   @unique @db.Uuid
+  primary_color   String?  @db.VarChar(20)
+  nav_bg_color    String?  @db.VarChar(20)
+  nav_text_color  String?  @db.VarChar(20)
+  topbar_bg_color String?  @db.VarChar(20)
+  layout_mode     String?  @db.VarChar(20)
+  logo_url        String?  @db.VarChar(500)
+  favicon_url     String?  @db.VarChar(500)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([tenant_id], map: "IDX_tenant_theme_settings_tenant_id")
+}
+
+model option_sets {
+  id         String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String               @db.Uuid
+  entity     String               @db.VarChar(80)
+  field      String               @db.VarChar(80)
+  created_at DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at DateTime             @updatedAt @db.Timestamptz(6)
+  options    option_set_options[]
+
+  @@unique([tenant_id, entity, field], map: "uq_option_sets_tenant_entity_field")
+  @@index([tenant_id], map: "IDX_option_sets_tenant_id")
+  @@index([tenant_id, entity], map: "IDX_option_sets_tenant_entity")
+}
+
+model option_set_options {
+  id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  option_set_id String      @db.Uuid
+  value         String      @db.VarChar(60)
+  label         String      @db.VarChar(160)
+  color         String?     @db.VarChar(20)
+  sort_order    Int         @default(0)
+  is_active     Boolean     @default(true)
+  created_at    DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime    @updatedAt @db.Timestamptz(6)
+  option_set    option_sets @relation(fields: [option_set_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_option_set_options_option_set")
+
+  @@unique([option_set_id, value], map: "uq_option_set_options_set_value")
+  @@index([option_set_id], map: "IDX_option_set_options_option_set_id")
+  @@index([option_set_id, is_active], map: "IDX_option_set_options_option_set_active")
+}
+
+model email_integrations {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id     String   @db.Uuid
+  provider      String   @db.VarChar(20)
+  display_name  String   @db.VarChar(120)
+  sender_email  String   @db.VarChar(160)
+  client_id     String?  @db.VarChar(255)
+  client_secret String?  @db.VarChar(255)
+  tenant_domain String?  @db.VarChar(255)
+  smtp_host     String?  @db.VarChar(255)
+  smtp_port     Int?
+  smtp_user     String?  @db.VarChar(255)
+  smtp_password String?  @db.VarChar(255)
+  is_active     Boolean  @default(false)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([tenant_id], map: "IDX_email_integrations_tenant_id")
+  @@index([tenant_id, is_active], map: "IDX_email_integrations_tenant_active")
+}
+
+model admin_audit_log {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  user_id    String   @db.Uuid
+  action     String   @db.VarChar(120)
+  entity     String   @db.VarChar(120)
+  before_json Json?
+  after_json Json?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  user       users    @relation("AdminAuditLogUser", fields: [user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_admin_audit_log_user")
+
+  @@index([tenant_id], map: "IDX_admin_audit_log_tenant_id")
+  @@index([tenant_id, created_at], map: "IDX_admin_audit_log_tenant_created")
+  @@index([tenant_id, entity], map: "IDX_admin_audit_log_tenant_entity")
 }
 
 enum tracking_provider_enum {

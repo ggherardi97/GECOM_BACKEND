@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { isEntityAllowedByModuleAreas } from '../billing-plans/module-areas';
+import { TenantModulesResolverService } from '../billing-plans/tenant-modules-resolver.service';
 
 type RawEntityRow = {
   table_name: string;
@@ -88,9 +90,19 @@ export class AutomationMetadataService {
     'description',
   ];
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantModulesResolverService: TenantModulesResolverService,
+  ) {}
 
-  async listEntities(): Promise<AutomationEntityMetadata[]> {
+  private async getEnabledAreaSet(tenantId?: string): Promise<Set<string>> {
+    if (!tenantId) return new Set<string>();
+    const areas = await this.tenantModulesResolverService.getEnabledAreas(tenantId);
+    return new Set((areas || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean));
+  }
+
+  async listEntities(tenantId?: string): Promise<AutomationEntityMetadata[]> {
+    const enabledAreaSet = await this.getEnabledAreaSet(tenantId);
     const rows = await this.prisma.raw.$queryRaw<RawEntityRow[]>(Prisma.sql`
       SELECT c.table_name
       FROM information_schema.columns c
@@ -104,17 +116,18 @@ export class AutomationMetadataService {
     return rows
       .map((row) => String(row.table_name || '').trim().toLowerCase())
       .filter((name) => name && !this.excludedEntities.has(name))
+      .filter((name) => !tenantId || isEntityAllowedByModuleAreas(name, enabledAreaSet))
       .map((name) => ({
         name,
         label: this.toPtBrLabel(name),
       }));
   }
 
-  async listEntityColumns(entityName: string): Promise<AutomationEntityColumnMetadata[]> {
+  async listEntityColumns(entityName: string, tenantId?: string): Promise<AutomationEntityColumnMetadata[]> {
     const normalized = String(entityName || '').trim().toLowerCase();
     if (!this.isSafeIdentifier(normalized)) return [];
 
-    const entities = await this.listEntities();
+    const entities = await this.listEntities(tenantId);
     if (!entities.some((item) => item.name === normalized)) return [];
 
     const rows = await this.prisma.raw.$queryRaw<RawFieldRow[]>(Prisma.sql`
@@ -143,8 +156,8 @@ export class AutomationMetadataService {
       .filter((row) => row.name && this.isSafeIdentifier(row.name));
   }
 
-  async listUpdatableFields(entityName: string): Promise<AutomationFieldMetadata[]> {
-    const columns = await this.listEntityColumns(entityName);
+  async listUpdatableFields(entityName: string, tenantId?: string): Promise<AutomationFieldMetadata[]> {
+    const columns = await this.listEntityColumns(entityName, tenantId);
 
     return columns
       .filter((column) => this.isUserWritableColumn(column))
@@ -168,7 +181,7 @@ export class AutomationMetadataService {
 
     if (!tenantId || !this.isSafeIdentifier(entityName)) return [];
 
-    const columns = await this.listEntityColumns(entityName);
+    const columns = await this.listEntityColumns(entityName, tenantId);
     if (!columns.length) return [];
 
     const columnNames = new Set(columns.map((column) => column.name));

@@ -46,6 +46,7 @@ import { AutomationModule } from './modules/automation/automation.module';
 import { FinanceModule } from './modules/finance/finance.module';
 import { HrModule } from './modules/hr/hr.module';
 import { ProjectOperationsModule } from './modules/project-operations/project-operations.module';
+import { AdminConfigModule } from './modules/admin-config/admin-config.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { ProjectOperationsModule } from './modules/project-operations/project-op
     FinanceModule,
     HrModule,
     ProjectOperationsModule,
+    AdminConfigModule,
   ],
   controllers: [AppController],
   providers: [

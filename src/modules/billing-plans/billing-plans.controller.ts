@@ -26,6 +26,7 @@ import { TenantSubscriptionService } from './tenant-subscription.service';
 import { TenantModulesResolverService } from './tenant-modules-resolver.service';
 import { AdminOnlyGuard } from './guards/admin-only.guard';
 import { Public } from '../auth/decorators/public.decorator';
+import { BillingBootstrapGuard } from './guards/billing-bootstrap.guard';
 
 function parseOptionalBoolean(value?: string): boolean | undefined {
   if (value === undefined || value === null || String(value).trim() === '') return undefined;
@@ -167,8 +168,12 @@ export class BillingMeController {
     const tenantId = String(req?.user?.tenant_id ?? '').trim();
     if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
 
-    const enabledModules = await this.tenantModulesResolverService.getEnabledModules(tenantId);
-    return { tenant_id: tenantId, enabledModules };
+    const [enabledModules, enabledAreas] = await Promise.all([
+      this.tenantModulesResolverService.getEnabledModules(tenantId),
+      this.tenantModulesResolverService.getEnabledAreas(tenantId),
+    ]);
+
+    return { tenant_id: tenantId, enabledModules, enabledAreas };
   }
 }
 
@@ -190,5 +195,82 @@ export class BillingPublicController {
   @Get('modules')
   listPublicModules() {
     return this.modulesService.listPublicModules();
+  }
+}
+
+@ApiTags('billing-bootstrap')
+@Public()
+@UseGuards(BillingBootstrapGuard)
+@Controller('public/bootstrap/billing')
+export class BillingBootstrapController {
+  constructor(
+    private readonly modulesService: ModulesService,
+    private readonly plansService: PlansService,
+  ) {}
+
+  @Get('modules')
+  listModules(@Query('q') q?: string, @Query('is_active') is_active?: string) {
+    return this.modulesService.list({
+      q,
+      is_active: parseOptionalBoolean(is_active),
+    });
+  }
+
+  @Post('modules')
+  createModule(@Body() dto: CreateModuleDto) {
+    return this.modulesService.create(dto);
+  }
+
+  @Get('modules/:id')
+  getModule(@Param('id') id: string) {
+    return this.modulesService.getById(id);
+  }
+
+  @Put('modules/:id')
+  updateModule(@Param('id') id: string, @Body() dto: UpdateModuleDto) {
+    return this.modulesService.update(id, dto);
+  }
+
+  @Get('plans')
+  listPlans(@Query('q') q?: string, @Query('is_active') is_active?: string) {
+    return this.plansService.list({
+      q,
+      is_active: parseOptionalBoolean(is_active),
+    });
+  }
+
+  @Post('plans')
+  createPlan(@Body() dto: CreatePlanDto) {
+    return this.plansService.create(dto);
+  }
+
+  @Get('plans/:id')
+  getPlan(@Param('id') id: string) {
+    return this.plansService.getById(id);
+  }
+
+  @Put('plans/:id')
+  updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto) {
+    return this.plansService.update(id, dto);
+  }
+
+  @Get('plans/:id/modules')
+  listPlanModules(@Param('id') planId: string) {
+    return this.plansService.listPlanModules(planId);
+  }
+
+  @Post('plans/:id/modules')
+  addPlanModule(@Param('id') planId: string, @Body() dto: AddPlanModuleDto) {
+    return this.plansService.addModule(planId, dto);
+  }
+
+  @Put('plan-modules/:id')
+  updatePlanModule(@Param('id') id: string, @Body() dto: UpdatePlanModuleDto) {
+    return this.plansService.updatePlanModule(id, dto);
+  }
+
+  @Delete('plan-modules/:id')
+  removePlanModule(@Param('id') id: string) {
+    return this.plansService.removePlanModule(id);
   }
 }

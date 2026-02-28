@@ -203,6 +203,12 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'po_work_orders',
     'po_work_order_assignments',
     'po_work_order_appointments',
+    'tenant_menu_config',
+    'tenant_theme_settings',
+    'option_sets',
+    'option_set_options',
+    'email_integrations',
+    'admin_audit_log',
 
     // add others that have tenant_id
   ]);

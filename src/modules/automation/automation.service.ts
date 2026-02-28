@@ -19,6 +19,8 @@ import { WebhookActionRunner } from './action-runners/webhook.runner';
 import { AiActionRunner } from './action-runners/ai-action.runner';
 import { AutomationActionRunner } from './action-runners/automation-action-runner.interface';
 import { CreateRegisterActionRunner } from './action-runners/create-register.runner';
+import { isEntityAllowedByModuleAreas } from '../billing-plans/module-areas';
+import { TenantModulesResolverService } from '../billing-plans/tenant-modules-resolver.service';
 
 type AuthUser = {
   id: string;
@@ -40,6 +42,7 @@ export class AutomationService {
     webhookRunner: WebhookActionRunner,
     aiActionRunner: AiActionRunner,
     createRegisterRunner: CreateRegisterActionRunner,
+    private readonly tenantModulesResolverService: TenantModulesResolverService,
   ) {
     [
       updateFieldRunner,
@@ -65,6 +68,9 @@ export class AutomationService {
   }
 
   async create(user: AuthUser, dto: CreateAutomationDto) {
+    const normalizedEntity = dto.entity_name.trim().toLowerCase();
+    await this.assertEntityAllowed(user.tenant_id, normalizedEntity);
+
     const workflow = dto.workflow_json
       ? WorkflowValidator.validate(dto.workflow_json)
       : this.buildDefaultWorkflow(dto.entity_name, dto.trigger_type, dto.trigger_config);
@@ -73,7 +79,7 @@ export class AutomationService {
       tenant_id: user.tenant_id,
       name: dto.name.trim(),
       description: dto.description?.trim() || null,
-      entity_name: dto.entity_name.trim().toLowerCase(),
+      entity_name: normalizedEntity,
       is_active: dto.is_active ?? true,
       workflow_json: workflow as unknown as object,
       created_by_user_id: user.id,
@@ -86,6 +92,10 @@ export class AutomationService {
   async update(user: AuthUser, id: string, dto: UpdateAutomationDto) {
     const current = await this.repository.findById(user.tenant_id, id);
     if (!current) throw new NotFoundException('Automação não encontrada.');
+
+    if (dto.entity_name !== undefined) {
+      await this.assertEntityAllowed(user.tenant_id, dto.entity_name.trim().toLowerCase());
+    }
 
     const workflow = dto.workflow_json
       ? WorkflowValidator.validate(dto.workflow_json)
@@ -103,6 +113,14 @@ export class AutomationService {
 
     if (!updated) throw new NotFoundException('Automação não encontrada.');
     return this.serializeAutomation(updated);
+  }
+
+  private async assertEntityAllowed(tenantId: string, entityName: string): Promise<void> {
+    const enabledAreas = await this.tenantModulesResolverService.getEnabledAreas(tenantId);
+    const enabledAreaSet = new Set((enabledAreas || []).map((item) => String(item || '').toLowerCase()));
+    if (!isEntityAllowedByModuleAreas(entityName, enabledAreaSet)) {
+      throw new NotFoundException('Entidade não disponível para os módulos ativos do tenant.');
+    }
   }
 
   async executeManual(user: AuthUser, id: string, dto: ExecuteAutomationDto) {

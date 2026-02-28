@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { IsNumber, Min } from 'class-validator';
+import { MODULE_AREA_KEYS } from '../module-areas';
 
 export class CreateModuleDto {
   @ApiProperty({ example: 'SERVICES' })
@@ -32,4 +33,11 @@ export class CreateModuleDto {
   @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
   monthly_price?: number;
+
+  @ApiPropertyOptional({ example: ['service', 'finance'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @IsIn(MODULE_AREA_KEYS as unknown as string[], { each: true })
+  area_keys?: string[];
 }

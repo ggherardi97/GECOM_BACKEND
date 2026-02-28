@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import {
+  BillingBootstrapController,
   BillingMeController,
   BillingPlansAdminController,
   BillingPublicController,
@@ -11,6 +12,7 @@ import { PlansService } from './plans.service';
 import { TenantSubscriptionService } from './tenant-subscription.service';
 import { TenantModulesResolverService } from './tenant-modules-resolver.service';
 import { AdminOnlyGuard } from './guards/admin-only.guard';
+import { BillingBootstrapGuard } from './guards/billing-bootstrap.guard';
 
 @Module({
   imports: [PrismaModule],
@@ -19,6 +21,7 @@ import { AdminOnlyGuard } from './guards/admin-only.guard';
     BillingTenantsAdminController,
     BillingMeController,
     BillingPublicController,
+    BillingBootstrapController,
   ],
   providers: [
     ModulesService,
@@ -26,6 +29,7 @@ import { AdminOnlyGuard } from './guards/admin-only.guard';
     TenantSubscriptionService,
     TenantModulesResolverService,
     AdminOnlyGuard,
+    BillingBootstrapGuard,
   ],
   exports: [TenantModulesResolverService],
 })

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { TenantSubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpsertTenantModuleOverrideDto } from './dto/upsert-tenant-module-override.dto';
+import { ModuleAreaKey, normalizeModuleAreaKeys } from './module-areas';
 
 const ACTIVE_SUBSCRIPTION_STATUSES: TenantSubscriptionStatus[] = [
   TenantSubscriptionStatus.ACTIVE,
@@ -12,6 +13,7 @@ type ResolvedTenantModule = {
   module_id: string;
   code: string;
   name_pt_br: string;
+  area_keys: ModuleAreaKey[];
   is_active: boolean;
   plan_included: boolean;
   override_enabled: boolean | null;
@@ -27,6 +29,18 @@ export class TenantModulesResolverService {
   async getEnabledModules(tenantId: string): Promise<string[]> {
     const resolved = await this.getResolvedModules(tenantId);
     return resolved.filter((row) => row.final_enabled).map((row) => row.code);
+  }
+
+  async getEnabledAreas(tenantId: string): Promise<ModuleAreaKey[]> {
+    const resolved = await this.getResolvedModules(tenantId);
+    const output: ModuleAreaKey[] = [];
+    resolved.forEach((row) => {
+      if (!row.final_enabled) return;
+      row.area_keys.forEach((key) => {
+        if (!output.includes(key)) output.push(key);
+      });
+    });
+    return output;
   }
 
   async getResolvedModules(tenantId: string): Promise<ResolvedTenantModule[]> {
@@ -63,11 +77,13 @@ export class TenantModulesResolverService {
       const effectiveByPlan = planIncluded;
       const effectiveWithOverride = override ? override.enabled : effectiveByPlan;
       const finalEnabled = catalogModule.is_active ? effectiveWithOverride : false;
+      const areaKeys = normalizeModuleAreaKeys((catalogModule as any).area_keys_json, catalogModule.code);
 
       return {
         module_id: catalogModule.id,
         code: catalogModule.code,
         name_pt_br: catalogModule.name_pt_br,
+        area_keys: areaKeys,
         is_active: catalogModule.is_active,
         plan_included: planIncluded,
         override_enabled: override ? override.enabled : null,

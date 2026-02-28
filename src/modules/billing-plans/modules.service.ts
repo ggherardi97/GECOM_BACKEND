@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateModuleDto } from './dto/create-module.dto';
 import { UpdateModuleDto } from './dto/update-module.dto';
+import { normalizeModuleAreaKeys } from './module-areas';
 
 @Injectable()
 export class ModulesService {
@@ -10,7 +11,7 @@ export class ModulesService {
   async list(params?: { q?: string; is_active?: boolean }) {
     const q = String(params?.q ?? '').trim();
 
-    return this.prisma.modules.findMany({
+    const rows = await this.prisma.modules.findMany({
       where: {
         ...(params?.is_active !== undefined ? { is_active: params.is_active } : {}),
         ...(q
@@ -25,10 +26,12 @@ export class ModulesService {
       },
       orderBy: [{ name_pt_br: 'asc' }, { code: 'asc' }],
     });
+
+    return rows.map((row) => this.mapModuleOutput(row));
   }
 
   async listPublicModules() {
-    return this.prisma.modules.findMany({
+    const rows = await this.prisma.modules.findMany({
       where: {
         is_active: true,
       },
@@ -41,31 +44,37 @@ export class ModulesService {
         monthly_price: true,
       },
     });
+
+    return rows.map((row) => this.mapModuleOutput(row));
   }
 
   async getById(id: string) {
     const row = await this.prisma.modules.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Modulo nao encontrado.');
-    return row;
+    return this.mapModuleOutput(row);
   }
 
   async create(dto: CreateModuleDto) {
     const code = this.normalizeCode(dto.code);
     await this.assertCodeAvailable(code);
 
-    return this.prisma.modules.create({
+    const created = await this.prisma.modules.create({
       data: {
         code,
         name_pt_br: String(dto.name_pt_br).trim(),
         description_pt_br: this.normalizeNullable(dto.description_pt_br),
         is_active: dto.is_active ?? true,
         monthly_price: this.normalizeMoney(dto.monthly_price),
+        area_keys_json: normalizeModuleAreaKeys(dto.area_keys, code),
       },
     });
+
+    return this.mapModuleOutput(created);
   }
 
   async update(id: string, dto: UpdateModuleDto) {
-    await this.getById(id);
+    const current = await this.prisma.modules.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Modulo nao encontrado.');
 
     let nextCode: string | undefined;
     if (dto.code !== undefined) {
@@ -73,7 +82,12 @@ export class ModulesService {
       await this.assertCodeAvailable(nextCode, id);
     }
 
-    return this.prisma.modules.update({
+    const nextAreaKeys =
+      dto.area_keys !== undefined
+        ? normalizeModuleAreaKeys(dto.area_keys, nextCode || current.code)
+        : normalizeModuleAreaKeys((current as any).area_keys_json, nextCode || current.code);
+
+    const updated = await this.prisma.modules.update({
       where: { id },
       data: {
         ...(nextCode !== undefined ? { code: nextCode } : {}),
@@ -83,9 +97,12 @@ export class ModulesService {
           : {}),
         ...(dto.is_active !== undefined ? { is_active: dto.is_active } : {}),
         ...(dto.monthly_price !== undefined ? { monthly_price: this.normalizeMoney(dto.monthly_price) } : {}),
+        area_keys_json: nextAreaKeys,
         updated_at: new Date(),
       },
     });
+
+    return this.mapModuleOutput(updated);
   }
 
   private normalizeCode(code: string): string {
@@ -120,5 +137,14 @@ export class ModulesService {
       throw new BadRequestException('Preco mensal invalido para modulo.');
     }
     return money;
+  }
+
+  private mapModuleOutput(row: any) {
+    const areaKeys = normalizeModuleAreaKeys(row?.area_keys_json, row?.code);
+    return {
+      ...row,
+      area_keys_json: areaKeys,
+      area_keys: areaKeys,
+    };
   }
 }

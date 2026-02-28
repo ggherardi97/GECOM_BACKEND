@@ -2,6 +2,7 @@
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MailModule } from '../mailer/mailer.module';
+import { BillingPlansModule } from '../billing-plans/billing-plans.module';
 import { AutomationController } from './automation.controller';
 import { AutomationService } from './automation.service';
 import { AutomationRepository } from './automation.repository';
@@ -17,7 +18,7 @@ import { AutomationMetadataService } from './automation-metadata.service';
 import { CreateRegisterActionRunner } from './action-runners/create-register.runner';
 
 @Module({
-  imports: [PrismaModule, ConfigModule, MailModule],
+  imports: [PrismaModule, ConfigModule, MailModule, BillingPlansModule],
   controllers: [AutomationController],
   providers: [
     AutomationService,
