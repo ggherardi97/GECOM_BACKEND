@@ -205,10 +205,13 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'po_work_order_appointments',
     'tenant_menu_config',
     'tenant_theme_settings',
+    'tenant_landing_page_settings',
     'option_sets',
-    'option_set_options',
     'email_integrations',
     'admin_audit_log',
+    'access_roles',
+    'access_role_permissions',
+    'access_user_roles',
 
     // add others that have tenant_id
   ]);
@@ -221,8 +224,15 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   ]);
 
   constructor() {
+    const enableQueryLogging = String(process.env.PRISMA_LOG_QUERIES || '')
+      .trim()
+      .toLowerCase() === 'true';
+    const prismaLogLevels: Prisma.LogLevel[] = enableQueryLogging
+      ? ['query', 'info', 'warn', 'error']
+      : ['info', 'warn', 'error'];
+
     const base = new PrismaClient({
-      log: ['query', 'info', 'warn', 'error'],
+      log: prismaLogLevels,
     });
 
     const extended = base.$extends({
@@ -240,7 +250,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
               return query(args);
             }
 
-            const tenantId = getTenantId();
+            const tenantIdFromContext = getTenantId();
+            const tenantIdFromArgs = extractTenantIdFromArgs(args);
+            const tenantId = tenantIdFromContext || tenantIdFromArgs;
 
             // No tenant in context: allow only auth-related models
             if (!tenantId) {
@@ -414,4 +426,34 @@ function applyTenantToData(data: any, tenantId: string): any {
   }
 
   return { ...data, tenant_id: tenantId };
+}
+
+function extractTenantIdFromArgs(args: any): string | undefined {
+  return extractTenantIdDeep(args, new Set<any>());
+}
+
+function extractTenantIdDeep(value: any, seen: Set<any>): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  if (seen.has(value)) return undefined;
+  seen.add(value);
+
+  const rawTenantId = (value as any).tenant_id;
+  if (typeof rawTenantId === 'string' && rawTenantId.trim()) {
+    return rawTenantId.trim();
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = extractTenantIdDeep(item, seen);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  for (const key of Object.keys(value)) {
+    const found = extractTenantIdDeep((value as any)[key], seen);
+    if (found) return found;
+  }
+
+  return undefined;
 }

@@ -198,16 +198,30 @@ async function run() {
   ];
 
   for (const subject of subjects) {
-    await prisma.service_subjects.upsert({
-      where: { tenant_id_name_parent_id: { tenant_id: tenantId, name: subject.name, parent_id: null } },
-      update: { path: subject.path, is_active: true },
-      create: {
+    const existingRootSubject = await prisma.service_subjects.findFirst({
+      where: {
         tenant_id: tenantId,
         name: subject.name,
-        path: subject.path,
-        is_active: true,
+        parent_id: null,
       },
+      select: { id: true },
     });
+
+    if (existingRootSubject) {
+      await prisma.service_subjects.update({
+        where: { id: existingRootSubject.id },
+        data: { path: subject.path, is_active: true },
+      });
+    } else {
+      await prisma.service_subjects.create({
+        data: {
+          tenant_id: tenantId,
+          name: subject.name,
+          path: subject.path,
+          is_active: true,
+        },
+      });
+    }
   }
 
   await prisma.service_task_types.createMany({

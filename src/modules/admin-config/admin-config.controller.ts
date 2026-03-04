@@ -20,6 +20,9 @@ import { UserRole } from '../users/enums/user.role';
 import { AdminConfigService } from './admin-config.service';
 import {
   CreateEmailIntegrationDto,
+  GenerateLandingPageAiDto,
+  PutLandingPageContentDto,
+  PutLandingPageSettingsDto,
   CreateOptionSetDto,
   CreateOptionSetOptionDto,
   PutMenuConfigDto,
@@ -83,6 +86,41 @@ export class AdminConfigController {
   @Roles(UserRole.ADMIN)
   putTheme(@Req() req: Request, @Body() dto: PutThemeSettingsDto) {
     return this.service.updateTheme(this.getUser(req), dto);
+  }
+
+  @Get('landing-page')
+  @Roles(UserRole.ADMIN)
+  getLandingPage(@Req() req: Request) {
+    return this.service.getLandingPage(this.getUser(req));
+  }
+
+  @Put('landing-page/settings')
+  @Roles(UserRole.ADMIN)
+  putLandingPageSettings(@Req() req: Request, @Body() dto: PutLandingPageSettingsDto) {
+    return this.service.updateLandingPageSettings(this.getUser(req), dto);
+  }
+
+  @Put('landing-page/content')
+  @Roles(UserRole.ADMIN)
+  putLandingPageContent(@Req() req: Request, @Body() dto: PutLandingPageContentDto) {
+    return this.service.saveLandingPageContent(this.getUser(req), dto);
+  }
+
+  @Post('landing-page/publish')
+  @Roles(UserRole.ADMIN)
+  publishLandingPage(@Req() req: Request, @Body() dto: PutLandingPageContentDto) {
+    return this.service.publishLandingPage(this.getUser(req), dto);
+  }
+
+  @Post('landing-page/generate-ai')
+  @Roles(UserRole.ADMIN)
+  generateLandingPageWithAi(@Req() req: Request, @Body() dto: GenerateLandingPageAiDto) {
+    return this.service.generateLandingPageWithAi(this.getUser(req), dto);
+  }
+
+  @Get('landing-page/published')
+  getPublishedLandingPage(@Req() req: Request) {
+    return this.service.getPublishedLandingPage(this.getUser(req));
   }
 
   @Get('option-sets')

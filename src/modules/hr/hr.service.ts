@@ -64,9 +64,24 @@ type ListQuery = {
   status?: string;
   department_id?: string;
   position_id?: string;
+  work_location_id?: string;
+  manager_employee_id?: string;
   employee_id?: string;
+  employment_status_id?: string;
+  marital_status_id?: string;
+  document_type_id?: string;
+  work_schedule_id?: string;
+  leave_type_id?: string;
+  approver_employee_id?: string;
+  category_id?: string;
+  skill_id?: string;
+  certification_id?: string;
   employee_lifecycle_id?: string;
   template_id?: string;
+  stage_id?: string;
+  current_stage_id?: string;
+  template_task_id?: string;
+  responsible_employee_id?: string;
   type?: string;
   page?: string;
   page_size?: string;
@@ -218,9 +233,24 @@ export class HrService {
       if (key === 'status') where.status = value;
       if (key === 'department_id') where.department_id = value;
       if (key === 'position_id') where.position_id = value;
+      if (key === 'work_location_id') where.work_location_id = value;
+      if (key === 'manager_employee_id') where.manager_employee_id = value;
       if (key === 'employee_id') where.employee_id = value;
+      if (key === 'employment_status_id') where.employment_status_id = value;
+      if (key === 'marital_status_id') where.marital_status_id = value;
+      if (key === 'document_type_id') where.document_type_id = value;
+      if (key === 'work_schedule_id') where.work_schedule_id = value;
+      if (key === 'leave_type_id') where.leave_type_id = value;
+      if (key === 'approver_employee_id') where.approver_employee_id = value;
+      if (key === 'category_id') where.category_id = value;
+      if (key === 'skill_id') where.skill_id = value;
+      if (key === 'certification_id') where.certification_id = value;
       if (key === 'employee_lifecycle_id') where.employee_lifecycle_id = value;
       if (key === 'template_id') where.template_id = value;
+      if (key === 'stage_id') where.stage_id = value;
+      if (key === 'current_stage_id') where.current_stage_id = value;
+      if (key === 'template_task_id') where.template_task_id = value;
+      if (key === 'responsible_employee_id') where.responsible_employee_id = value;
       if (key === 'type') where.type = value;
     }
 
@@ -229,6 +259,11 @@ export class HrService {
 
   private mapCommonCreateData(dto: Record<string, any>): Record<string, any> {
     const data = this.trimPayload(dto);
+
+    if (typeof data.code === 'string') {
+      const normalized = String(data.code || '').trim().toUpperCase();
+      data.code = normalized || null;
+    }
 
     const dateFields = [
       'birth_date',
@@ -266,6 +301,59 @@ export class HrService {
     }
 
     return data;
+  }
+
+  private isPrismaUniqueConstraintError(error: any): boolean {
+    return String(error?.code || '') === 'P2002';
+  }
+
+  private parseUniqueConstraintFields(error: any): string[] {
+    const raw = error?.meta?.target;
+    if (Array.isArray(raw)) {
+      return raw.map((item) => String(item || '').trim()).filter(Boolean);
+    }
+
+    const text = String(raw || '').trim();
+    if (!text) return [];
+
+    const paren = text.match(/\(([^)]+)\)/);
+    const source = paren?.[1] || text;
+    return source
+      .split(',')
+      .map((part) => part.replace(/[`"'()\s]/g, '').trim())
+      .filter(Boolean);
+  }
+
+  private humanizeUniqueField(field: string): string {
+    const key = String(field || '').trim().toLowerCase();
+    if (key === 'code') return 'codigo';
+    if (key === 'name') return 'nome';
+    if (key === 'tenant_id') return 'tenant';
+    return key;
+  }
+
+  private buildUniqueConstraintMessage(config: ResourceConfig, data: Record<string, any>, error: any): string {
+    const allFields = this.parseUniqueConstraintFields(error);
+    const fields = allFields.filter((field) => String(field || '').trim().toLowerCase() !== 'tenant_id');
+
+    if (!fields.length) {
+      return `Ja existe um registro duplicado para ${config.key}.`;
+    }
+
+    if (fields.length === 1) {
+      const field = fields[0];
+      const value = this.trimPayload({ value: data?.[field] })?.value;
+      const human = this.humanizeUniqueField(field);
+
+      if (value == null || String(value).trim() === '') {
+        return `Ja existe um registro com este ${human}.`;
+      }
+
+      return `Ja existe um registro com ${human} "${String(value)}".`;
+    }
+
+    const humanFields = fields.map((field) => this.humanizeUniqueField(field)).join(', ');
+    return `Ja existe um registro com combinacao duplicada: ${humanFields}.`;
   }
 
   private readonly resources: Record<string, ResourceConfig> = {
@@ -362,7 +450,7 @@ export class HrService {
         work_location: { select: { id: true, name: true, code: true } },
       },
       softDelete: true,
-      filters: ['employee_id', 'department_id', 'position_id'],
+      filters: ['employee_id', 'department_id', 'position_id', 'work_location_id', 'manager_employee_id'],
     },
     'work-schedules': {
       key: 'work-schedules',
@@ -382,7 +470,7 @@ export class HrService {
         work_schedule: { select: { id: true, name: true } },
       },
       softDelete: true,
-      filters: ['employee_id'],
+      filters: ['employee_id', 'work_schedule_id'],
     },
     'leave-types': {
       key: 'leave-types',
@@ -403,7 +491,7 @@ export class HrService {
         approver_employee: { select: { id: true, full_name: true } },
       },
       softDelete: true,
-      filters: ['employee_id', 'status'],
+      filters: ['employee_id', 'status', 'leave_type_id', 'approver_employee_id'],
     },
     'skill-categories': {
       key: 'skill-categories',
@@ -424,7 +512,7 @@ export class HrService {
       },
       softDelete: true,
       sensitive: true,
-      filters: ['is_active'],
+      filters: ['is_active', 'category_id'],
     },
     'employee-skills': {
       key: 'employee-skills',
@@ -435,7 +523,7 @@ export class HrService {
         skill: { select: { id: true, name: true } },
       },
       softDelete: true,
-      filters: ['employee_id'],
+      filters: ['employee_id', 'skill_id'],
     },
     certifications: {
       key: 'certifications',
@@ -455,7 +543,7 @@ export class HrService {
         certification: { select: { id: true, name: true, issuer: true } },
       },
       softDelete: true,
-      filters: ['employee_id', 'status'],
+      filters: ['employee_id', 'status', 'certification_id'],
     },
     'lifecycle-templates': {
       key: 'lifecycle-templates',
@@ -490,7 +578,7 @@ export class HrService {
       },
       softDelete: true,
       sensitive: true,
-      filters: ['template_id', 'is_active'],
+      filters: ['template_id', 'is_active', 'stage_id'],
     },
     'employee-lifecycles': {
       key: 'employee-lifecycles',
@@ -503,7 +591,7 @@ export class HrService {
         _count: { select: { tasks: true } },
       },
       softDelete: true,
-      filters: ['employee_id', 'status', 'template_id'],
+      filters: ['employee_id', 'status', 'template_id', 'current_stage_id'],
     },
     'employee-lifecycle-tasks': {
       key: 'employee-lifecycle-tasks',
@@ -523,7 +611,7 @@ export class HrService {
         template_task: { select: { id: true, title: true } },
       },
       softDelete: true,
-      filters: ['employee_lifecycle_id', 'status'],
+      filters: ['employee_lifecycle_id', 'status', 'stage_id', 'template_task_id', 'responsible_employee_id'],
     },
   };
 
@@ -587,15 +675,22 @@ export class HrService {
 
     let data = this.mapCommonCreateData(dto);
     if (config.parseCreate) data = await config.parseCreate(data, user);
+    const payload = {
+      ...data,
+      tenant_id: user.tenant_id,
+    };
 
-    const created = await delegate.create({
-      data: {
-        ...data,
-        tenant_id: user.tenant_id,
-      },
-    });
-
-    return this.findByIdConfig(user, config, created.id);
+    try {
+      const created = await delegate.create({
+        data: payload,
+      });
+      return this.findByIdConfig(user, config, created.id);
+    } catch (error: any) {
+      if (this.isPrismaUniqueConstraintError(error)) {
+        throw new BadRequestException(this.buildUniqueConstraintMessage(config, payload, error));
+      }
+      throw error;
+    }
   }
 
   private async updateByConfig(user: AuthUser, config: ResourceConfig, id: string, dto: Record<string, any>) {
@@ -606,20 +701,27 @@ export class HrService {
 
     let data = this.mapCommonCreateData(dto);
     if (config.parseUpdate) data = await config.parseUpdate(data, user, id);
+    const payload = {
+      ...data,
+      updated_at: new Date(),
+    };
 
-    await delegate.updateMany({
-      where: {
-        tenant_id: user.tenant_id,
-        id,
-        ...(config.softDelete === false ? {} : this.baseInclude),
-      },
-      data: {
-        ...data,
-        updated_at: new Date(),
-      },
-    });
-
-    return this.findByIdConfig(user, config, id);
+    try {
+      await delegate.updateMany({
+        where: {
+          tenant_id: user.tenant_id,
+          id,
+          ...(config.softDelete === false ? {} : this.baseInclude),
+        },
+        data: payload,
+      });
+      return this.findByIdConfig(user, config, id);
+    } catch (error: any) {
+      if (this.isPrismaUniqueConstraintError(error)) {
+        throw new BadRequestException(this.buildUniqueConstraintMessage(config, payload, error));
+      }
+      throw error;
+    }
   }
 
   private async deleteByConfig(user: AuthUser, config: ResourceConfig, id: string) {
@@ -768,6 +870,107 @@ export class HrService {
     await this.db.hr_employee_lifecycle_tasks.createMany({ data });
   }
 
+  private normalizeOptionCode(value: unknown): string {
+    return String(value || '')
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^A-Z0-9_]/g, '');
+  }
+
+  private async seedHrEmploymentStatusesFromOptionSetIfEmpty(user: AuthUser): Promise<void> {
+    const hasRows = await this.db.hr_employment_statuses.count({
+      where: { tenant_id: user.tenant_id, deleted_at: null },
+    });
+    if (hasRows > 0) return;
+
+    const set = await this.db.option_sets.findFirst({
+      where: {
+        tenant_id: user.tenant_id,
+        entity: 'hr_employees',
+        field: 'employment_status_id',
+      },
+      include: {
+        options: {
+          orderBy: [{ sort_order: 'asc' }, { label: 'asc' }],
+        },
+      },
+    });
+    const options = Array.isArray(set?.options) ? set.options : [];
+    if (!options.length) return;
+
+    const usedCodes = new Set<string>();
+    const rows = options
+      .map((option: any, idx: number) => {
+        const code = this.normalizeOptionCode(option?.value);
+        const name = String(option?.label || '').trim();
+        if (!code || !name) return null;
+        if (code.length > 40 || name.length > 120) return null;
+        if (usedCodes.has(code)) return null;
+        usedCodes.add(code);
+        return {
+          tenant_id: user.tenant_id,
+          code,
+          name,
+          color: String(option?.color || '').trim().slice(0, 20) || null,
+          sort_order: this.toInt(option?.sort_order) ?? (idx + 1) * 10,
+          is_active: !!option?.is_active,
+          is_default: false,
+        };
+      })
+      .filter((row): row is Record<string, any> => !!row);
+
+    if (!rows.length) return;
+    await this.db.hr_employment_statuses.createMany({ data: rows, skipDuplicates: true });
+  }
+
+  private async seedHrSimpleLookupFromOptionSetIfEmpty(
+    user: AuthUser,
+    field: 'document_type_id' | 'marital_status_id',
+    delegate: 'hr_document_types' | 'hr_marital_statuses',
+  ): Promise<void> {
+    const hasRows = await this.db[delegate].count({
+      where: { tenant_id: user.tenant_id, deleted_at: null },
+    });
+    if (hasRows > 0) return;
+
+    const set = await this.db.option_sets.findFirst({
+      where: {
+        tenant_id: user.tenant_id,
+        entity: 'hr_employees',
+        field,
+      },
+      include: {
+        options: {
+          orderBy: [{ sort_order: 'asc' }, { label: 'asc' }],
+        },
+      },
+    });
+    const options = Array.isArray(set?.options) ? set.options : [];
+    if (!options.length) return;
+
+    const usedCodes = new Set<string>();
+    const rows = options
+      .map((option: any) => {
+        const code = this.normalizeOptionCode(option?.value);
+        const name = String(option?.label || '').trim();
+        if (!code || !name) return null;
+        if (code.length > 40 || name.length > 120) return null;
+        if (usedCodes.has(code)) return null;
+        usedCodes.add(code);
+        return {
+          tenant_id: user.tenant_id,
+          code,
+          name,
+          is_active: !!option?.is_active,
+        };
+      })
+      .filter((row): row is Record<string, any> => !!row);
+
+    if (!rows.length) return;
+    await this.db[delegate].createMany({ data: rows, skipDuplicates: true });
+  }
+
   // Typed wrappers (explicit CRUD signatures for controller)
   listDepartments(user: AuthUser, query: ListQuery) { return this.listResource(user, 'departments', query); }
   findDepartmentById(user: AuthUser, id: string) { return this.findResourceById(user, 'departments', id); }
@@ -787,19 +990,28 @@ export class HrService {
   updateWorkLocation(user: AuthUser, id: string, dto: UpdateHrWorkLocationDto) { return this.updateResource(user, 'work-locations', id, dto as any); }
   removeWorkLocation(user: AuthUser, id: string) { return this.removeResource(user, 'work-locations', id); }
 
-  listEmploymentStatuses(user: AuthUser, query: ListQuery) { return this.listResource(user, 'employment-statuses', query); }
+  async listEmploymentStatuses(user: AuthUser, query: ListQuery) {
+    await this.seedHrEmploymentStatusesFromOptionSetIfEmpty(user);
+    return this.listResource(user, 'employment-statuses', query);
+  }
   findEmploymentStatusById(user: AuthUser, id: string) { return this.findResourceById(user, 'employment-statuses', id); }
   createEmploymentStatus(user: AuthUser, dto: CreateHrEmploymentStatusDto) { return this.createResource(user, 'employment-statuses', dto as any); }
   updateEmploymentStatus(user: AuthUser, id: string, dto: UpdateHrEmploymentStatusDto) { return this.updateResource(user, 'employment-statuses', id, dto as any); }
   removeEmploymentStatus(user: AuthUser, id: string) { return this.removeResource(user, 'employment-statuses', id); }
 
-  listDocumentTypes(user: AuthUser, query: ListQuery) { return this.listResource(user, 'document-types', query); }
+  async listDocumentTypes(user: AuthUser, query: ListQuery) {
+    await this.seedHrSimpleLookupFromOptionSetIfEmpty(user, 'document_type_id', 'hr_document_types');
+    return this.listResource(user, 'document-types', query);
+  }
   findDocumentTypeById(user: AuthUser, id: string) { return this.findResourceById(user, 'document-types', id); }
   createDocumentType(user: AuthUser, dto: CreateHrDocumentTypeDto) { return this.createResource(user, 'document-types', dto as any); }
   updateDocumentType(user: AuthUser, id: string, dto: UpdateHrDocumentTypeDto) { return this.updateResource(user, 'document-types', id, dto as any); }
   removeDocumentType(user: AuthUser, id: string) { return this.removeResource(user, 'document-types', id); }
 
-  listMaritalStatuses(user: AuthUser, query: ListQuery) { return this.listResource(user, 'marital-statuses', query); }
+  async listMaritalStatuses(user: AuthUser, query: ListQuery) {
+    await this.seedHrSimpleLookupFromOptionSetIfEmpty(user, 'marital_status_id', 'hr_marital_statuses');
+    return this.listResource(user, 'marital-statuses', query);
+  }
   findMaritalStatusById(user: AuthUser, id: string) { return this.findResourceById(user, 'marital-statuses', id); }
   createMaritalStatus(user: AuthUser, dto: CreateHrMaritalStatusDto) { return this.createResource(user, 'marital-statuses', dto as any); }
   updateMaritalStatus(user: AuthUser, id: string, dto: UpdateHrMaritalStatusDto) { return this.updateResource(user, 'marital-statuses', id, dto as any); }
@@ -833,6 +1045,15 @@ export class HrService {
       tenant_id: user.tenant_id,
       deleted_at: null,
       ...(active === undefined ? {} : { is_active: active }),
+      ...(String(query.employment_status_id || '').trim()
+        ? { employment_status_id: String(query.employment_status_id).trim() }
+        : {}),
+      ...(String(query.marital_status_id || '').trim()
+        ? { marital_status_id: String(query.marital_status_id).trim() }
+        : {}),
+      ...(String(query.document_type_id || '').trim()
+        ? { document_type_id: String(query.document_type_id).trim() }
+        : {}),
       ...(clauses.length ? { AND: clauses } : {}),
     };
 

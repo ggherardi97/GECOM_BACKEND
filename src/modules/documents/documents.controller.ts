@@ -21,6 +21,7 @@ import { CreateDocumentDTO } from './dto/create.dto';
 import { UpdateDocumentDTO } from './dto/update.dto';
 import { R2Service } from './r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 type PresignUploadDto = {
   fileName: string;
@@ -53,6 +54,7 @@ function buildObjectKey(args: { accountId: string; documentId: string; fileName:
 @ApiTags('documents')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AccessResource('documents')
 @Controller('documents')
 export class DocumentsController {
   constructor(

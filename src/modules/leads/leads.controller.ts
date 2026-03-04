@@ -27,10 +27,12 @@ import { CreateLeadTagDto } from './dto/create-lead-tag.dto';
 import { SetLeadTagsDto } from './dto/set-lead-tags.dto';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
 import { ListLeadsQueryDto } from './dto/list-leads.dto';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 @ApiTags('leads')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AccessResource('leads')
 @Controller('leads')
 export class LeadsController {
   constructor(private readonly service: LeadsService) {}

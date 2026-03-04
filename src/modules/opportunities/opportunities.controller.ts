@@ -20,10 +20,12 @@ import { OpportunitiesService } from './opportunities.service';
 import { CreateOpportunityDto } from './dto/create-opportunity.dto';
 import { UpdateOpportunityDto } from './dto/update-opportunity.dto';
 import { ConvertOpportunityToInvoiceDto } from './dto/convert-opportunity-to-invoice.dto';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 @ApiTags('opportunities')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AccessResource('opportunities')
 @Controller('opportunities')
 export class OpportunitiesController {
   constructor(private readonly service: OpportunitiesService) {}

@@ -17,10 +17,12 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { ProductService } from './product.service';
 import { CreateProductDTO } from './dto/create.dto';
 import { UpdateProductDTO } from './dto/update.dto';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 @ApiTags('products')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AccessResource('products')
 @Controller('products')
 export class ProductController {
   constructor(private readonly service: ProductService) {}

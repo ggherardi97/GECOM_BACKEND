@@ -28,10 +28,12 @@ import { ProcessService } from './process.service';
 import { CreateProcessDTO } from './dto/create-process.dto';
 import { UpdateProcessStatusDTO } from './dto/update-process-status.dto';
 import { UpdateProcessDTO } from './dto/update-process.dto';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 @ApiTags('processes')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AccessResource('processes')
 @Controller('processes')
 export class ProcessController {
   constructor(private readonly service: ProcessService) {}

@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { isEntityAllowedByModuleAreas } from '../billing-plans/module-areas';
+import { ModuleAreaKey } from '../billing-plans/module-areas';
 import { TenantModulesResolverService } from '../billing-plans/tenant-modules-resolver.service';
+import { BillingAreaEntityConfigService } from '../billing-plans/billing-area-entity-config.service';
 
 type RawEntityRow = {
   table_name: string;
@@ -93,6 +94,7 @@ export class AutomationMetadataService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantModulesResolverService: TenantModulesResolverService,
+    private readonly billingAreaEntityConfigService: BillingAreaEntityConfigService,
   ) {}
 
   private async getEnabledAreaSet(tenantId?: string): Promise<Set<string>> {
@@ -102,7 +104,12 @@ export class AutomationMetadataService {
   }
 
   async listEntities(tenantId?: string): Promise<AutomationEntityMetadata[]> {
-    const enabledAreaSet = await this.getEnabledAreaSet(tenantId);
+    const [enabledAreaSet, entityAreaMap] = await Promise.all([
+      this.getEnabledAreaSet(tenantId),
+      tenantId
+        ? this.billingAreaEntityConfigService.getEntityAreaMapSnapshot()
+        : Promise.resolve<Map<string, ModuleAreaKey> | null>(null),
+    ]);
     const rows = await this.prisma.raw.$queryRaw<RawEntityRow[]>(Prisma.sql`
       SELECT c.table_name
       FROM information_schema.columns c
@@ -116,7 +123,11 @@ export class AutomationMetadataService {
     return rows
       .map((row) => String(row.table_name || '').trim().toLowerCase())
       .filter((name) => name && !this.excludedEntities.has(name))
-      .filter((name) => !tenantId || isEntityAllowedByModuleAreas(name, enabledAreaSet))
+      .filter(
+        (name) =>
+          !tenantId ||
+          this.billingAreaEntityConfigService.isEntityAllowedWithMap(name, enabledAreaSet, entityAreaMap),
+      )
       .map((name) => ({
         name,
         label: this.toPtBrLabel(name),

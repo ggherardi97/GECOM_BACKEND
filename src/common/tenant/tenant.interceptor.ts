@@ -16,6 +16,17 @@ export class TenantInterceptor implements NestInterceptor {
       (req?.user?.tenant_id as string | undefined) ||
       (req?.user?.tenantId as string | undefined);
 
-    return runWithTenant(tenantId, () => next.handle());
+    return new Observable((subscriber) =>
+      runWithTenant(tenantId, () => {
+        const stream = next.handle();
+        const subscription = stream.subscribe({
+          next: (value) => subscriber.next(value),
+          error: (error) => subscriber.error(error),
+          complete: () => subscriber.complete(),
+        });
+
+        return () => subscription.unsubscribe();
+      }),
+    );
   }
 }

@@ -26,6 +26,7 @@ import { UpdateMyProfileDTO } from './dto/update-my-profile.dto';
 import { UpdateProfilePictureDTO } from './dto/update-profile-picture.dto';
 import { UserRole } from './enums';
 import { UserService } from './user.service';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 type AuthRequest = Request & {
   user?: {
@@ -41,6 +42,7 @@ type AuthRequest = Request & {
 @ApiTags('Users')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AccessResource('users')
 @Controller('users')
 export class UserController {
   constructor(private readonly service: UserService) {}

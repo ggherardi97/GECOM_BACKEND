@@ -13,6 +13,9 @@ import { join } from 'path';
 import { randomUUID } from 'crypto';
 import {
   Prisma,
+  QueueAssignmentMode,
+  SlaKpiType,
+  TaskTypeChannel,
   TenantSubscriptionStatus,
   user_role_enum,
   user_status_enum,
@@ -22,6 +25,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { runWithTenant } from '../../common/tenant/tenant-context';
 import { SignUpDTO, SignUpResponseDTO } from './dtos/signup.dto';
+import { ENTITY_REGISTRY } from '../admin-config/entity-registry';
+import { isEntityAllowedByModuleAreas, normalizeModuleAreaKeys } from '../billing-plans/module-areas';
 
 @Injectable()
 export class AuthService {
@@ -150,6 +155,370 @@ export class AuthService {
     });
 
     return fallback?.id ?? null;
+  }
+
+  private async resolveEnabledAreaSetForPlan(
+    tx: Prisma.TransactionClient,
+    planId: string | null,
+  ): Promise<Set<string>> {
+    if (!planId) return new Set<string>();
+
+    const planModules = await tx.plan_modules.findMany({
+      where: {
+        plan_id: planId,
+        included: true,
+      },
+      include: {
+        module: {
+          select: {
+            code: true,
+            area_keys_json: true,
+          },
+        },
+      },
+    });
+
+    const enabledAreas = new Set<string>();
+    for (const row of planModules || []) {
+      const areaKeys = normalizeModuleAreaKeys((row as any)?.module?.area_keys_json, (row as any)?.module?.code);
+      areaKeys.forEach((area) => enabledAreas.add(String(area || '').toLowerCase()));
+    }
+
+    return enabledAreas;
+  }
+
+  private resolveAccessEntitiesForPlan(enabledAreaSet: Set<string>): string[] {
+    // If no module areas are available yet, keep signup resilient with full catalog access.
+    if (!enabledAreaSet || enabledAreaSet.size === 0) {
+      return ENTITY_REGISTRY.map((item) => item.entity);
+    }
+
+    return ENTITY_REGISTRY.filter((item) => isEntityAllowedByModuleAreas(item.entity, enabledAreaSet)).map(
+      (item) => item.entity,
+    );
+  }
+
+  private async ensureSignupAdminAccess(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    adminUserId: string,
+    planId: string | null,
+  ): Promise<void> {
+    const enabledAreaSet = await this.resolveEnabledAreaSetForPlan(tx, planId);
+    const entities = this.resolveAccessEntitiesForPlan(enabledAreaSet);
+
+    const roleCode = 'ADMIN';
+    const roleName = 'Administrador';
+    const roleDescription =
+      'Acesso total ao tenant (CRUD completo nas entidades habilitadas pelo plano).';
+
+    const adminRole = await (tx as any).access_roles.upsert({
+      where: {
+        tenant_id_code: {
+          tenant_id: tenantId,
+          code: roleCode,
+        },
+      },
+      update: {
+        name: roleName,
+        description: roleDescription,
+        is_system: true,
+        is_active: true,
+        deleted_at: null,
+        updated_at: new Date(),
+      },
+      create: {
+        tenant_id: tenantId,
+        code: roleCode,
+        name: roleName,
+        description: roleDescription,
+        is_system: true,
+        is_active: true,
+      },
+    });
+
+    await (tx as any).access_user_roles.upsert({
+      where: {
+        tenant_id_user_id_role_id: {
+          tenant_id: tenantId,
+          user_id: adminUserId,
+          role_id: adminRole.id,
+        },
+      },
+      update: {
+        updated_at: new Date(),
+      },
+      create: {
+        tenant_id: tenantId,
+        user_id: adminUserId,
+        role_id: adminRole.id,
+      },
+    });
+
+    for (const entity of entities) {
+      await (tx as any).access_role_permissions.upsert({
+        where: {
+          tenant_id_role_id_entity: {
+            tenant_id: tenantId,
+            role_id: adminRole.id,
+            entity,
+          },
+        },
+        update: {
+          can_read: true,
+          can_create: true,
+          can_update: true,
+          can_delete: true,
+          updated_at: new Date(),
+        },
+        create: {
+          tenant_id: tenantId,
+          role_id: adminRole.id,
+          entity,
+          can_read: true,
+          can_create: true,
+          can_update: true,
+          can_delete: true,
+        },
+      });
+    }
+  }
+
+  private async ensureSignupServiceDefaults(tx: Prisma.TransactionClient, tenantId: string): Promise<void> {
+    const calendar = await (tx as any).service_calendars.upsert({
+      where: {
+        tenant_id_name: {
+          tenant_id: tenantId,
+          name: 'Calendario Padrao',
+        },
+      },
+      update: {
+        timezone: 'America/Sao_Paulo',
+        is_default: true,
+        is_active: true,
+        updated_at: new Date(),
+      },
+      create: {
+        tenant_id: tenantId,
+        name: 'Calendario Padrao',
+        timezone: 'America/Sao_Paulo',
+        is_default: true,
+        is_active: true,
+      },
+      select: { id: true },
+    });
+
+    const policy = await (tx as any).sla_policies.upsert({
+      where: {
+        tenant_id_name: {
+          tenant_id: tenantId,
+          name: 'SLA Padrao',
+        },
+      },
+      update: {
+        description: 'SLA inicial do tenant',
+        is_active: true,
+        business_calendar_id: calendar.id,
+        updated_at: new Date(),
+      },
+      create: {
+        tenant_id: tenantId,
+        name: 'SLA Padrao',
+        description: 'SLA inicial do tenant',
+        is_active: true,
+        business_calendar_id: calendar.id,
+      },
+      select: { id: true },
+    });
+
+    const kpiDefaults = [
+      {
+        name: 'Primeira resposta',
+        kpi_type: SlaKpiType.FIRST_RESPONSE,
+        start_condition: 'INCIDENT_OPENED',
+        stop_condition: 'FIRST_PUBLIC_REPLY',
+        warning_after_minutes: 30,
+        fail_after_minutes: 60,
+        sort_order: 1,
+      },
+      {
+        name: 'Resolucao',
+        kpi_type: SlaKpiType.RESOLUTION,
+        start_condition: 'INCIDENT_OPENED',
+        stop_condition: 'INCIDENT_RESOLVED',
+        warning_after_minutes: 240,
+        fail_after_minutes: 480,
+        sort_order: 2,
+      },
+    ];
+
+    const existingKpis = await (tx as any).sla_kpis.findMany({
+      where: {
+        tenant_id: tenantId,
+        sla_policy_id: policy.id,
+      },
+      select: {
+        id: true,
+        name: true,
+        sort_order: true,
+      },
+    });
+
+    const existingByName = new Map<string, { id: string; sort_order: number }>();
+    const usedSortOrders = new Set<number>();
+    for (const row of existingKpis || []) {
+      const key = String(row?.name || '').trim().toLowerCase();
+      if (key) existingByName.set(key, { id: row.id, sort_order: Number(row.sort_order || 0) });
+      usedSortOrders.add(Number(row?.sort_order || 0));
+    }
+
+    const reserveSortOrder = (preferred: number): number => {
+      let next = Number(preferred || 0);
+      while (usedSortOrders.has(next)) next += 1;
+      usedSortOrders.add(next);
+      return next;
+    };
+
+    for (const kpi of kpiDefaults) {
+      const key = String(kpi.name || '').trim().toLowerCase();
+      const existing = existingByName.get(key);
+
+      if (existing?.id) {
+        await (tx as any).sla_kpis.update({
+          where: { id: existing.id },
+          data: {
+            kpi_type: kpi.kpi_type,
+            start_condition: kpi.start_condition,
+            stop_condition: kpi.stop_condition,
+            warning_after_minutes: kpi.warning_after_minutes,
+            fail_after_minutes: kpi.fail_after_minutes,
+            is_active: true,
+            updated_at: new Date(),
+          },
+        });
+        continue;
+      }
+
+      await (tx as any).sla_kpis.create({
+        data: {
+          tenant_id: tenantId,
+          sla_policy_id: policy.id,
+          name: kpi.name,
+          kpi_type: kpi.kpi_type,
+          start_condition: kpi.start_condition,
+          stop_condition: kpi.stop_condition,
+          warning_after_minutes: kpi.warning_after_minutes,
+          fail_after_minutes: kpi.fail_after_minutes,
+          sort_order: reserveSortOrder(kpi.sort_order),
+          is_active: true,
+        },
+      });
+    }
+
+    await (tx as any).service_queues.upsert({
+      where: {
+        tenant_id_name: {
+          tenant_id: tenantId,
+          name: 'Geral',
+        },
+      },
+      update: {
+        is_active: true,
+        assignment_mode: QueueAssignmentMode.MANUAL,
+        default_sla_policy_id: policy.id,
+        updated_at: new Date(),
+      },
+      create: {
+        tenant_id: tenantId,
+        name: 'Geral',
+        is_active: true,
+        assignment_mode: QueueAssignmentMode.MANUAL,
+        default_sla_policy_id: policy.id,
+      },
+    });
+
+    const subjects = [
+      { name: 'TI', path: 'TI' },
+      { name: 'Infra', path: 'TI > Infra' },
+      { name: 'Sistemas', path: 'TI > Sistemas' },
+      { name: 'Financeiro', path: 'Financeiro' },
+    ];
+
+    for (const subject of subjects) {
+      const existingRootSubject = await (tx as any).service_subjects.findFirst({
+        where: {
+          tenant_id: tenantId,
+          name: subject.name,
+          parent_id: null,
+        },
+        select: { id: true },
+      });
+
+      if (existingRootSubject?.id) {
+        await (tx as any).service_subjects.update({
+          where: { id: existingRootSubject.id },
+          data: {
+            path: subject.path,
+            is_active: true,
+            default_sla_policy_id: policy.id,
+            updated_at: new Date(),
+          },
+        });
+        continue;
+      }
+
+      await (tx as any).service_subjects.create({
+        data: {
+          tenant_id: tenantId,
+          name: subject.name,
+          path: subject.path,
+          is_active: true,
+          default_sla_policy_id: policy.id,
+        },
+      });
+    }
+
+    const taskTypeDefaults = [
+      {
+        name: 'Ligacao',
+        channel: TaskTypeChannel.CALL,
+        default_duration_minutes: 20,
+      },
+      {
+        name: 'Email',
+        channel: TaskTypeChannel.EMAIL,
+        default_duration_minutes: 15,
+      },
+      {
+        name: 'Atendimento',
+        channel: TaskTypeChannel.SERVICE,
+        default_duration_minutes: 60,
+      },
+    ];
+
+    for (const taskType of taskTypeDefaults) {
+      await (tx as any).service_task_types.upsert({
+        where: {
+          tenant_id_name: {
+            tenant_id: tenantId,
+            name: taskType.name,
+          },
+        },
+        update: {
+          channel: taskType.channel,
+          default_duration_minutes: taskType.default_duration_minutes,
+          is_active: true,
+          updated_at: new Date(),
+        },
+        create: {
+          tenant_id: tenantId,
+          name: taskType.name,
+          channel: taskType.channel,
+          default_duration_minutes: taskType.default_duration_minutes,
+          is_active: true,
+        },
+      });
+    }
   }
 
   async signup(dto: SignUpDTO, req: Request): Promise<SignUpResponseDTO> {
@@ -335,6 +704,9 @@ export class AuthService {
               },
             });
           }
+
+          await this.ensureSignupAdminAccess(tx, tenant.id, user.id, resolvedPlanId);
+          await this.ensureSignupServiceDefaults(tx, tenant.id);
 
           return { tenant, company, user };
         })

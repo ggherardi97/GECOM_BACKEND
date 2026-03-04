@@ -19,8 +19,8 @@ import { WebhookActionRunner } from './action-runners/webhook.runner';
 import { AiActionRunner } from './action-runners/ai-action.runner';
 import { AutomationActionRunner } from './action-runners/automation-action-runner.interface';
 import { CreateRegisterActionRunner } from './action-runners/create-register.runner';
-import { isEntityAllowedByModuleAreas } from '../billing-plans/module-areas';
 import { TenantModulesResolverService } from '../billing-plans/tenant-modules-resolver.service';
+import { BillingAreaEntityConfigService } from '../billing-plans/billing-area-entity-config.service';
 
 type AuthUser = {
   id: string;
@@ -43,6 +43,7 @@ export class AutomationService {
     aiActionRunner: AiActionRunner,
     createRegisterRunner: CreateRegisterActionRunner,
     private readonly tenantModulesResolverService: TenantModulesResolverService,
+    private readonly billingAreaEntityConfigService: BillingAreaEntityConfigService,
   ) {
     [
       updateFieldRunner,
@@ -116,9 +117,12 @@ export class AutomationService {
   }
 
   private async assertEntityAllowed(tenantId: string, entityName: string): Promise<void> {
-    const enabledAreas = await this.tenantModulesResolverService.getEnabledAreas(tenantId);
+    const [enabledAreas, entityAreaMap] = await Promise.all([
+      this.tenantModulesResolverService.getEnabledAreas(tenantId),
+      this.billingAreaEntityConfigService.getEntityAreaMapSnapshot(),
+    ]);
     const enabledAreaSet = new Set((enabledAreas || []).map((item) => String(item || '').toLowerCase()));
-    if (!isEntityAllowedByModuleAreas(entityName, enabledAreaSet)) {
+    if (!this.billingAreaEntityConfigService.isEntityAllowedWithMap(entityName, enabledAreaSet, entityAreaMap)) {
       throw new NotFoundException('Entidade não disponível para os módulos ativos do tenant.');
     }
   }

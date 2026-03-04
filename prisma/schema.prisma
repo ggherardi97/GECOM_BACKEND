@@ -176,6 +176,7 @@ model users {
   po_owned_work_orders       po_work_orders[]         @relation("PoWorkOrderOwner")
   po_assigned_checklist_items po_checklist_items[]    @relation("PoChecklistItemAssignedUser")
   admin_audit_logs           admin_audit_log[]        @relation("AdminAuditLogUser")
+  access_role_links          access_user_roles[]
 
   password_resets password_resets?
   processes       processes[]
@@ -3085,6 +3086,23 @@ model tenant_theme_settings {
   @@index([tenant_id], map: "IDX_tenant_theme_settings_tenant_id")
 }
 
+model tenant_landing_page_settings {
+  id                     String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id              String   @unique @db.Uuid
+  landing_page_url       String?  @db.VarChar(500)
+  draft_html             String?
+  draft_css              String?
+  draft_project_json     Json?
+  published_html         String?
+  published_css          String?
+  published_project_json Json?
+  published_at           DateTime? @db.Timestamptz(6)
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([tenant_id], map: "IDX_tenant_landing_page_settings_tenant_id")
+}
+
 model option_sets {
   id         String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id  String               @db.Uuid
@@ -3151,6 +3169,58 @@ model admin_audit_log {
   @@index([tenant_id], map: "IDX_admin_audit_log_tenant_id")
   @@index([tenant_id, created_at], map: "IDX_admin_audit_log_tenant_created")
   @@index([tenant_id, entity], map: "IDX_admin_audit_log_tenant_entity")
+}
+
+model access_roles {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  name        String    @db.VarChar(120)
+  code        String    @db.VarChar(80)
+  description String?
+  is_system   Boolean   @default(false)
+  is_active   Boolean   @default(true)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @db.Timestamptz(6)
+  deleted_at  DateTime? @db.Timestamptz(6)
+  permissions access_role_permissions[]
+  user_links  access_user_roles[]
+
+  @@unique([tenant_id, code], map: "uq_access_roles_tenant_code")
+  @@index([tenant_id], map: "IDX_access_roles_tenant_id")
+  @@index([tenant_id, is_active], map: "IDX_access_roles_tenant_active")
+}
+
+model access_role_permissions {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  role_id    String   @db.Uuid
+  entity     String   @db.VarChar(120)
+  can_read   Boolean  @default(false)
+  can_create Boolean  @default(false)
+  can_update Boolean  @default(false)
+  can_delete Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  role       access_roles @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_access_role_permissions_role")
+
+  @@unique([tenant_id, role_id, entity], map: "uq_access_role_permissions_tenant_role_entity")
+  @@index([tenant_id], map: "IDX_access_role_permissions_tenant_id")
+  @@index([tenant_id, entity], map: "IDX_access_role_permissions_tenant_entity")
+}
+
+model access_user_roles {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  user_id    String   @db.Uuid
+  role_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  user       users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_access_user_roles_user")
+  role       access_roles @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_access_user_roles_role")
+
+  @@unique([tenant_id, user_id, role_id], map: "uq_access_user_roles_tenant_user_role")
+  @@index([tenant_id, user_id], map: "IDX_access_user_roles_tenant_user")
+  @@index([tenant_id, role_id], map: "IDX_access_user_roles_tenant_role")
 }
 
 enum tracking_provider_enum {

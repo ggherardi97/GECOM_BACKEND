@@ -27,11 +27,13 @@ import { InvoiceService } from './invoices.service';
 import { CreateInvoiceDTO } from './dto/create.dto';
 import { UpdateInvoiceDTO } from './dto/update.dto';
 import { InvoiceJsonInterceptor } from './interceptors/invoice-json.interceptor';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 @ApiTags('invoices')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @UseInterceptors(InvoiceJsonInterceptor) // ✅ converts Prisma Decimal + BigInt only for invoices
+@AccessResource('invoices')
 @Controller('invoices')
 export class InvoiceController {
   constructor(private readonly service: InvoiceService) {}

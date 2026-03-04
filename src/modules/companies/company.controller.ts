@@ -29,10 +29,12 @@ import { CreateCompanyDTO } from './dto/create.dto';
 import { UpdateCompanyDTO } from './dto/update.dto';
 import { UpdateCompanyPictureDTO } from './dto/update-company-picture.dto';
 import { CompanyIdName, CompanySafe, CompanySummary } from './company.repository';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 @ApiTags('companies')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AccessResource('companies')
 @Controller('companies')
 export class CompanyController {
   constructor(private readonly service: CompanyService) {}

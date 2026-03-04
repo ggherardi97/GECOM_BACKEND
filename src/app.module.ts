@@ -47,6 +47,8 @@ import { FinanceModule } from './modules/finance/finance.module';
 import { HrModule } from './modules/hr/hr.module';
 import { ProjectOperationsModule } from './modules/project-operations/project-operations.module';
 import { AdminConfigModule } from './modules/admin-config/admin-config.module';
+import { AccessControlModule } from './modules/access-control/access-control.module';
+import { CalendarActivitiesModule } from './modules/calendar-activities/calendar-activities.module';
 
 @Module({
   imports: [
@@ -101,6 +103,8 @@ import { AdminConfigModule } from './modules/admin-config/admin-config.module';
     HrModule,
     ProjectOperationsModule,
     AdminConfigModule,
+    AccessControlModule,
+    CalendarActivitiesModule,
   ],
   controllers: [AppController],
   providers: [

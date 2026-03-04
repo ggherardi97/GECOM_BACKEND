@@ -2,6 +2,13 @@ export const MODULE_AREA_KEYS = ['service', 'sales', 'finance', 'hr', 'po'] as c
 export type ModuleAreaKey = (typeof MODULE_AREA_KEYS)[number];
 
 const MODULE_AREA_KEY_SET = new Set<string>(MODULE_AREA_KEYS);
+const MODULE_AREA_LABEL_MAP: Record<ModuleAreaKey, string> = {
+  service: 'Servicos',
+  sales: 'Sales',
+  finance: 'Financeiro',
+  hr: 'RH',
+  po: 'Project & Operations',
+};
 
 export function normalizeModuleAreaKey(value: unknown): ModuleAreaKey | null {
   const raw = String(value ?? '').trim().toLowerCase();
@@ -46,7 +53,7 @@ export function defaultAreaKeysForModuleCode(moduleCode: unknown): ModuleAreaKey
   if (code.includes('FINANCE') || code.includes('FINANCIAL')) {
     include('finance');
   }
-  if (code.includes('HR') || code.includes('HUMAN') || code.includes('PEOPLE')) {
+  if (code.includes('RH') || code.includes('HR') || code.includes('HUMAN') || code.includes('PEOPLE')) {
     include('hr');
   }
   if (code.includes('PROJECT') || code.includes('OPERATIONS') || code.includes('PO_')) {
@@ -54,6 +61,12 @@ export function defaultAreaKeysForModuleCode(moduleCode: unknown): ModuleAreaKey
   }
 
   return result;
+}
+
+export function defaultModuleAreaLabel(areaKey: unknown): string {
+  const normalized = normalizeModuleAreaKey(areaKey);
+  if (!normalized) return String(areaKey ?? '').trim();
+  return MODULE_AREA_LABEL_MAP[normalized];
 }
 
 const serviceEntityNames = new Set<string>([
@@ -124,8 +137,27 @@ export function inferEntityModuleArea(entityName: unknown): ModuleAreaKey | null
 export function isEntityAllowedByModuleAreas(
   entityName: unknown,
   enabledAreas: Set<string>,
+  explicitEntityAreaMap?: Map<string, ModuleAreaKey> | Record<string, string> | null,
 ): boolean {
-  const requiredArea = inferEntityModuleArea(entityName);
+  const requiredArea = resolveEntityModuleArea(entityName, explicitEntityAreaMap);
   if (!requiredArea) return true;
   return enabledAreas.has(requiredArea);
+}
+
+export function resolveEntityModuleArea(
+  entityName: unknown,
+  explicitEntityAreaMap?: Map<string, ModuleAreaKey> | Record<string, string> | null,
+): ModuleAreaKey | null {
+  const entity = String(entityName ?? '').trim().toLowerCase();
+  if (!entity) return null;
+
+  if (explicitEntityAreaMap instanceof Map) {
+    const mapped = normalizeModuleAreaKey(explicitEntityAreaMap.get(entity));
+    if (mapped) return mapped;
+  } else if (explicitEntityAreaMap && typeof explicitEntityAreaMap === 'object') {
+    const mapped = normalizeModuleAreaKey((explicitEntityAreaMap as Record<string, string>)[entity]);
+    if (mapped) return mapped;
+  }
+
+  return inferEntityModuleArea(entity);
 }

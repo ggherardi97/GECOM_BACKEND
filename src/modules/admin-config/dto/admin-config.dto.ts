@@ -3,11 +3,13 @@
   IsEmail,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -45,6 +47,32 @@ export class PutThemeSettingsDto {
   @IsOptional()
   @IsString()
   favicon_url?: string;
+}
+
+export class PutLandingPageSettingsDto {
+  @IsOptional()
+  @IsString()
+  landing_page_url?: string;
+}
+
+export class PutLandingPageContentDto {
+  @IsString()
+  html!: string;
+
+  @IsOptional()
+  @IsString()
+  css?: string;
+
+  @IsOptional()
+  @IsObject()
+  project_json?: Record<string, any>;
+}
+
+export class GenerateLandingPageAiDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4000)
+  prompt!: string;
 }
 
 export class CreateOptionSetDto {

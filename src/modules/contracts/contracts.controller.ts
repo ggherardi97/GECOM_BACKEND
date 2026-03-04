@@ -19,10 +19,12 @@ import { ContractsService } from './contracts.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
 import { GenerateContractInvoiceDto } from './dto/generate-contract-invoice.dto';
+import { AccessResource } from '../access-control/decorators/access-resource.decorator';
 
 @ApiTags('contracts')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AccessResource('contracts')
 @Controller('contracts')
 export class ContractsController {
   constructor(private readonly service: ContractsService) {}

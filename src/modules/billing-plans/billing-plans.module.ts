@@ -11,6 +11,7 @@ import { ModulesService } from './modules.service';
 import { PlansService } from './plans.service';
 import { TenantSubscriptionService } from './tenant-subscription.service';
 import { TenantModulesResolverService } from './tenant-modules-resolver.service';
+import { BillingAreaEntityConfigService } from './billing-area-entity-config.service';
 import { AdminOnlyGuard } from './guards/admin-only.guard';
 import { BillingBootstrapGuard } from './guards/billing-bootstrap.guard';
 
@@ -28,9 +29,10 @@ import { BillingBootstrapGuard } from './guards/billing-bootstrap.guard';
     PlansService,
     TenantSubscriptionService,
     TenantModulesResolverService,
+    BillingAreaEntityConfigService,
     AdminOnlyGuard,
     BillingBootstrapGuard,
   ],
-  exports: [TenantModulesResolverService],
+  exports: [TenantModulesResolverService, BillingAreaEntityConfigService],
 })
 export class BillingPlansModule {}

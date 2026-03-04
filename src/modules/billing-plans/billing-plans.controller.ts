@@ -20,10 +20,12 @@ import { AddPlanModuleDto } from './dto/add-plan-module.dto';
 import { UpdatePlanModuleDto } from './dto/update-plan-module.dto';
 import { UpsertTenantSubscriptionDto } from './dto/upsert-tenant-subscription.dto';
 import { UpsertTenantModuleOverrideDto } from './dto/upsert-tenant-module-override.dto';
+import { UpdateAreaEntityConfigDto } from './dto/update-area-entity-config.dto';
 import { ModulesService } from './modules.service';
 import { PlansService } from './plans.service';
 import { TenantSubscriptionService } from './tenant-subscription.service';
 import { TenantModulesResolverService } from './tenant-modules-resolver.service';
+import { BillingAreaEntityConfigService } from './billing-area-entity-config.service';
 import { AdminOnlyGuard } from './guards/admin-only.guard';
 import { Public } from '../auth/decorators/public.decorator';
 import { BillingBootstrapGuard } from './guards/billing-bootstrap.guard';
@@ -44,6 +46,7 @@ export class BillingPlansAdminController {
     private readonly plansService: PlansService,
     private readonly tenantSubscriptionService: TenantSubscriptionService,
     private readonly tenantModulesResolverService: TenantModulesResolverService,
+    private readonly billingAreaEntityConfigService: BillingAreaEntityConfigService,
   ) {}
 
   @Get('modules')
@@ -110,6 +113,21 @@ export class BillingPlansAdminController {
   @Delete('plan-modules/:id')
   removePlanModule(@Param('id') id: string) {
     return this.plansService.removePlanModule(id);
+  }
+
+  @Get('area-entity-config')
+  getAreaEntityConfig() {
+    return this.billingAreaEntityConfigService.getConfig();
+  }
+
+  @Get('area-entity-config/entities')
+  listAreaEntityConfigEntities() {
+    return this.billingAreaEntityConfigService.listAvailableEntities();
+  }
+
+  @Put('area-entity-config')
+  updateAreaEntityConfig(@Body() dto: UpdateAreaEntityConfigDto) {
+    return this.billingAreaEntityConfigService.updateConfig(dto);
   }
 
   @Get('tenants/:tenantId/subscription')
@@ -161,19 +179,23 @@ export class BillingTenantsAdminController {
 @ApiBearerAuth()
 @Controller('me')
 export class BillingMeController {
-  constructor(private readonly tenantModulesResolverService: TenantModulesResolverService) {}
+  constructor(
+    private readonly tenantModulesResolverService: TenantModulesResolverService,
+    private readonly billingAreaEntityConfigService: BillingAreaEntityConfigService,
+  ) {}
 
   @Get('modules')
   async getMyModules(@Req() req: any) {
     const tenantId = String(req?.user?.tenant_id ?? '').trim();
     if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
 
-    const [enabledModules, enabledAreas] = await Promise.all([
+    const [enabledModules, enabledAreas, areaEntityConfig] = await Promise.all([
       this.tenantModulesResolverService.getEnabledModules(tenantId),
       this.tenantModulesResolverService.getEnabledAreas(tenantId),
+      this.billingAreaEntityConfigService.getConfig(),
     ]);
 
-    return { tenant_id: tenantId, enabledModules, enabledAreas };
+    return { tenant_id: tenantId, enabledModules, enabledAreas, areaEntityConfig };
   }
 }
 
@@ -206,6 +228,7 @@ export class BillingBootstrapController {
   constructor(
     private readonly modulesService: ModulesService,
     private readonly plansService: PlansService,
+    private readonly billingAreaEntityConfigService: BillingAreaEntityConfigService,
   ) {}
 
   @Get('modules')
@@ -272,5 +295,20 @@ export class BillingBootstrapController {
   @Delete('plan-modules/:id')
   removePlanModule(@Param('id') id: string) {
     return this.plansService.removePlanModule(id);
+  }
+
+  @Get('area-entity-config')
+  getAreaEntityConfig() {
+    return this.billingAreaEntityConfigService.getConfig();
+  }
+
+  @Get('area-entity-config/entities')
+  listAreaEntityConfigEntities() {
+    return this.billingAreaEntityConfigService.listAvailableEntities();
+  }
+
+  @Put('area-entity-config')
+  updateAreaEntityConfig(@Body() dto: UpdateAreaEntityConfigDto) {
+    return this.billingAreaEntityConfigService.updateConfig(dto);
   }
 }
