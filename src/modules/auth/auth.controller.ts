@@ -17,6 +17,11 @@ import { RefreshTokenDTO } from './dtos/refresh-token.dto';
 import { ForgotPasswordDTO } from './dtos/forgot-password.dto';
 import { ResetPasswordDTO } from './dtos/reset-password.dto';
 import { SignUpDTO, SignUpResponseDTO } from './dtos/signup.dto';
+import {
+  SignUpPaymentCompleteDTO,
+  SignUpPaymentPrepareDTO,
+  SignUpPaymentPrepareResponseDTO,
+} from './dtos/signup-payment.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { Request, Response } from 'express';
 
@@ -36,6 +41,53 @@ export class AuthController {
   @ApiCreatedResponse({ type: SignUpResponseDTO })
   async signup(@Body() dto: SignUpDTO, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.signup(dto, req);
+    const isProd = !!process.env.NODE_ENV?.startsWith('prod');
+
+    res.cookie('access_token', result.access_token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      maxAge: 60 * 60 * 1000,
+    });
+
+    res.cookie('refresh_token', result.refresh_token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return result;
+  }
+
+  @Public()
+  @Post('signup/payment/prepare')
+  @ApiOperation({
+    summary: 'Prepare Stripe payment step for public onboarding',
+    description:
+      'Validates selected plan/custom modules and creates a Stripe SetupIntent + temporary signup payment session.',
+  })
+  @ApiBody({ type: SignUpPaymentPrepareDTO })
+  @ApiCreatedResponse({ type: SignUpPaymentPrepareResponseDTO })
+  async signupPaymentPrepare(@Body() dto: SignUpPaymentPrepareDTO): Promise<SignUpPaymentPrepareResponseDTO> {
+    return this.authService.prepareSignupPayment(dto);
+  }
+
+  @Public()
+  @Post('signup/payment/complete')
+  @ApiOperation({
+    summary: 'Complete public onboarding after Stripe card validation',
+    description:
+      'Finalizes signup using previously prepared payment session, creates Stripe subscription (trial) and returns auth tokens.',
+  })
+  @ApiBody({ type: SignUpPaymentCompleteDTO })
+  @ApiCreatedResponse({ type: SignUpResponseDTO })
+  async signupPaymentComplete(
+    @Body() dto: SignUpPaymentCompleteDTO,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.completeSignupPayment(dto, req);
     const isProd = !!process.env.NODE_ENV?.startsWith('prod');
 
     res.cookie('access_token', result.access_token, {

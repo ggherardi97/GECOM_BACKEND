@@ -12,6 +12,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import {
+  HrLifecycleResponsibleRole,
+  HrLifecycleTemplateType,
   Prisma,
   QueueAssignmentMode,
   SlaKpiType,
@@ -25,8 +27,15 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { runWithTenant } from '../../common/tenant/tenant-context';
 import { SignUpDTO, SignUpResponseDTO } from './dtos/signup.dto';
+import { SignUpPaymentCompleteDTO, SignUpPaymentPrepareDTO } from './dtos/signup-payment.dto';
 import { ENTITY_REGISTRY } from '../admin-config/entity-registry';
 import { isEntityAllowedByModuleAreas, normalizeModuleAreaKeys } from '../billing-plans/module-areas';
+import { BillingStripeService } from '../billing-plans/billing-stripe.service';
+
+type SignupExecutionOptions = {
+  initialSubscriptionStatus?: TenantSubscriptionStatus;
+  initialSubscriptionRenewsAt?: Date | null;
+};
 
 @Injectable()
 export class AuthService {
@@ -36,7 +45,8 @@ export class AuthService {
     private readonly cryptoService: CryptoService,
     private readonly passwordResetService: PasswordResetService,
     private readonly mailerService: MailerService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly billingStripeService: BillingStripeService,
   ) {}
 
   private normalizeSlug(value: string): string {
@@ -214,9 +224,8 @@ export class AuthService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     adminUserId: string,
-    planId: string | null,
+    enabledAreaSet: Set<string>,
   ): Promise<void> {
-    const enabledAreaSet = await this.resolveEnabledAreaSetForPlan(tx, planId);
     const entities = this.resolveAccessEntitiesForPlan(enabledAreaSet);
 
     const roleCode = 'ADMIN';
@@ -533,7 +542,535 @@ export class AuthService {
     }
   }
 
-  async signup(dto: SignUpDTO, req: Request): Promise<SignUpResponseDTO> {
+  private async ensureSignupHrDefaults(tx: Prisma.TransactionClient, tenantId: string): Promise<void> {
+    const employmentStatusDefaults = [
+      { code: 'ACTIVE', name: 'Ativo', color: '#1ab394', sort_order: 10, is_default: true },
+      { code: 'ON_LEAVE', name: 'Afastado', color: '#f8ac59', sort_order: 20, is_default: false },
+      { code: 'TERMINATED', name: 'Desligado', color: '#ed5565', sort_order: 30, is_default: false },
+    ];
+
+    for (const row of employmentStatusDefaults) {
+      const found = await (tx as any).hr_employment_statuses.findFirst({
+        where: {
+          tenant_id: tenantId,
+          code: row.code,
+          deleted_at: null,
+        },
+        select: { id: true },
+      });
+
+      if (found?.id) continue;
+
+      await (tx as any).hr_employment_statuses.create({
+        data: {
+          tenant_id: tenantId,
+          code: row.code,
+          name: row.name,
+          color: row.color,
+          sort_order: row.sort_order,
+          is_default: row.is_default,
+          is_active: true,
+        },
+      });
+    }
+
+    const leaveTypeDefaults = [
+      {
+        code: 'VACATION',
+        name: 'Ferias',
+        requires_approval: true,
+        is_paid: true,
+        counts_as_vacation: true,
+        allow_hourly: false,
+        sort_order: 10,
+      },
+      {
+        code: 'MEDICAL',
+        name: 'Atestado',
+        requires_approval: true,
+        is_paid: true,
+        counts_as_vacation: false,
+        allow_hourly: true,
+        sort_order: 20,
+      },
+      {
+        code: 'ABSENCE',
+        name: 'Falta',
+        requires_approval: true,
+        is_paid: false,
+        counts_as_vacation: false,
+        allow_hourly: true,
+        sort_order: 30,
+      },
+    ];
+
+    for (const row of leaveTypeDefaults) {
+      const found = await (tx as any).hr_leave_types.findFirst({
+        where: {
+          tenant_id: tenantId,
+          code: row.code,
+          deleted_at: null,
+        },
+        select: { id: true },
+      });
+
+      if (found?.id) continue;
+
+      await (tx as any).hr_leave_types.create({
+        data: {
+          tenant_id: tenantId,
+          code: row.code,
+          name: row.name,
+          requires_approval: row.requires_approval,
+          is_paid: row.is_paid,
+          counts_as_vacation: row.counts_as_vacation,
+          allow_hourly: row.allow_hourly,
+          sort_order: row.sort_order,
+          is_active: true,
+        },
+      });
+    }
+
+    const defaultSchedule = await (tx as any).hr_work_schedules.findFirst({
+      where: {
+        tenant_id: tenantId,
+        name: 'Comercial 44h',
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+
+    if (!defaultSchedule?.id) {
+      await (tx as any).hr_work_schedules.create({
+        data: {
+          tenant_id: tenantId,
+          name: 'Comercial 44h',
+          weekly_minutes: 2640,
+          schedule_json: {
+            timezone: 'America/Sao_Paulo',
+            slots: [
+              { day: 1, start: '08:00', end: '12:00' },
+              { day: 1, start: '13:00', end: '17:48' },
+              { day: 2, start: '08:00', end: '12:00' },
+              { day: 2, start: '13:00', end: '17:48' },
+              { day: 3, start: '08:00', end: '12:00' },
+              { day: 3, start: '13:00', end: '17:48' },
+              { day: 4, start: '08:00', end: '12:00' },
+              { day: 4, start: '13:00', end: '17:48' },
+              { day: 5, start: '08:00', end: '12:00' },
+              { day: 5, start: '13:00', end: '17:48' },
+            ],
+          } as Prisma.InputJsonValue,
+          is_default: true,
+          is_active: true,
+        },
+      });
+    }
+
+    const defaultDepartment = await (tx as any).hr_departments.findFirst({
+      where: {
+        tenant_id: tenantId,
+        name: 'Geral',
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+
+    if (!defaultDepartment?.id) {
+      await (tx as any).hr_departments.create({
+        data: {
+          tenant_id: tenantId,
+          name: 'Geral',
+          code: 'GERAL',
+          description: 'Departamento inicial do tenant',
+          is_active: true,
+        },
+      });
+    }
+
+    const defaultPosition = await (tx as any).hr_positions.findFirst({
+      where: {
+        tenant_id: tenantId,
+        name: 'Analista',
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+
+    if (!defaultPosition?.id) {
+      await (tx as any).hr_positions.create({
+        data: {
+          tenant_id: tenantId,
+          name: 'Analista',
+          code: 'ANALISTA',
+          level: 1,
+          is_leadership: false,
+          is_active: true,
+        },
+      });
+    }
+
+    let onboardingTemplate = await (tx as any).hr_lifecycle_templates.findFirst({
+      where: {
+        tenant_id: tenantId,
+        name: 'Onboarding Basico',
+        type: HrLifecycleTemplateType.ONBOARDING,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+
+    if (!onboardingTemplate?.id) {
+      onboardingTemplate = await (tx as any).hr_lifecycle_templates.create({
+        data: {
+          tenant_id: tenantId,
+          name: 'Onboarding Basico',
+          type: HrLifecycleTemplateType.ONBOARDING,
+          description: 'Template inicial para admissao de novos colaboradores.',
+          is_active: true,
+        },
+        select: { id: true },
+      });
+    }
+
+    const stageDefinitions = [
+      { name: 'A Fazer', sort_order: 10, color: '#f8ac59' },
+      { name: 'Em Andamento', sort_order: 20, color: '#1c84c6' },
+      { name: 'Concluido', sort_order: 30, color: '#1ab394' },
+    ];
+
+    const stageIdByName = new Map<string, string>();
+
+    for (const stage of stageDefinitions) {
+      let found = await (tx as any).hr_lifecycle_stages.findFirst({
+        where: {
+          tenant_id: tenantId,
+          template_id: onboardingTemplate.id,
+          name: stage.name,
+          deleted_at: null,
+        },
+        select: { id: true },
+      });
+
+      if (!found?.id) {
+        found = await (tx as any).hr_lifecycle_stages.create({
+          data: {
+            tenant_id: tenantId,
+            template_id: onboardingTemplate.id,
+            name: stage.name,
+            sort_order: stage.sort_order,
+            color: stage.color,
+            is_active: true,
+          },
+          select: { id: true },
+        });
+      }
+
+      stageIdByName.set(stage.name, found.id);
+    }
+
+    const backlogStageId = stageIdByName.get('A Fazer') || null;
+    const onboardingTasks = [
+      {
+        title: 'Enviar documentos admissionais',
+        responsible_role: HrLifecycleResponsibleRole.HR,
+        due_days_after_start: 0,
+        sort_order: 10,
+      },
+      {
+        title: 'Provisionar acessos de sistemas',
+        responsible_role: HrLifecycleResponsibleRole.IT,
+        due_days_after_start: 1,
+        sort_order: 20,
+      },
+      {
+        title: 'Alinhar objetivos com gestor',
+        responsible_role: HrLifecycleResponsibleRole.MANAGER,
+        due_days_after_start: 2,
+        sort_order: 30,
+      },
+    ];
+
+    for (const task of onboardingTasks) {
+      const found = await (tx as any).hr_lifecycle_tasks.findFirst({
+        where: {
+          tenant_id: tenantId,
+          template_id: onboardingTemplate.id,
+          title: task.title,
+          deleted_at: null,
+        },
+        select: { id: true },
+      });
+
+      if (found?.id) continue;
+
+      await (tx as any).hr_lifecycle_tasks.create({
+        data: {
+          tenant_id: tenantId,
+          template_id: onboardingTemplate.id,
+          stage_id: backlogStageId,
+          title: task.title,
+          responsible_role: task.responsible_role,
+          due_days_after_start: task.due_days_after_start,
+          sort_order: task.sort_order,
+          is_active: true,
+          is_mandatory: true,
+        },
+      });
+    }
+  }
+
+  private async resolveSignupCheckoutSnapshot(
+    tx: Prisma.TransactionClient,
+    dto: SignUpDTO,
+  ): Promise<{
+    selectedPlanId: string | null;
+    customModuleIds: string[];
+    planName: string;
+    monthlyAmount: number;
+  }> {
+    const customModuleIds = this.uniqueStringArray(dto.custom_module_ids);
+
+    if (customModuleIds.length > 0) {
+      const modules = await tx.modules.findMany({
+        where: {
+          id: { in: customModuleIds },
+          is_active: true,
+        },
+        select: {
+          id: true,
+          monthly_price: true,
+        },
+      });
+
+      if (modules.length === 0) {
+        throw new BadRequestException('Nenhum modulo valido foi selecionado para o plano custom.');
+      }
+      if (modules.length !== customModuleIds.length) {
+        throw new BadRequestException('Um ou mais modulos selecionados para o plano custom sao invalidos.');
+      }
+
+      const orderByInput = new Map(customModuleIds.map((id, index) => [id, index]));
+      const orderedModules = modules.sort((a, b) => {
+        const orderA = orderByInput.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+        const orderB = orderByInput.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+        return orderA - orderB;
+      });
+
+      const monthlyAmount = orderedModules.reduce((acc, row) => acc + Number(row.monthly_price || 0), 0);
+      return {
+        selectedPlanId: null,
+        customModuleIds,
+        planName: 'Plano custom',
+        monthlyAmount,
+      };
+    }
+
+    const selectedPlanId = String(dto.selected_plan_id || '').trim();
+    if (selectedPlanId) {
+      const selectedPlan = await tx.plans.findFirst({
+        where: {
+          id: selectedPlanId,
+          is_active: true,
+          is_public: true,
+          is_custom: false,
+        },
+        select: {
+          id: true,
+          name: true,
+          monthly_price: true,
+        },
+      });
+
+      if (!selectedPlan) {
+        throw new BadRequestException('Plano selecionado e invalido ou indisponivel.');
+      }
+
+      return {
+        selectedPlanId: selectedPlan.id,
+        customModuleIds: [],
+        planName: selectedPlan.name,
+        monthlyAmount: Number(selectedPlan.monthly_price || 0),
+      };
+    }
+
+    const fallback = await tx.plans.findFirst({
+      where: {
+        is_active: true,
+        is_public: true,
+        is_custom: false,
+      },
+      orderBy: [{ monthly_price: 'asc' }, { created_at: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        monthly_price: true,
+      },
+    });
+
+    if (!fallback?.id) {
+      throw new BadRequestException('Nenhum plano publico ativo disponivel para o cadastro.');
+    }
+
+    return {
+      selectedPlanId: fallback.id,
+      customModuleIds: [],
+      planName: fallback.name,
+      monthlyAmount: Number(fallback.monthly_price || 0),
+    };
+  }
+
+  async prepareSignupPayment(dto: SignUpPaymentPrepareDTO) {
+    const tenantName = String(dto.tenant_name ?? '').trim();
+    const tenantSlug = this.normalizeSlug(dto.tenant_slug);
+    const adminEmail = String(dto.admin_email ?? '').trim().toLowerCase();
+    const couponCode = String(dto.coupon_code || '').trim();
+
+    if (!tenantName || !tenantSlug) {
+      throw new BadRequestException('tenant_name and tenant_slug are required.');
+    }
+    if (!adminEmail) {
+      throw new BadRequestException('admin_email is required.');
+    }
+
+    const snapshot = await this.prisma.raw.$transaction((tx) => this.resolveSignupCheckoutSnapshot(tx, dto));
+
+    const session = await this.billingStripeService.createPublicSignupPaymentSession({
+      signupPayload: {
+        ...dto,
+        tenant_name: tenantName,
+        tenant_slug: tenantSlug,
+        admin_email: adminEmail,
+      } as any,
+      selectedPlanId: snapshot.selectedPlanId,
+      customModuleIds: snapshot.customModuleIds,
+      planName: snapshot.planName,
+      monthlyAmount: snapshot.monthlyAmount,
+      adminEmail,
+      adminFullName: dto.admin_full_name,
+      companyName: dto.company_name,
+      couponCode,
+    });
+
+    return session;
+  }
+
+  async completeSignupPayment(dto: SignUpPaymentCompleteDTO, req: Request): Promise<SignUpResponseDTO> {
+    const session = await this.billingStripeService.getPublicSignupPaymentSession(dto.session_id);
+    if (session.completed_at) {
+      throw new BadRequestException('Esta sessao de pagamento ja foi concluida.');
+    }
+
+    if (session.expires_at && new Date(session.expires_at).getTime() < Date.now()) {
+      throw new BadRequestException('Sessao de pagamento expirada. Inicie novamente o cadastro.');
+    }
+
+    const signupPayload = { ...(session.signup_payload_json as any) } as SignUpDTO;
+    if (session.selected_plan_id) {
+      signupPayload.selected_plan_id = String(session.selected_plan_id);
+      signupPayload.custom_module_ids = undefined;
+    } else {
+      const customIds = Array.isArray(session.custom_module_ids_json)
+        ? (session.custom_module_ids_json as any[]).map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      signupPayload.custom_module_ids = customIds;
+      signupPayload.selected_plan_id = undefined;
+    }
+
+    const setupStatus = String(session.setup_status || '')
+      .trim()
+      .toLowerCase();
+    const isNeverPayBypass = setupStatus === 'bypass_coupon';
+
+    if (isNeverPayBypass) {
+      const signupResult = await this.signup(signupPayload, req, {
+        initialSubscriptionStatus: TenantSubscriptionStatus.ACTIVE,
+        initialSubscriptionRenewsAt: null,
+      });
+
+      try {
+        await this.billingStripeService.markPublicSignupPaymentSessionCompleted(String(session.id), {
+          tenant_id: signupResult.tenant_id,
+          setup_status: 'bypass_coupon',
+          payment_method_id: null,
+          stripe_subscription_id: null,
+        });
+      } catch (error) {
+        console.error('Failed to finalize NEVERPAY signup payment session:', error);
+      }
+
+      return signupResult;
+    }
+
+    const validated = await this.billingStripeService.validateSetupIntentForSession(session, {
+      paymentMethodId: dto.payment_method_id,
+      setupIntentId: dto.setup_intent_id,
+    });
+
+    const trialDays = Math.max(1, Math.min(30, Number(session.trial_days || this.billingStripeService.getTrialDays())));
+    const signupSubscription = await this.billingStripeService.createSignupStripeSubscription({
+      customerId: String(session.stripe_customer_id || '').trim(),
+      paymentMethodId: validated.paymentMethodId,
+      planId: session.selected_plan_id ? String(session.selected_plan_id) : null,
+      planName: String(session.plan_name || 'Plano').trim(),
+      monthlyAmount: Number(session.monthly_amount || 0),
+      currency: String(session.currency || 'BRL'),
+      trialDays,
+      metadata: {
+        signup_session_id: String(session.id),
+      },
+    });
+
+    const trialEndDate = signupSubscription.subscription.trial_end
+      ? new Date(Number(signupSubscription.subscription.trial_end) * 1000)
+      : null;
+
+    let signupResult: SignUpResponseDTO;
+    try {
+      signupResult = await this.signup(signupPayload, req, {
+        initialSubscriptionStatus: TenantSubscriptionStatus.TRIAL,
+        initialSubscriptionRenewsAt: trialEndDate,
+      });
+    } catch (error) {
+      await this.billingStripeService.cancelStripeSubscriptionSafe(signupSubscription.subscription.id);
+      throw error;
+    }
+
+    try {
+      const tenantSubscription = await this.prisma.raw.tenant_subscriptions.findFirst({
+        where: {
+          tenant_id: signupResult.tenant_id,
+          status: { in: [TenantSubscriptionStatus.TRIAL, TenantSubscriptionStatus.ACTIVE] },
+        },
+        orderBy: [{ starts_at: 'desc' }, { created_at: 'desc' }],
+      });
+
+      await this.billingStripeService.attachStripeDataToTenant({
+        tenantId: signupResult.tenant_id,
+        tenantSubscriptionId: tenantSubscription?.id || null,
+        planId: tenantSubscription?.plan_id || null,
+        stripeCustomerId: String(session.stripe_customer_id || '').trim(),
+        stripeSubscription: signupSubscription.subscription,
+        stripePlanPriceId: signupSubscription.stripePlanPriceId,
+        companyName: String(session.company_name || '').trim() || null,
+        adminEmail: String(session.admin_email || '').trim() || null,
+      });
+
+      await this.billingStripeService.markPublicSignupPaymentSessionCompleted(String(session.id), {
+        tenant_id: signupResult.tenant_id,
+        stripe_subscription_id: signupSubscription.subscription.id,
+        payment_method_id: validated.paymentMethodId,
+        setup_status: 'succeeded',
+      });
+    } catch (error) {
+      // Non-blocking after successful signup; user should not lose access due to sync issue.
+      console.error('Failed to persist Stripe binding after signup:', error);
+    }
+
+    return signupResult;
+  }
+
+  async signup(dto: SignUpDTO, req: Request, options?: SignupExecutionOptions): Promise<SignUpResponseDTO> {
     const tenantId = randomUUID();
     const tenantName = String(dto.tenant_name ?? '').trim();
     const tenantSlug = this.normalizeSlug(dto.tenant_slug);
@@ -720,14 +1257,25 @@ export class AuthService {
               data: {
                 tenant_id: tenant.id,
                 plan_id: resolvedPlanId,
-                status: TenantSubscriptionStatus.ACTIVE,
+                status: options?.initialSubscriptionStatus ?? TenantSubscriptionStatus.ACTIVE,
                 starts_at: new Date(),
+                ...(options?.initialSubscriptionRenewsAt !== undefined
+                  ? { renews_at: options.initialSubscriptionRenewsAt }
+                  : {}),
               },
             });
           }
 
-          await this.ensureSignupAdminAccess(tx, tenant.id, user.id, resolvedPlanId);
-          await this.ensureSignupServiceDefaults(tx, tenant.id);
+          const enabledAreaSet = await this.resolveEnabledAreaSetForPlan(tx, resolvedPlanId);
+          await this.ensureSignupAdminAccess(tx, tenant.id, user.id, enabledAreaSet);
+
+          if (enabledAreaSet.has('service')) {
+            await this.ensureSignupServiceDefaults(tx, tenant.id);
+          }
+
+          if (enabledAreaSet.has('hr')) {
+            await this.ensureSignupHrDefaults(tx, tenant.id);
+          }
 
           return { tenant, company, user };
         })

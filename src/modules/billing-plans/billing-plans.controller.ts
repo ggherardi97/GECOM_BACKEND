@@ -21,11 +21,15 @@ import { UpdatePlanModuleDto } from './dto/update-plan-module.dto';
 import { UpsertTenantSubscriptionDto } from './dto/upsert-tenant-subscription.dto';
 import { UpsertTenantModuleOverrideDto } from './dto/upsert-tenant-module-override.dto';
 import { UpdateAreaEntityConfigDto } from './dto/update-area-entity-config.dto';
+import { UpgradeMyPlanDto } from './dto/upgrade-my-plan.dto';
+import { CancelMyPlanDto } from './dto/cancel-my-plan.dto';
+import { CreateCustomRequestDto } from './dto/create-custom-request.dto';
 import { ModulesService } from './modules.service';
 import { PlansService } from './plans.service';
 import { TenantSubscriptionService } from './tenant-subscription.service';
 import { TenantModulesResolverService } from './tenant-modules-resolver.service';
 import { BillingAreaEntityConfigService } from './billing-area-entity-config.service';
+import { BillingStripeService } from './billing-stripe.service';
 import { AdminOnlyGuard } from './guards/admin-only.guard';
 import { Public } from '../auth/decorators/public.decorator';
 import { BillingBootstrapGuard } from './guards/billing-bootstrap.guard';
@@ -182,6 +186,7 @@ export class BillingMeController {
   constructor(
     private readonly tenantModulesResolverService: TenantModulesResolverService,
     private readonly billingAreaEntityConfigService: BillingAreaEntityConfigService,
+    private readonly billingStripeService: BillingStripeService,
   ) {}
 
   @Get('modules')
@@ -196,6 +201,43 @@ export class BillingMeController {
     ]);
 
     return { tenant_id: tenantId, enabledModules, enabledAreas, areaEntityConfig };
+  }
+
+  @Get('billing/summary')
+  async getMyBillingSummary(@Req() req: any) {
+    const tenantId = String(req?.user?.tenant_id ?? '').trim();
+    if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
+    return this.billingStripeService.getMyPlanSummary(tenantId);
+  }
+
+  @Post('billing/upgrade')
+  async upgradeMyBillingPlan(@Req() req: any, @Body() dto: UpgradeMyPlanDto) {
+    const tenantId = String(req?.user?.tenant_id ?? '').trim();
+    if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
+    return this.billingStripeService.upgradeMyPlan(tenantId, dto.plan_id);
+  }
+
+  @Post('billing/cancel')
+  async cancelMyBillingPlan(@Req() req: any, @Body() dto: CancelMyPlanDto) {
+    const tenantId = String(req?.user?.tenant_id ?? '').trim();
+    if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
+    return this.billingStripeService.cancelMyPlan(tenantId, !!dto.immediate);
+  }
+
+  @Post('billing/custom-request')
+  async createMyCustomRequest(@Req() req: any, @Body() dto: CreateCustomRequestDto) {
+    const tenantId = String(req?.user?.tenant_id ?? '').trim();
+    const userId = String(req?.user?.id ?? req?.user?.sub ?? '').trim();
+    if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
+    if (!userId) throw new BadRequestException('user_id ausente no usuario autenticado.');
+
+    return this.billingStripeService.createCustomRequest({
+      tenantId,
+      userId,
+      userEmail: String(req?.user?.email || '').trim() || null,
+      subject: dto.subject || null,
+      message: dto.message,
+    });
   }
 }
 

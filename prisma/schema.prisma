@@ -26,6 +26,10 @@ model tenants {
   company          companies?                @relation(fields: [company_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
   subscriptions    tenant_subscriptions[]
   module_overrides tenant_module_overrides[]
+  stripe_customers        billing_stripe_customers[]
+  stripe_subscriptions    billing_stripe_subscriptions[]
+  signup_payment_sessions public_signup_payment_sessions[]
+  custom_billing_requests billing_custom_requests[]
 
   @@unique([slug], map: "uq_tenants_slug")
   @@index([status], map: "IDX_tenants_status")
@@ -63,6 +67,9 @@ model plans {
 
   plan_modules         plan_modules[]
   tenant_subscriptions tenant_subscriptions[]
+  stripe_plan_prices      billing_stripe_plan_prices[]
+  stripe_subscriptions    billing_stripe_subscriptions[]
+  signup_payment_sessions public_signup_payment_sessions[]
 
   @@index([is_active], map: "IDX_plans_is_active")
   @@index([is_public], map: "IDX_plans_is_public")
@@ -99,6 +106,7 @@ model tenant_subscriptions {
 
   tenant tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   plan   plans   @relation(fields: [plan_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  stripe_subscription billing_stripe_subscriptions?
 
   @@index([tenant_id], map: "IDX_tenant_subscriptions_tenant_id")
   @@index([plan_id], map: "IDX_tenant_subscriptions_plan_id")
@@ -119,6 +127,123 @@ model tenant_module_overrides {
   @@unique([tenant_id, module_id], map: "uq_tenant_module_overrides_tenant_module")
   @@index([tenant_id], map: "IDX_tenant_module_overrides_tenant_id")
   @@index([module_id], map: "IDX_tenant_module_overrides_module_id")
+}
+
+model billing_stripe_plan_prices {
+  id                String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  plan_id           String   @db.Uuid
+  currency          String   @default("BRL") @db.VarChar(8)
+  stripe_product_id String   @db.VarChar(120)
+  stripe_price_id   String   @unique(map: "uq_billing_stripe_plan_prices_price") @db.VarChar(120)
+  unit_amount       Decimal  @db.Decimal(19, 4)
+  is_active         Boolean  @default(true)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @db.Timestamptz(6)
+
+  plan                 plans                        @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  stripe_subscriptions billing_stripe_subscriptions[]
+
+  @@unique([plan_id, currency], map: "uq_billing_stripe_plan_prices_plan_currency")
+  @@index([plan_id], map: "IDX_billing_stripe_plan_prices_plan_id")
+}
+
+model billing_stripe_customers {
+  id                 String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String   @unique(map: "uq_billing_stripe_customers_tenant") @db.Uuid
+  stripe_customer_id String   @unique(map: "uq_billing_stripe_customers_customer") @db.VarChar(120)
+  email              String?  @db.VarChar(255)
+  company_name       String?  @db.VarChar(255)
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant        tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  subscriptions billing_stripe_subscriptions[] @relation("BillingStripeCustomerSubscriptions")
+
+  @@index([tenant_id], map: "IDX_billing_stripe_customers_tenant_id")
+}
+
+model billing_stripe_subscriptions {
+  id                      String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id               String    @db.Uuid
+  tenant_subscription_id  String?   @unique(map: "uq_billing_stripe_subscriptions_tenant_subscription") @db.Uuid
+  plan_id                 String?   @db.Uuid
+  stripe_plan_price_id    String?   @db.Uuid
+  stripe_customer_id      String    @db.VarChar(120)
+  stripe_subscription_id  String    @unique(map: "uq_billing_stripe_subscriptions_subscription") @db.VarChar(120)
+  stripe_price_id         String?   @db.VarChar(120)
+  status                  String    @db.VarChar(80)
+  cancel_at_period_end    Boolean   @default(false)
+  trial_start_at          DateTime? @db.Timestamptz(6)
+  trial_end_at            DateTime? @db.Timestamptz(6)
+  current_period_start_at DateTime? @db.Timestamptz(6)
+  current_period_end_at   DateTime? @db.Timestamptz(6)
+  canceled_at             DateTime? @db.Timestamptz(6)
+  metadata_json           Json?
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @default(now()) @db.Timestamptz(6)
+
+  tenant              tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenant_subscription tenant_subscriptions?        @relation(fields: [tenant_subscription_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  plan                plans?                       @relation(fields: [plan_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  stripe_plan_price   billing_stripe_plan_prices?  @relation(fields: [stripe_plan_price_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  stripe_customer     billing_stripe_customers     @relation("BillingStripeCustomerSubscriptions", fields: [stripe_customer_id], references: [stripe_customer_id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([tenant_id], map: "IDX_billing_stripe_subscriptions_tenant_id")
+  @@index([plan_id], map: "IDX_billing_stripe_subscriptions_plan_id")
+  @@index([status], map: "IDX_billing_stripe_subscriptions_status")
+}
+
+model public_signup_payment_sessions {
+  id                         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                  String?   @db.Uuid
+  selected_plan_id           String?   @db.Uuid
+  plan_name                  String    @db.VarChar(255)
+  monthly_amount             Decimal   @db.Decimal(19, 4)
+  currency                   String    @default("BRL") @db.VarChar(8)
+  trial_days                 Int       @default(7)
+  signup_payload_json        Json
+  custom_module_ids_json     Json      @default(dbgenerated("'[]'::jsonb"))
+  admin_email                String    @db.VarChar(255)
+  admin_full_name            String?   @db.VarChar(255)
+  company_name               String?   @db.VarChar(255)
+  stripe_customer_id         String    @db.VarChar(120)
+  stripe_setup_intent_id     String    @db.VarChar(120)
+  stripe_setup_client_secret String?   @db.Text
+  setup_status               String    @default("requires_confirmation") @db.VarChar(80)
+  payment_method_id          String?   @db.VarChar(120)
+  stripe_subscription_id     String?   @db.VarChar(120)
+  completed_at               DateTime? @db.Timestamptz(6)
+  expires_at                 DateTime? @db.Timestamptz(6)
+  created_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime  @default(now()) @db.Timestamptz(6)
+
+  tenant        tenants? @relation(fields: [tenant_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  selected_plan plans?   @relation(fields: [selected_plan_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([tenant_id], map: "IDX_public_signup_payment_sessions_tenant_id")
+  @@index([selected_plan_id], map: "IDX_public_signup_payment_sessions_plan_id")
+  @@index([admin_email], map: "IDX_public_signup_payment_sessions_admin_email")
+  @@index([stripe_setup_intent_id], map: "IDX_public_signup_payment_sessions_setup_intent")
+  @@index([completed_at], map: "IDX_public_signup_payment_sessions_completed_at")
+}
+
+model billing_custom_requests {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  user_id    String   @db.Uuid
+  subject    String?  @db.VarChar(255)
+  message    String
+  status     String   @default("NEW") @db.VarChar(40)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user   users   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id], map: "IDX_billing_custom_requests_tenant_id")
+  @@index([user_id], map: "IDX_billing_custom_requests_user_id")
+  @@index([status], map: "IDX_billing_custom_requests_status")
 }
 
 model users {
@@ -177,6 +302,7 @@ model users {
   po_assigned_checklist_items po_checklist_items[]    @relation("PoChecklistItemAssignedUser")
   admin_audit_logs           admin_audit_log[]        @relation("AdminAuditLogUser")
   access_role_links          access_user_roles[]
+  billing_custom_requests    billing_custom_requests[]
 
   password_resets password_resets?
   processes       processes[]

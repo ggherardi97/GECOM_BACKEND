@@ -18,6 +18,7 @@ import { RefreshSessionGuard } from './guards/refresh-session.guard';
 // IMPORTANT: adjust import according to your project structure
 // If you have PrismaModule, use it. If you only have PrismaService, see note below.
 import { PrismaModule } from '../../prisma/prisma.module';
+import { BillingPlansModule } from '../billing-plans/billing-plans.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
     PasswordResetModule,
     MailModule,
     PrismaModule, // NEW: needed for RefreshSessionGuard + AuthMeController
+    BillingPlansModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '1h' }, // ✅ was 15m

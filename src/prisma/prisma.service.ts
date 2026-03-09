@@ -212,6 +212,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'access_roles',
     'access_role_permissions',
     'access_user_roles',
+    'billing_stripe_customers',
+    'billing_stripe_subscriptions',
+    'billing_custom_requests',
 
     // add others that have tenant_id
   ]);
