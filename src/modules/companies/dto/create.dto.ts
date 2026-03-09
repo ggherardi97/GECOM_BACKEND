@@ -29,6 +29,11 @@ export class CreateCompanyDTO {
   @IsOptional()
   company_number?: string;
 
+  @ApiPropertyOptional({ description: 'CPF para cliente pessoa fisica', example: '123.456.789-09' })
+  @IsString()
+  @IsOptional()
+  cpf?: string;
+
   @ApiPropertyOptional({ description: 'Setor de atuação da empresa', example: 'Tecnologia' })
   @IsString()
   @IsOptional()

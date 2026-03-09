@@ -971,6 +971,121 @@ export class HrService {
     await this.db[delegate].createMany({ data: rows, skipDuplicates: true });
   }
 
+  private async syncHrLifecycleStagesFromOptionSet(user: AuthUser): Promise<void> {
+    const set = await this.db.option_sets.findFirst({
+      where: {
+        tenant_id: user.tenant_id,
+        entity: 'hr_employee_lifecycles',
+        field: 'current_stage_id',
+      },
+      include: {
+        options: {
+          where: { is_active: true },
+          orderBy: [{ sort_order: 'asc' }, { label: 'asc' }],
+        },
+      },
+    });
+
+    const options = Array.isArray(set?.options) ? set.options : [];
+    if (!options.length) return;
+
+    const templates = await this.db.hr_lifecycle_templates.findMany({
+      where: {
+        tenant_id: user.tenant_id,
+        deleted_at: null,
+        is_active: true,
+      },
+      select: { id: true },
+      orderBy: [{ created_at: 'asc' }],
+    });
+    if (!templates.length) return;
+
+    const existingRows = await this.db.hr_lifecycle_stages.findMany({
+      where: {
+        tenant_id: user.tenant_id,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        template_id: true,
+        name: true,
+        sort_order: true,
+      },
+    });
+
+    const byTemplateAndName = new Map<string, { id: string; sort_order: number | null }>();
+    const usedSortOrdersByTemplate = new Map<string, Set<number>>();
+    existingRows.forEach((row: any) => {
+      const templateId = String(row?.template_id || '').trim();
+      if (!templateId) return;
+
+      const key = `${templateId}::${String(row?.name || '').trim().toLowerCase()}`;
+      if (!key || byTemplateAndName.has(key)) return;
+      byTemplateAndName.set(key, {
+        id: String(row.id),
+        sort_order: this.toInt(row?.sort_order),
+      });
+
+      const parsedSort = this.toInt(row?.sort_order);
+      if (parsedSort == null) return;
+      const used = usedSortOrdersByTemplate.get(templateId) || new Set<number>();
+      used.add(parsedSort);
+      usedSortOrdersByTemplate.set(templateId, used);
+    });
+
+    for (const template of templates) {
+      const templateId = String(template?.id || '').trim();
+      if (!templateId) continue;
+
+      const usedSortOrders = usedSortOrdersByTemplate.get(templateId) || new Set<number>();
+      for (let idx = 0; idx < options.length; idx += 1) {
+        const option = options[idx];
+        const name = String(option?.label || '').trim().slice(0, 120);
+        if (!name) continue;
+
+        const key = `${templateId}::${name.toLowerCase()}`;
+        const existing = byTemplateAndName.get(key);
+        if (existing?.sort_order != null) usedSortOrders.delete(existing.sort_order);
+
+        const parsedSort = this.toInt(option?.sort_order);
+        let sortOrder = parsedSort == null ? (idx + 1) * 10 : parsedSort;
+        while (usedSortOrders.has(sortOrder)) sortOrder += 1;
+        usedSortOrders.add(sortOrder);
+
+        const color = String(option?.color || '').trim();
+        const parsedActive = this.parseOptionalBoolean(String(option?.is_active ?? ''));
+        const data = {
+          name,
+          sort_order: sortOrder,
+          is_active: parsedActive === undefined ? true : parsedActive,
+          color: color ? color.slice(0, 20) : null,
+          deleted_at: null,
+          updated_at: new Date(),
+        };
+
+        if (existing?.id) {
+          await this.db.hr_lifecycle_stages.update({
+            where: { id: existing.id },
+            data,
+          });
+          byTemplateAndName.set(key, { id: existing.id, sort_order: sortOrder });
+          continue;
+        }
+
+        const created = await this.db.hr_lifecycle_stages.create({
+          data: {
+            tenant_id: user.tenant_id,
+            template_id: templateId,
+            ...data,
+          },
+          select: { id: true },
+        });
+        byTemplateAndName.set(key, { id: String(created?.id || ''), sort_order: sortOrder });
+      }
+      usedSortOrdersByTemplate.set(templateId, usedSortOrders);
+    }
+  }
+
   // Typed wrappers (explicit CRUD signatures for controller)
   listDepartments(user: AuthUser, query: ListQuery) { return this.listResource(user, 'departments', query); }
   findDepartmentById(user: AuthUser, id: string) { return this.findResourceById(user, 'departments', id); }
@@ -1238,7 +1353,10 @@ export class HrService {
   updateLifecycleTemplate(user: AuthUser, id: string, dto: UpdateHrLifecycleTemplateDto) { return this.updateResource(user, 'lifecycle-templates', id, dto as any); }
   removeLifecycleTemplate(user: AuthUser, id: string) { return this.removeResource(user, 'lifecycle-templates', id); }
 
-  listLifecycleStages(user: AuthUser, query: ListQuery) { return this.listResource(user, 'lifecycle-stages', query); }
+  async listLifecycleStages(user: AuthUser, query: ListQuery) {
+    await this.syncHrLifecycleStagesFromOptionSet(user);
+    return this.listResource(user, 'lifecycle-stages', query);
+  }
   findLifecycleStageById(user: AuthUser, id: string) { return this.findResourceById(user, 'lifecycle-stages', id); }
   createLifecycleStage(user: AuthUser, dto: CreateHrLifecycleStageDto) { return this.createResource(user, 'lifecycle-stages', dto as any); }
   updateLifecycleStage(user: AuthUser, id: string, dto: UpdateHrLifecycleStageDto) { return this.updateResource(user, 'lifecycle-stages', id, dto as any); }

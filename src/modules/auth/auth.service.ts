@@ -57,6 +57,18 @@ export class AuthService {
     );
   }
 
+  private normalizeCpfOrThrow(value: unknown): string | null {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length !== 11) {
+      throw new BadRequestException('company_cpf must contain 11 digits.');
+    }
+
+    return digits;
+  }
+
   private async resolveSignupPlanId(
     tx: Prisma.TransactionClient,
     dto: SignUpDTO,
@@ -526,6 +538,7 @@ export class AuthService {
     const tenantName = String(dto.tenant_name ?? '').trim();
     const tenantSlug = this.normalizeSlug(dto.tenant_slug);
     const adminEmail = String(dto.admin_email ?? '').trim().toLowerCase();
+    const normalizedCompanyCpf = this.normalizeCpfOrThrow(dto.company_cpf);
 
     if (!tenantName || !tenantSlug) {
       throw new BadRequestException('tenant_name and tenant_slug are required.');
@@ -564,6 +577,14 @@ export class AuthService {
               language: dto.company_language ?? null,
             } as any,
           });
+
+          if (normalizedCompanyCpf) {
+            await tx.$executeRawUnsafe(
+              'UPDATE companies SET cpf = $1 WHERE id = CAST($2 AS uuid)',
+              normalizedCompanyCpf,
+              company.id,
+            );
+          }
 
           const user = await tx.users.create({
             data: {

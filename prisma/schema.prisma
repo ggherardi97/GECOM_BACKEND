@@ -232,6 +232,7 @@ model companies {
   user_id            String?   @db.Uuid
   phone              String?   @db.VarChar
   company_number     String?   @db.VarChar
+  cpf                String?   @db.VarChar
   sector             String?   @db.VarChar
   category           String?   @db.VarChar
   address_line       String?   @db.VarChar

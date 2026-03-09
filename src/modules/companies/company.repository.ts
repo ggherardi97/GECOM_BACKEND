@@ -24,6 +24,18 @@ function base64ToBytes(input: string): Uint8Array {
   return Uint8Array.from(Buffer.from(base64, 'base64'));
 }
 
+function normalizeCpfForStorage(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length !== 11) {
+    throw new Error('cpf must contain 11 digits.');
+  }
+
+  return digits;
+}
+
 /**
  * ✅ "Lite" select: includes ALL scalar fields from model companies
  * EXCEPT company_picture (to keep payload fast).
@@ -127,13 +139,30 @@ export class CompanyRepository {
 
   async create(data: Prisma.companiesCreateInput, tenantId: string): Promise<CompanySafe | null> {
     try {
-      return await this.prisma.companies.create({
+      const rawData = (data ?? {}) as any;
+      const hasCpf = Object.prototype.hasOwnProperty.call(rawData, 'cpf');
+      const cpf = hasCpf ? normalizeCpfForStorage(rawData.cpf) : null;
+      const { cpf: _ignoredCpf, ...dataWithoutCpf } = rawData;
+
+      const created = await this.prisma.companies.create({
         data: {
-          ...(data as any),
+          ...(dataWithoutCpf as any),
           tenant_id: tenantId,
         },
         select: companySelectLiteWithIncludes,
       });
+
+      if (hasCpf) {
+        await this.prisma.raw.$executeRawUnsafe(
+          'UPDATE companies SET cpf = $1 WHERE id = CAST($2 AS uuid) AND tenant_id = CAST($3 AS uuid)',
+          cpf,
+          created.id,
+          tenantId,
+        );
+        return this.findById(String(created.id), tenantId);
+      }
+
+      return created;
     } catch (error) {
       this.logger.error('Error creating company:', error as any);
       return null;
@@ -200,6 +229,10 @@ export class CompanyRepository {
 
   async update(id: string, tenantId: string, data: Prisma.companiesUpdateInput): Promise<CompanySafe | null> {
     try {
+      const rawData = (data ?? {}) as any;
+      const hasCpf = Object.prototype.hasOwnProperty.call(rawData, 'cpf');
+      const cpf = hasCpf ? normalizeCpfForStorage(rawData.cpf) : null;
+
       // 1) Avoid forcing/allowing unsafe fields
       const {
         id: _ignoreId,
@@ -208,8 +241,9 @@ export class CompanyRepository {
         deleted_at: _ignoreDeletedAt,
         updated_at: _ignoreUpdatedAt,
         user_id,
+        cpf: _ignoredCpf,
         ...rest
-      } = data as any;
+      } = rawData;
 
       // 1.1) Normalize company_picture: allow base64/dataURL string, persist as Bytes (bytea)
       const normalizedRest: any = { ...rest };
@@ -262,6 +296,15 @@ export class CompanyRepository {
             updated_at: new Date(),
           } as any,
         });
+      }
+
+      if (hasCpf) {
+        await this.prisma.raw.$executeRawUnsafe(
+          'UPDATE companies SET cpf = $1 WHERE id = CAST($2 AS uuid) AND tenant_id = CAST($3 AS uuid) AND deleted_at IS NULL',
+          cpf,
+          id,
+          tenantId,
+        );
       }
 
       // 4) Return updated record (lite, without company_picture)

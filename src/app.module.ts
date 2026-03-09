@@ -49,6 +49,7 @@ import { ProjectOperationsModule } from './modules/project-operations/project-op
 import { AdminConfigModule } from './modules/admin-config/admin-config.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { CalendarActivitiesModule } from './modules/calendar-activities/calendar-activities.module';
+import { MetadataDesignerModule } from './modules/metadata-designer/metadata-designer.module';
 
 @Module({
   imports: [
@@ -105,6 +106,7 @@ import { CalendarActivitiesModule } from './modules/calendar-activities/calendar
     AdminConfigModule,
     AccessControlModule,
     CalendarActivitiesModule,
+    MetadataDesignerModule,
   ],
   controllers: [AppController],
   providers: [

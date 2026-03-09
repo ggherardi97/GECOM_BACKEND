@@ -38,6 +38,11 @@ export class SignUpDTO {
   @IsString()
   company_number?: string;
 
+  @ApiPropertyOptional({ example: '123.456.789-09' })
+  @IsOptional()
+  @IsString()
+  company_cpf?: string;
+
   @ApiPropertyOptional({ example: 'Tecnologia' })
   @IsOptional()
   @IsString()
