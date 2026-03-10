@@ -26,6 +26,12 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { runWithTenant } from '../../common/tenant/tenant-context';
+import {
+  applyEmailTemplateBranding,
+  getPortalBrandIdentity,
+  resolvePortalBaseUrlFromRequest,
+  resolvePortalBrandFromRequest,
+} from '../../common/branding/portal-brand.util';
 import { SignUpDTO, SignUpResponseDTO } from './dtos/signup.dto';
 import { SignUpPaymentCompleteDTO, SignUpPaymentPrepareDTO } from './dtos/signup-payment.dto';
 import { ENTITY_REGISTRY } from '../admin-config/entity-registry';
@@ -1466,9 +1472,11 @@ export class AuthService {
     return { message: 'All sessions terminated' };
   }
 
-  async forgotPassword(email: string) {
+  async forgotPassword(email: string, req?: Request) {
     try {
       const user = await this.userService.findByEmail(email);
+      const portalBrand = resolvePortalBrandFromRequest(req);
+      const brandIdentity = getPortalBrandIdentity(portalBrand);
 
       // Always return the same message (avoid user enumeration)
       if (!user) {
@@ -1492,15 +1500,20 @@ export class AuthService {
         'utf8'
       );
 
-      const resetLink = `${process.env.FRONTEND_URL}?token=${resetToken}&userId=${user.id}`;
+      const frontendBaseUrl = resolvePortalBaseUrlFromRequest(req);
+      const resetLink = `${frontendBaseUrl}?token=${resetToken}&userId=${user.id}`;
       const currentYear = new Date().getFullYear();
 
-      const html = template
+      const html = applyEmailTemplateBranding(template, portalBrand)
         .replace(/{{name}}/g, user.full_name)
         .replace(/{{resetLink}}/g, resetLink)
         .replace(/{{year}}/g, currentYear.toString());
 
-      await this.mailerService.sendWelcomeEmail(user.email, 'Redefinição de Senha - GECOM', html);
+      await this.mailerService.sendWelcomeEmail(
+        user.email,
+        `Redefinicao de Senha - ${brandIdentity.subjectBrandName}`,
+        html
+      );
 
       return {
         message:
@@ -1518,7 +1531,8 @@ export class AuthService {
     user_id: string,
     token: string,
     new_password: string,
-    confirm_password: string
+    confirm_password: string,
+    req?: Request
   ) {
     if (new_password !== confirm_password) {
       throw new BadRequestException('As senhas não coincidem');
@@ -1562,17 +1576,19 @@ export class AuthService {
         join(__dirname, '..', 'mailer', 'templates', 'reset-password.html'),
         'utf8'
       );
+      const portalBrand = resolvePortalBrandFromRequest(req);
+      const brandIdentity = getPortalBrandIdentity(portalBrand);
       const currentYear = new Date().getFullYear();
-      const loginLink = process.env.FRONTEND_URL ?? '';
+      const loginLink = resolvePortalBaseUrlFromRequest(req);
 
-      const html = template
+      const html = applyEmailTemplateBranding(template, portalBrand)
         .replace(/{{name}}/g, user.full_name)
         .replace(/{{resetLink}}/g, loginLink)
         .replace(/{{year}}/g, currentYear.toString());
 
       await this.mailerService.sendWelcomeEmail(
         user.email,
-        'Senha redefinida com sucesso - GECOM',
+        `Senha redefinida com sucesso - ${brandIdentity.subjectBrandName}`,
         html
       );
     } catch (error) {

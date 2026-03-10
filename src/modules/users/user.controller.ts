@@ -152,7 +152,16 @@ private getUserId(req: AuthRequest): string {
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @Post()
   create(@Req() req: AuthRequest, @Body() data: CreateUserDTO) {
-    return this.service.create(this.getTenantId(req), data);
+    const headers = (req as any)?.headers || {};
+    const hostRaw = headers['x-forwarded-host'] || headers.host || null;
+    const protoRaw = headers['x-forwarded-proto'] || headers['x-forwarded-protocol'] || null;
+    const host = Array.isArray(hostRaw) ? hostRaw[0] : hostRaw;
+    const protocol = Array.isArray(protoRaw) ? protoRaw[0] : protoRaw;
+
+    return this.service.create(this.getTenantId(req), data, {
+      host: typeof host === 'string' ? host : null,
+      protocol: typeof protocol === 'string' ? protocol : null,
+    });
   }
 
   @ApiOperation({ summary: 'List users' })

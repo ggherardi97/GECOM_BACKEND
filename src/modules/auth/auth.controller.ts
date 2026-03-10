@@ -248,8 +248,8 @@ export class AuthController {
     }
   })
   @ApiResponse({ status: 400, description: 'Dados inválidos.' })
-  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDTO) {
-    return this.authService.forgotPassword(forgotPasswordDto.email);
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDTO, @Req() req: Request) {
+    return this.authService.forgotPassword(forgotPasswordDto.email, req);
   }
 
   @Public()
@@ -270,12 +270,13 @@ export class AuthController {
   })
   @ApiResponse({ status: 400, description: 'Token inválido ou dados incorretos.' })
   @ApiResponse({ status: 404, description: 'Usuário não encontrado.' })
-  async resetPassword(@Body() resetPasswordDto: ResetPasswordDTO) {
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDTO, @Req() req: Request) {
     return this.authService.resetPassword(
       resetPasswordDto.user_id,
       resetPasswordDto.token,
       resetPasswordDto.new_password,
-      resetPasswordDto.confirm_password
+      resetPasswordDto.confirm_password,
+      req
     );
   }
 }

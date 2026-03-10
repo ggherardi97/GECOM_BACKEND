@@ -12,6 +12,12 @@ import { MailerService } from '../mailer/mailer.service';
 import { generateToken } from '../utils/generate-token';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import {
+  applyEmailTemplateBranding,
+  getPortalBrandIdentity,
+  resolvePortalBaseUrlFromHost,
+  resolvePortalBrandFromHost,
+} from '../../common/branding/portal-brand.util';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 
@@ -79,7 +85,11 @@ export class UserService {
     return user;
   }
 
-  async create(tenantId: string, data: CreateUserDTO): Promise<UserSafe> {
+  async create(
+    tenantId: string,
+    data: CreateUserDTO,
+    portalRequest?: { host?: string | null; protocol?: string | null },
+  ): Promise<UserSafe> {
     const email = String(data.email ?? '')
       .trim()
       .toLowerCase();
@@ -106,32 +116,37 @@ export class UserService {
 
     if (isFirstAccess) {
       try {
-      const resetToken = generateToken(32);
-      const tokenHash = await this.crypto.hash(resetToken);
+        const portalBrand = resolvePortalBrandFromHost(portalRequest?.host);
+        const brandIdentity = getPortalBrandIdentity(portalBrand);
 
-      await this.passwordResetService.generateResetToken({
-        tenant_id: tenantId,
-        token: tokenHash,
-        user_id: user.id,
-      } as any);
+        const resetToken = generateToken(32);
+        const tokenHash = await this.crypto.hash(resetToken);
 
-      const templatePath = join(__dirname, '..', 'mailer', 'templates', 'first-access.html');
+        await this.passwordResetService.generateResetToken({
+          tenant_id: tenantId,
+          token: tokenHash,
+          user_id: user.id,
+        } as any);
 
-      const template = readFileSync(templatePath, 'utf8');
+        const templatePath = join(__dirname, '..', 'mailer', 'templates', 'first-access.html');
+        const template = readFileSync(templatePath, 'utf8');
+        const frontendBaseUrl = resolvePortalBaseUrlFromHost(
+          portalRequest?.host,
+          portalRequest?.protocol,
+        );
+        const resetLink = `${frontendBaseUrl}?token=${resetToken}&userId=${user.id}`;
+        const currentYear = new Date().getFullYear();
 
-      const resetLink = `${process.env.FRONTEND_URL}?token=${resetToken}&userId=${user.id}`;
-      const currentYear = new Date().getFullYear();
+        const html = applyEmailTemplateBranding(template, portalBrand)
+          .replace(/{{name}}/g, user.full_name)
+          .replace(/{{resetLink}}/g, resetLink)
+          .replace(/{{year}}/g, currentYear.toString());
 
-      const html = template
-        .replace(/{{name}}/g, user.full_name)
-        .replace(/{{resetLink}}/g, resetLink)
-        .replace(/{{year}}/g, currentYear.toString());
-
-      await this.mailerService.sendWelcomeEmail(
-        user.email,
-        'Bem-vindo ao GECOM - Definição de Senha',
-        html
-      );
+        await this.mailerService.sendWelcomeEmail(
+          user.email,
+          `Bem-vindo ao ${brandIdentity.subjectBrandName} - Definicao de Senha`,
+          html,
+        );
       } catch (error) {
         console.error('Failed to send first access email:', error);
       }
@@ -276,3 +291,4 @@ export class UserService {
     return { base64 };
   }
 }
+

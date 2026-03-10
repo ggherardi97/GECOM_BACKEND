@@ -24,6 +24,8 @@ async function bootstrap() {
       'http://localhost:3000',
       'https://dev.portalgecom.log.br',
       'https://portalgecom.log.br',
+      'https://convert-plus.com',
+      'https://www.convert-plus.com',
     ],
     credentials: true,
   });
