@@ -54,6 +54,17 @@ type SystemRoleTemplate = {
 export class AccessControlService {
   private readonly bootstrapCache = new Map<string, number>();
   private readonly bootstrapCacheTtlMs = 30_000;
+  private readonly externalReadOnlyResources = new Set<string>([
+    'processes',
+    'documents',
+    'calendar_activities',
+    'calendar-activities',
+    'invoices',
+    'notifications',
+    'process_types',
+    'transport_types',
+    'transport_statuses',
+  ]);
 
   private readonly systemRoleTemplates: SystemRoleTemplate[] = [
     {
@@ -112,6 +123,76 @@ export class AccessControlService {
   private normalizeRoleCode(value: unknown, fallback = 'ROLE'): string {
     const code = this.slugify(value);
     return code || fallback;
+  }
+
+  private normalizeComparable(value: unknown): string {
+    return String(value ?? '')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+  }
+
+  private isExternalRoleToken(value: unknown): boolean {
+    const token = this.normalizeComparable(value);
+    return token.includes('EXTERNO') || token.includes('EXTERNAL');
+  }
+
+  private isManagerRoleToken(value: unknown): boolean {
+    const token = this.normalizeComparable(value);
+    return token.includes('MANAGER') || token.includes('GESTOR');
+  }
+
+  private hasExternalRole(roles: EffectiveRole[]): boolean {
+    return (roles || []).some((role) => {
+      return this.isExternalRoleToken(role?.code) || this.isExternalRoleToken(role?.name);
+    });
+  }
+
+  private hasExternalManagerRole(roles: EffectiveRole[]): boolean {
+    return (roles || []).some((role) => {
+      const values = [role?.code, role?.name];
+      const hasExternal = values.some((value) => this.isExternalRoleToken(value));
+      const hasManager = values.some((value) => this.isManagerRoleToken(value));
+      return hasExternal && hasManager;
+    });
+  }
+
+  private getExternalProfile(roles: EffectiveRole[]): { isExternal: boolean; isExternalManager: boolean } {
+    const isExternal = this.hasExternalRole(roles);
+    const isExternalManager = isExternal && this.hasExternalManagerRole(roles);
+    return { isExternal, isExternalManager };
+  }
+
+  private applyExternalReadOnlyOverrides(input: EffectiveAccess): EffectiveAccess {
+    const externalProfile = this.getExternalProfile(input.roles);
+    if (!externalProfile.isExternal) return input;
+
+    const permissionMap = { ...(input.permission_map || {}) } as Record<string, CrudPermission>;
+    this.externalReadOnlyResources.forEach((resource) => {
+      permissionMap[resource] = {
+        can_read: true,
+        can_create: false,
+        can_update: false,
+        can_delete: false,
+      };
+    });
+
+    if (externalProfile.isExternalManager) {
+      permissionMap.documents = {
+        can_read: true,
+        can_create: true,
+        can_update: false,
+        can_delete: false,
+      };
+    }
+
+    const permissions = Object.entries(permissionMap).map(([entity, permission]) => ({ entity, ...permission }));
+    return {
+      ...input,
+      permission_map: permissionMap,
+      permissions,
+    };
   }
 
   private mapLegacyRoleToSystemCode(role: unknown): SystemRoleTemplate['code'] {
@@ -421,8 +502,7 @@ export class AccessControlService {
     }
 
     const permissions = Object.entries(permissionMap).map(([entity, permission]) => ({ entity, ...permission }));
-
-    return { roles, permissions, permission_map: permissionMap, entities };
+    return this.applyExternalReadOnlyOverrides({ roles, permissions, permission_map: permissionMap, entities });
   }
 
   async canUserPerform(input: {
@@ -436,6 +516,12 @@ export class AccessControlService {
     const resource = String(input.resource || '').trim().toLowerCase();
     if (!resource) return true;
 
+    // Documents listing/download remains tenant+company scoped in DocumentsController.
+    // Keep READ universally available to avoid hard lockouts when role linkage is out of sync.
+    if (resource === 'documents' && input.action === 'READ') {
+      return true;
+    }
+
     // Own profile endpoints should remain editable regardless of entity matrix.
     if (resource === 'users' && String(input.requestPath || '').includes('/users/me')) {
       return true;
@@ -446,6 +532,15 @@ export class AccessControlService {
       userId: input.userId,
       legacyRole: input.legacyRole,
     });
+
+    const externalProfile = this.getExternalProfile(effective.roles);
+    if (externalProfile.isExternal) {
+      if (externalProfile.isExternalManager && resource === 'documents' && input.action === 'CREATE') {
+        return true;
+      }
+      if (!this.externalReadOnlyResources.has(resource)) return false;
+      return input.action === 'READ';
+    }
 
     return this.permissionByAction(effective.permission_map[resource] ?? null, input.action);
   }

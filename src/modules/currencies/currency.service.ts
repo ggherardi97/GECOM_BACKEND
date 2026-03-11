@@ -5,9 +5,40 @@ import { UpdateCurrencyDTO } from './dto/update.dto';
 
 @Injectable()
 export class CurrencyService {
+  private readonly defaultCurrencies = [
+    { code: 'BRL', name: 'Real', symbol: 'R$', decimals: 2 },
+    { code: 'EUR', name: 'Euro', symbol: '€', decimals: 2 },
+    { code: 'USD', name: 'Dolar', symbol: '$', decimals: 2 },
+  ];
+
   constructor(private readonly repository: CurrencyRepository) {}
 
+  private async ensureDefaultCurrencies(): Promise<void> {
+    for (const item of this.defaultCurrencies) {
+      const existing = await this.repository.findByCode(item.code);
+      if (!existing) {
+        await this.repository.create({
+          code: item.code,
+          name: item.name,
+          symbol: item.symbol,
+          decimals: item.decimals,
+          is_active: true,
+        });
+        continue;
+      }
+
+      if (!existing.is_active) {
+        await this.repository.update(String(existing.id), {
+          is_active: true,
+          updated_at: new Date(),
+        });
+      }
+    }
+  }
+
   async findAll(query?: { is_active?: string; q?: string }) {
+    await this.ensureDefaultCurrencies();
+
     const is_active =
       query?.is_active !== undefined && String(query.is_active).trim().length > 0
         ? String(query.is_active).toLowerCase() === 'true'

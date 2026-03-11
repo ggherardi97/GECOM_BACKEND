@@ -40,6 +40,20 @@ function parseOptionalBoolean(value?: string): boolean | undefined {
   return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
+function getTenantIdFromRequest(req: any): string {
+  return String(req?.user?.tenant_id ?? req?.user?.tenantId ?? '').trim();
+}
+
+function getUserIdFromRequest(req: any): string {
+  return String(
+    req?.user?.user_id ??
+      req?.user?.userId ??
+      req?.user?.id ??
+      req?.user?.sub ??
+      '',
+  ).trim();
+}
+
 @ApiTags('billing-admin')
 @ApiBearerAuth()
 @UseGuards(AdminOnlyGuard)
@@ -191,7 +205,7 @@ export class BillingMeController {
 
   @Get('modules')
   async getMyModules(@Req() req: any) {
-    const tenantId = String(req?.user?.tenant_id ?? '').trim();
+    const tenantId = getTenantIdFromRequest(req);
     if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
 
     const [enabledModules, enabledAreas, areaEntityConfig] = await Promise.all([
@@ -205,29 +219,29 @@ export class BillingMeController {
 
   @Get('billing/summary')
   async getMyBillingSummary(@Req() req: any) {
-    const tenantId = String(req?.user?.tenant_id ?? '').trim();
+    const tenantId = getTenantIdFromRequest(req);
     if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
     return this.billingStripeService.getMyPlanSummary(tenantId);
   }
 
   @Post('billing/upgrade')
   async upgradeMyBillingPlan(@Req() req: any, @Body() dto: UpgradeMyPlanDto) {
-    const tenantId = String(req?.user?.tenant_id ?? '').trim();
+    const tenantId = getTenantIdFromRequest(req);
     if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
     return this.billingStripeService.upgradeMyPlan(tenantId, dto.plan_id);
   }
 
   @Post('billing/cancel')
   async cancelMyBillingPlan(@Req() req: any, @Body() dto: CancelMyPlanDto) {
-    const tenantId = String(req?.user?.tenant_id ?? '').trim();
+    const tenantId = getTenantIdFromRequest(req);
     if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
     return this.billingStripeService.cancelMyPlan(tenantId, !!dto.immediate);
   }
 
   @Post('billing/custom-request')
   async createMyCustomRequest(@Req() req: any, @Body() dto: CreateCustomRequestDto) {
-    const tenantId = String(req?.user?.tenant_id ?? '').trim();
-    const userId = String(req?.user?.id ?? req?.user?.sub ?? '').trim();
+    const tenantId = getTenantIdFromRequest(req);
+    const userId = getUserIdFromRequest(req);
     if (!tenantId) throw new BadRequestException('tenant_id ausente no usuario autenticado.');
     if (!userId) throw new BadRequestException('user_id ausente no usuario autenticado.');
 

@@ -6,6 +6,8 @@ import { process_types } from '@prisma/client';
 
 @Injectable()
 export class ProcessTypeService {
+  private readonly defaultProcessTypeNames = ['Exportacao', 'Importacao', 'Nacional'];
+
   constructor(private readonly repository: ProcessTypeRepository) {}
 
   async create(data: CreateProcessTypeDTO): Promise<process_types> {
@@ -13,6 +15,17 @@ export class ProcessTypeService {
   }
 
   async findAll(): Promise<process_types[]> {
+    const current = await this.repository.findAll();
+    if (current.length > 0) return current;
+
+    for (const name of this.defaultProcessTypeNames) {
+      try {
+        await this.repository.create({ name } as CreateProcessTypeDTO);
+      } catch {
+        // Ignore single insert failures and keep trying the rest.
+      }
+    }
+
     return await this.repository.findAll();
   }
 

@@ -14,6 +14,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
   applyEmailTemplateBranding,
+  getPortalEmailFrom,
   getPortalBrandIdentity,
   resolvePortalBaseUrlFromHost,
   resolvePortalBrandFromHost,
@@ -146,6 +147,7 @@ export class UserService {
           user.email,
           `Bem-vindo ao ${brandIdentity.subjectBrandName} - Definicao de Senha`,
           html,
+          getPortalEmailFrom(portalBrand),
         );
       } catch (error) {
         console.error('Failed to send first access email:', error);

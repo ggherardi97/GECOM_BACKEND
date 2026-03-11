@@ -8,9 +8,10 @@ export class MailerService {
     private readonly nestMailerService: NestMailerService
   ) {}
 
-  async sendWelcomeEmail(to: string, subject: string, html: string) {
+  async sendWelcomeEmail(to: string, subject: string, html: string, from?: string) {
     try {
       await this.nestMailerService.sendMail({
+        ...(from ? { from } : {}),
         to,
         subject,
         html,

@@ -28,6 +28,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { runWithTenant } from '../../common/tenant/tenant-context';
 import {
   applyEmailTemplateBranding,
+  getPortalEmailFrom,
   getPortalBrandIdentity,
   resolvePortalBaseUrlFromRequest,
   resolvePortalBrandFromRequest,
@@ -1512,7 +1513,8 @@ export class AuthService {
       await this.mailerService.sendWelcomeEmail(
         user.email,
         `Redefinicao de Senha - ${brandIdentity.subjectBrandName}`,
-        html
+        html,
+        getPortalEmailFrom(portalBrand),
       );
 
       return {
@@ -1589,7 +1591,8 @@ export class AuthService {
       await this.mailerService.sendWelcomeEmail(
         user.email,
         `Senha redefinida com sucesso - ${brandIdentity.subjectBrandName}`,
-        html
+        html,
+        getPortalEmailFrom(portalBrand),
       );
     } catch (error) {
       console.error('Failed to send reset success email:', error);

@@ -6,6 +6,8 @@ export type PortalBrandIdentity = {
   key: PortalBrandKey;
   templateBrandName: string;
   subjectBrandName: string;
+  portalBaseUrl: string;
+  emailFrom: string;
 };
 
 export type RequestLike = {
@@ -16,12 +18,16 @@ const BRAND_GECOM: PortalBrandIdentity = {
   key: 'gecom',
   templateBrandName: 'GECOM',
   subjectBrandName: 'GECOM',
+  portalBaseUrl: 'https://portalgecom.log.br',
+  emailFrom: 'GECOM <no-reply@portalgecom.log.br>',
 };
 
 const BRAND_CONVERT: PortalBrandIdentity = {
   key: 'convert',
   templateBrandName: 'C+',
   subjectBrandName: 'Convert Plus',
+  portalBaseUrl: 'https://convert-plus.com',
+  emailFrom: 'Convert Plus <no-reply@portalgecom.log.br>',
 };
 
 function pickFirstHeaderValue(value: HeaderValue): string {
@@ -46,9 +52,8 @@ function pickProtoFromHeader(value: HeaderValue): string {
 
 export function resolvePortalBrandFromHost(hostRaw?: string | null): PortalBrandKey {
   const host = String(hostRaw || '').toLowerCase();
-  if (host.includes('portalgecom.log.br')) return 'gecom';
   if (host.includes('convert-plus.com')) return 'convert';
-  return 'convert';
+  return 'gecom';
 }
 
 export function resolvePortalBrandFromRequest(req?: RequestLike | null): PortalBrandKey {
@@ -62,6 +67,10 @@ export function getPortalBrandIdentity(brand: PortalBrandKey): PortalBrandIdenti
   return brand === 'gecom' ? BRAND_GECOM : BRAND_CONVERT;
 }
 
+export function getPortalEmailFrom(brand: PortalBrandKey): string {
+  return getPortalBrandIdentity(brand).emailFrom;
+}
+
 export function applyEmailTemplateBranding(templateHtml: string, brand: PortalBrandKey): string {
   const identity = getPortalBrandIdentity(brand);
   if (brand === 'gecom') return templateHtml;
@@ -72,16 +81,11 @@ export function applyEmailTemplateBranding(templateHtml: string, brand: PortalBr
     .replace(/G\+/g, identity.templateBrandName);
 }
 
-export function resolvePortalBaseUrlFromHost(hostRaw?: string | null, protoRaw?: string | null): string {
-  const envFallback = String(process.env.FRONTEND_URL || '').trim() || 'https://convert-plus.com';
+export function resolvePortalBaseUrlFromHost(hostRaw?: string | null, _protoRaw?: string | null): string {
   const host = pickHostFromHeader(hostRaw as HeaderValue);
-  if (!host) return envFallback;
-
-  const protoFromArg = pickProtoFromHeader(protoRaw as HeaderValue);
-  const protoFromFallback = envFallback.startsWith('http://') ? 'http' : 'https';
-  const proto = protoFromArg || protoFromFallback || 'https';
-
-  return `${proto}://${host}`;
+  const brand = resolvePortalBrandFromHost(host);
+  const identity = getPortalBrandIdentity(brand);
+  return identity.portalBaseUrl;
 }
 
 export function resolvePortalBaseUrlFromRequest(req?: RequestLike | null): string {

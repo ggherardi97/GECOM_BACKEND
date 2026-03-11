@@ -5,9 +5,22 @@ import { UpdateTransportTypeDto } from "./dto/update-transport-type.dto";
 
 @Injectable()
 export class TransportTypesService {
+  private readonly defaultTransportTypeNames = ['Aereo', 'Maritimo', 'Terrestre'];
+
   constructor(private readonly repo: TransportTypesRepository) {}
 
   public async list() {
+    const current = await this.repo.findMany();
+    if (current.length > 0) return current;
+
+    for (const name of this.defaultTransportTypeNames) {
+      try {
+        await this.repo.create({ name });
+      } catch {
+        // Ignore single insert failures and keep trying the rest.
+      }
+    }
+
     return this.repo.findMany();
   }
 
