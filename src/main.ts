@@ -12,8 +12,12 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
+  const rawBodySaver = (req: any, _res: any, buf: Buffer) => {
+    if (buf?.length) req.rawBody = Buffer.from(buf);
+  };
+
   // Increase payload limits (needed for base64 images in JSON)
-  app.use(bodyParser.json({ limit: '15mb' }) as RequestHandler);
+  app.use(bodyParser.json({ limit: '15mb', verify: rawBodySaver }) as RequestHandler);
   app.use(bodyParser.urlencoded({ limit: '15mb', extended: true }) as RequestHandler);
 
   app.use(cookieParser() as RequestHandler);

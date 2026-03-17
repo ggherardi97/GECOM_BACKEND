@@ -261,6 +261,7 @@ export class BillingPublicController {
   constructor(
     private readonly modulesService: ModulesService,
     private readonly plansService: PlansService,
+    private readonly billingStripeService: BillingStripeService,
   ) {}
 
   @Public()
@@ -273,6 +274,17 @@ export class BillingPublicController {
   @Get('modules')
   listPublicModules() {
     return this.modulesService.listPublicModules();
+  }
+
+  @Public()
+  @Post('stripe/webhook')
+  async stripeWebhook(@Req() req: any, @Body() body: any) {
+    const signature = String(req?.headers?.['stripe-signature'] || '').trim() || undefined;
+    return this.billingStripeService.handleStripeWebhook({
+      payload: body,
+      signature,
+      rawBody: req?.rawBody,
+    });
   }
 }
 

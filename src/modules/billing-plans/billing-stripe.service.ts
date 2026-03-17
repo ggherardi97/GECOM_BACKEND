@@ -3,6 +3,7 @@ import { TenantSubscriptionStatus } from '@prisma/client';
 import Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
+import { getPortalEmailFrom } from '../../common/branding/portal-brand.util';
 
 type SignupSessionInput = {
   signupPayload: Record<string, any>;
@@ -38,6 +39,12 @@ type AttachTenantStripeInput = {
   adminEmail?: string | null;
 };
 
+type StripeWebhookInput = {
+  payload: any;
+  signature?: string;
+  rawBody?: Buffer | string;
+};
+
 @Injectable()
 export class BillingStripeService {
   private stripeClient: Stripe | null = null;
@@ -66,6 +73,72 @@ export class BillingStripeService {
     const raw = Number(process.env.BILLING_TRIAL_DAYS || 7);
     if (!Number.isFinite(raw)) return 7;
     return Math.max(1, Math.min(30, Math.trunc(raw)));
+  }
+
+  async handleStripeWebhook(input: StripeWebhookInput) {
+    const event = this.parseStripeWebhookEvent(input);
+    await this.processStripeEvent(event);
+    return { received: true, event_id: event.id, event_type: event.type };
+  }
+
+  async sendConvertTrialStartedEmail(input: {
+    to: string;
+    name?: string | null;
+    trialDays: number;
+    trialEndAt?: Date | null;
+    monthlyAmount: number;
+    currency?: string | null;
+  }) {
+    const to = String(input.to || '').trim().toLowerCase();
+    if (!to) return;
+
+    const name = String(input.name || '').trim() || 'cliente';
+    const trialDays = Math.max(1, Math.min(30, Math.trunc(Number(input.trialDays || 7))));
+    const trialEndAt = input.trialEndAt ? new Date(input.trialEndAt) : null;
+    const chargeDateLabel = trialEndAt
+      ? this.formatDatePtBr(trialEndAt)
+      : `em ${trialDays} dias`;
+    const formattedMonthly = this.formatMoney(
+      Number(input.monthlyAmount || 0),
+      String(input.currency || this.resolveCurrency() || 'BRL'),
+    );
+
+    const subject = 'Bem-vindo a Convert Plus - seu periodo de teste comecou';
+    const html = `
+      <div style="font-family: Arial, Helvetica, sans-serif; color: #0f2b42; line-height: 1.6;">
+        <h2 style="margin:0 0 12px;">Bem-vindo, ${this.escapeHtml(name)}!</h2>
+        <p style="margin:0 0 10px;">
+          Seu cadastro na <strong>Convert Plus</strong> foi concluido e seu periodo de teste ja comecou.
+        </p>
+        <p style="margin:0 0 10px;">
+          O teste gratuito e de <strong>${trialDays} dias</strong>.
+        </p>
+        <p style="margin:0 0 10px;">
+          Apos esse periodo, sua assinatura sera cobrada no cartao cadastrado no valor de
+          <strong>${this.escapeHtml(formattedMonthly)}/mes</strong>, com a primeira cobranca prevista para
+          <strong>${this.escapeHtml(chargeDateLabel)}</strong>.
+        </p>
+        <p style="margin:0 0 10px;">
+          Nao se preocupe: cancele a qualquer momento em <strong>Perfil -&gt; Meu plano</strong>.
+        </p>
+      </div>
+    `;
+    const text = [
+      `Bem-vindo, ${name}!`,
+      'Seu cadastro na Convert Plus foi concluido e seu periodo de teste ja comecou.',
+      `Periodo de teste: ${trialDays} dias.`,
+      `Primeira cobranca prevista: ${chargeDateLabel}.`,
+      `Valor mensal apos o trial: ${formattedMonthly}/mes.`,
+      'Nao se preocupe: cancele a qualquer momento em Perfil -> Meu plano.',
+    ].join('\n');
+
+    await this.mailer.sendAutomationEmail({
+      to,
+      from: getPortalEmailFrom('convert'),
+      subject,
+      html,
+      text,
+    });
   }
 
   async createPublicSignupPaymentSession(input: SignupSessionInput) {
@@ -305,6 +378,12 @@ export class BillingStripeService {
     const mappedStatus = this.mapStripeStatusToTenantStatus(input.stripeSubscription.status);
     const trialEndAt = this.fromUnixTimestamp(input.stripeSubscription.trial_end);
     const currentPeriodEndAt = this.fromUnixTimestamp(input.stripeSubscription.current_period_end);
+    const renewsReference =
+      mappedStatus === TenantSubscriptionStatus.TRIAL
+        ? trialEndAt || currentPeriodEndAt || null
+        : mappedStatus === TenantSubscriptionStatus.ACTIVE
+          ? currentPeriodEndAt || trialEndAt || null
+          : null;
     const endsAt =
       mappedStatus === TenantSubscriptionStatus.CANCELED
         ? new Date()
@@ -316,7 +395,7 @@ export class BillingStripeService {
         data: {
           ...(input.planId ? { plan_id: input.planId } : {}),
           status: mappedStatus,
-          renews_at: trialEndAt || null,
+          renews_at: renewsReference,
           ends_at: mappedStatus === TenantSubscriptionStatus.CANCELED ? endsAt : null,
           updated_at: now,
         },
@@ -372,7 +451,7 @@ export class BillingStripeService {
           orderBy: [{ updated_at: 'desc' }, { created_at: 'desc' }],
         });
 
-    const stripeRow = await this.prisma.raw.billing_stripe_subscriptions.findFirst({
+    let stripeRow = await this.prisma.raw.billing_stripe_subscriptions.findFirst({
       where: { tenant_id: tenantId },
       orderBy: [{ updated_at: 'desc' }, { created_at: 'desc' }],
     });
@@ -382,25 +461,28 @@ export class BillingStripeService {
       const stripe = this.getStripeOrThrow();
       try {
         const stripeSub = await stripe.subscriptions.retrieve(stripeRow.stripe_subscription_id);
-        const mappedStatus = this.mapStripeStatusToTenantStatus(stripeSub.status);
-        const syncedRenewsAt = this.fromUnixTimestamp(stripeSub.trial_end);
-        const syncedEndsAt =
-          mappedStatus === TenantSubscriptionStatus.CANCELED
-            ? this.fromUnixTimestamp(stripeSub.current_period_end) || new Date()
-            : null;
+        await this.syncLocalStripeSubscription(stripeSub);
 
-        if (latest?.id && latest.status !== mappedStatus) {
-          latest = await this.prisma.raw.tenant_subscriptions.update({
-            where: { id: latest.id },
-            data: {
-              status: mappedStatus,
-              renews_at: syncedRenewsAt,
-              ends_at: syncedEndsAt,
-              updated_at: new Date(),
-            },
+        latest = await this.prisma.raw.tenant_subscriptions.findFirst({
+          where: {
+            tenant_id: tenantId,
+            status: { in: [TenantSubscriptionStatus.TRIAL, TenantSubscriptionStatus.ACTIVE] },
+          },
+          include: { plan: true },
+          orderBy: [{ starts_at: 'desc' }, { created_at: 'desc' }],
+        });
+        if (!latest) {
+          latest = await this.prisma.raw.tenant_subscriptions.findFirst({
+            where: { tenant_id: tenantId },
             include: { plan: true },
+            orderBy: [{ updated_at: 'desc' }, { created_at: 'desc' }],
           });
         }
+
+        stripeRow = await this.prisma.raw.billing_stripe_subscriptions.findFirst({
+          where: { tenant_id: tenantId },
+          orderBy: [{ updated_at: 'desc' }, { created_at: 'desc' }],
+        });
 
         stripeSnapshot = {
           id: stripeSub.id,
@@ -531,7 +613,10 @@ export class BillingStripeService {
       data: {
         plan_id: targetPlan.id,
         status: this.mapStripeStatusToTenantStatus(updatedStripeSub.status),
-        renews_at: this.fromUnixTimestamp(updatedStripeSub.trial_end),
+        renews_at: this.resolveRenewsAtFromStripeSubscription(
+          updatedStripeSub,
+          this.mapStripeStatusToTenantStatus(updatedStripeSub.status),
+        ),
         updated_at: new Date(),
       },
     });
@@ -669,6 +754,318 @@ export class BillingStripeService {
     return { ok: true, id: created.id };
   }
 
+  private parseStripeWebhookEvent(input: StripeWebhookInput): Stripe.Event {
+    const payload = input?.payload;
+    const signature = String(input?.signature || '').trim();
+    const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+    const stripe = this.getStripeOrThrow();
+
+    if (webhookSecret) {
+      if (!signature) {
+        throw new BadRequestException('Cabecalho stripe-signature ausente.');
+      }
+      const rawPayload = Buffer.isBuffer(input?.rawBody)
+        ? input.rawBody
+        : typeof input?.rawBody === 'string'
+          ? Buffer.from(input.rawBody)
+          : Buffer.from(JSON.stringify(payload || {}));
+
+      try {
+        return stripe.webhooks.constructEvent(rawPayload, signature, webhookSecret);
+      } catch {
+        throw new BadRequestException('Assinatura do webhook Stripe invalida.');
+      }
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      throw new BadRequestException('Payload de webhook Stripe invalido.');
+    }
+
+    const event = payload as Stripe.Event;
+    if (!event.type) {
+      throw new BadRequestException('Evento Stripe sem tipo.');
+    }
+    return event;
+  }
+
+  private async processStripeEvent(event: Stripe.Event): Promise<void> {
+    switch (event.type) {
+      case 'invoice.payment_succeeded':
+        await this.handleInvoicePaymentSucceeded(event.data.object as Stripe.Invoice);
+        return;
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+        await this.syncLocalStripeSubscription(event.data.object as Stripe.Subscription);
+        return;
+      default:
+        return;
+    }
+  }
+
+  private async handleInvoicePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
+    const subscriptionIdRaw = invoice.subscription;
+    const subscriptionId =
+      typeof subscriptionIdRaw === 'string'
+        ? subscriptionIdRaw
+        : String((subscriptionIdRaw as any)?.id || '').trim();
+    if (!subscriptionId) return;
+
+    const amountPaid = Number(invoice.amount_paid || 0) / 100;
+    if (!Number.isFinite(amountPaid) || amountPaid <= 0) return;
+
+    const stripe = this.getStripeOrThrow();
+    const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const syncResult = await this.syncLocalStripeSubscription(stripeSubscription);
+    if (!syncResult.tenantId) return;
+
+    const isConvert = await this.isConvertTenantSubscription(
+      syncResult.tenantId,
+      stripeSubscription,
+      syncResult.stripeRow,
+    );
+    if (!isConvert) return;
+
+    await this.sendConvertChargeSucceededEmail({
+      tenantId: syncResult.tenantId,
+      stripeSubscription,
+      stripeRow: syncResult.stripeRow,
+      invoice,
+      amountPaid,
+    });
+  }
+
+  private async syncLocalStripeSubscription(
+    stripeSubscription: Stripe.Subscription,
+  ): Promise<{ tenantId: string | null; stripeRow: any | null; tenantSubscriptionId: string | null }> {
+    const subscriptionId = String(stripeSubscription?.id || '').trim();
+    if (!subscriptionId) return { tenantId: null, stripeRow: null, tenantSubscriptionId: null };
+
+    const stripeRow = await this.prisma.raw.billing_stripe_subscriptions.findUnique({
+      where: { stripe_subscription_id: subscriptionId },
+    });
+    if (!stripeRow?.tenant_id) {
+      return { tenantId: null, stripeRow: stripeRow || null, tenantSubscriptionId: null };
+    }
+
+    const tenantId = String(stripeRow.tenant_id);
+    const now = new Date();
+    const mappedStatus = this.mapStripeStatusToTenantStatus(stripeSubscription.status);
+    const trialStartAt = this.fromUnixTimestamp(stripeSubscription.trial_start);
+    const trialEndAt = this.fromUnixTimestamp(stripeSubscription.trial_end);
+    const currentPeriodStartAt = this.fromUnixTimestamp(stripeSubscription.current_period_start);
+    const currentPeriodEndAt = this.fromUnixTimestamp(stripeSubscription.current_period_end);
+    const canceledAt = this.fromUnixTimestamp((stripeSubscription as any)?.canceled_at);
+
+    let tenantSubscriptionId = String(stripeRow.tenant_subscription_id || '').trim() || null;
+    if (!tenantSubscriptionId) {
+      const activeLocal = await this.prisma.raw.tenant_subscriptions.findFirst({
+        where: {
+          tenant_id: tenantId,
+          status: { in: [TenantSubscriptionStatus.TRIAL, TenantSubscriptionStatus.ACTIVE] },
+        },
+        orderBy: [{ starts_at: 'desc' }, { created_at: 'desc' }],
+      });
+      if (activeLocal?.id) {
+        tenantSubscriptionId = String(activeLocal.id);
+      }
+    }
+
+    await this.prisma.raw.billing_stripe_subscriptions.updateMany({
+      where: { tenant_id: tenantId, stripe_subscription_id: subscriptionId },
+      data: {
+        tenant_subscription_id: tenantSubscriptionId,
+        stripe_customer_id: String(stripeSubscription.customer || stripeRow.stripe_customer_id || ''),
+        stripe_price_id: stripeSubscription.items?.data?.[0]?.price?.id || stripeRow.stripe_price_id || null,
+        status: String(stripeSubscription.status || stripeRow.status || 'active'),
+        cancel_at_period_end: !!stripeSubscription.cancel_at_period_end,
+        trial_start_at: trialStartAt,
+        trial_end_at: trialEndAt,
+        current_period_start_at: currentPeriodStartAt,
+        current_period_end_at: currentPeriodEndAt,
+        canceled_at: canceledAt,
+        metadata_json: (stripeSubscription.metadata || {}) as any,
+        updated_at: now,
+      },
+    });
+
+    const renewsAt = this.resolveRenewsAtFromStripeSubscription(stripeSubscription, mappedStatus);
+    const endsAt =
+      mappedStatus === TenantSubscriptionStatus.CANCELED
+        ? canceledAt || currentPeriodEndAt || now
+        : null;
+
+    if (tenantSubscriptionId) {
+      await this.prisma.raw.tenant_subscriptions.update({
+        where: { id: tenantSubscriptionId },
+        data: {
+          ...(stripeRow.plan_id ? { plan_id: stripeRow.plan_id } : {}),
+          status: mappedStatus,
+          renews_at: renewsAt,
+          ends_at: mappedStatus === TenantSubscriptionStatus.CANCELED ? endsAt : null,
+          updated_at: now,
+        },
+      });
+    }
+
+    const refreshedRow = await this.prisma.raw.billing_stripe_subscriptions.findUnique({
+      where: { stripe_subscription_id: subscriptionId },
+    });
+
+    return {
+      tenantId,
+      stripeRow: refreshedRow || stripeRow,
+      tenantSubscriptionId,
+    };
+  }
+
+  private resolveRenewsAtFromStripeSubscription(
+    stripeSubscription: Stripe.Subscription,
+    mappedStatus: TenantSubscriptionStatus,
+  ): Date | null {
+    if (mappedStatus === TenantSubscriptionStatus.TRIAL) {
+      return this.fromUnixTimestamp(stripeSubscription.trial_end) ||
+        this.fromUnixTimestamp(stripeSubscription.current_period_end);
+    }
+    if (mappedStatus === TenantSubscriptionStatus.ACTIVE) {
+      return this.fromUnixTimestamp(stripeSubscription.current_period_end) ||
+        this.fromUnixTimestamp(stripeSubscription.trial_end);
+    }
+    return null;
+  }
+
+  private async isConvertTenantSubscription(
+    tenantId: string,
+    stripeSubscription: Stripe.Subscription,
+    stripeRow?: any,
+  ): Promise<boolean> {
+    const metadata = stripeSubscription.metadata || {};
+    const localMetadata = (stripeRow?.metadata_json || {}) as Record<string, unknown>;
+    const metadataBrand = String(
+      metadata.portal_brand || localMetadata.portal_brand || '',
+    )
+      .trim()
+      .toLowerCase();
+
+    if (metadataBrand === 'convert' || metadataBrand === 'convert-plus') return true;
+    if (metadataBrand === 'gecom') return false;
+
+    const tenant = await this.prisma.raw.tenants.findUnique({
+      where: { id: tenantId },
+      select: { slug: true },
+    });
+
+    return String(tenant?.slug || '')
+      .trim()
+      .toLowerCase()
+      .includes('convert');
+  }
+
+  private async sendConvertChargeSucceededEmail(input: {
+    tenantId: string;
+    stripeSubscription: Stripe.Subscription;
+    stripeRow?: any;
+    invoice: Stripe.Invoice;
+    amountPaid: number;
+  }): Promise<void> {
+    const tenantId = String(input.tenantId || '').trim();
+    if (!tenantId) return;
+
+    const [tenant, stripeCustomer] = await Promise.all([
+      this.prisma.raw.tenants.findUnique({
+        where: { id: tenantId },
+        include: {
+          company: {
+            include: {
+              primaryUser: {
+                select: { email: true, full_name: true },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.raw.billing_stripe_customers.findFirst({
+        where: { tenant_id: tenantId },
+        select: { email: true },
+      }),
+    ]);
+
+    const to = String(tenant?.company?.primaryUser?.email || stripeCustomer?.email || '')
+      .trim()
+      .toLowerCase();
+    if (!to) return;
+
+    const planId = String(input.stripeRow?.plan_id || '').trim() || null;
+    const plan = planId
+      ? await this.prisma.raw.plans.findUnique({
+          where: { id: planId },
+          select: { name: true, monthly_price: true },
+        })
+      : null;
+
+    const currency = String(input.invoice.currency || this.resolveCurrency() || 'BRL').toUpperCase();
+    const chargeValue = this.formatMoney(input.amountPaid, currency);
+    const planValue = this.formatMoney(Number(plan?.monthly_price || input.amountPaid || 0), currency);
+    const planName = String(
+      plan?.name ||
+        input.stripeSubscription.metadata?.gecom_plan_name ||
+        input.stripeRow?.metadata_json?.gecom_plan_name ||
+        'Plano atual',
+    ).trim();
+
+    const paidAt =
+      this.fromUnixTimestamp((input.invoice as any)?.status_transitions?.paid_at) ||
+      this.fromUnixTimestamp(input.invoice.created) ||
+      new Date();
+    const periodEnd =
+      this.fromUnixTimestamp(input.stripeSubscription.current_period_end) ||
+      this.fromUnixTimestamp((input.invoice as any)?.period_end) ||
+      null;
+
+    const paidAtLabel = this.formatDatePtBr(paidAt);
+    const periodEndLabel = periodEnd ? this.formatDatePtBr(periodEnd) : null;
+    const contactName = String(tenant?.company?.primaryUser?.full_name || 'cliente').trim();
+    const tenantName = String(tenant?.name || 'sua empresa').trim();
+
+    const subject = `Cobranca confirmada - ${planName} - Convert Plus`;
+    const html = `
+      <div style="font-family: Arial, Helvetica, sans-serif; color: #0f2b42; line-height: 1.6;">
+        <h2 style="margin:0 0 12px;">Ola, ${this.escapeHtml(contactName)}.</h2>
+        <p style="margin:0 0 10px;">
+          Confirmamos a cobranca mensal do plano da empresa <strong>${this.escapeHtml(tenantName)}</strong>.
+        </p>
+        <p style="margin:0 0 10px;">
+          <strong>Valor cobrado:</strong> ${this.escapeHtml(chargeValue)}<br/>
+          <strong>Valor do plano (${this.escapeHtml(planName)}):</strong> ${this.escapeHtml(planValue)} / mes<br/>
+          <strong>Data da cobranca:</strong> ${this.escapeHtml(paidAtLabel)}
+          ${periodEndLabel ? `<br/><strong>Proxima referencia de ciclo:</strong> ${this.escapeHtml(periodEndLabel)}` : ''}
+        </p>
+        <p style="margin:0;">
+          Voce pode acompanhar ou cancelar o plano em <strong>Perfil -&gt; Meu plano</strong>.
+        </p>
+      </div>
+    `;
+    const text = [
+      `Ola, ${contactName}.`,
+      `Confirmamos a cobranca mensal do plano da empresa ${tenantName}.`,
+      `Valor cobrado: ${chargeValue}`,
+      `Valor do plano (${planName}): ${planValue}/mes`,
+      `Data da cobranca: ${paidAtLabel}`,
+      periodEndLabel ? `Proxima referencia de ciclo: ${periodEndLabel}` : null,
+      'Voce pode acompanhar ou cancelar o plano em Perfil -> Meu plano.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    await this.mailer.sendAutomationEmail({
+      to,
+      from: getPortalEmailFrom('convert'),
+      subject,
+      html,
+      text,
+    });
+  }
+
   private getStripeOrThrow(): Stripe {
     const secret = String(process.env.STRIPE_SECRET_KEY || '').trim();
     if (!secret) {
@@ -696,6 +1093,38 @@ export class BillingStripeService {
     return String(raw || '')
       .trim()
       .toUpperCase();
+  }
+
+  private formatMoney(value: number, currencyRaw: string): string {
+    const amount = Number(value || 0);
+    const currency = String(currencyRaw || 'BRL')
+      .trim()
+      .toUpperCase();
+    try {
+      return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: currency || 'BRL',
+      }).format(amount);
+    } catch {
+      return `${amount.toFixed(2)} ${currency || 'BRL'}`;
+    }
+  }
+
+  private formatDatePtBr(value: Date): string {
+    try {
+      return value.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    } catch {
+      return value.toISOString().slice(0, 10);
+    }
+  }
+
+  private escapeHtml(value: string): string {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private normalizeMoney(value: number): number {

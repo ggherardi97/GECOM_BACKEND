@@ -16,10 +16,14 @@ export class CreateUserDTO {
   @MinLength(8)
   password!: string;
 
-  @ApiPropertyOptional({ enum: UserRole, example: UserRole.USER })
+  @ApiPropertyOptional({
+    example: UserRole.USER,
+    description:
+      'Legacy role (USER/ADMIN/MANAGER/CUSTOMER) or access-role code already registered in the tenant.',
+  })
   @IsOptional()
-  @IsEnum(UserRole)
-  role?: UserRole;
+  @IsString()
+  role?: string;
 
   @ApiPropertyOptional({ enum: UserStatusEnum, example: UserStatusEnum.ACTIVE })
   @IsOptional()

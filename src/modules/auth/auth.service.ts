@@ -964,6 +964,10 @@ export class AuthService {
 
   async completeSignupPayment(dto: SignUpPaymentCompleteDTO, req: Request): Promise<SignUpResponseDTO> {
     const session = await this.billingStripeService.getPublicSignupPaymentSession(dto.session_id);
+    const portalBrand = resolvePortalBrandFromRequest(req);
+    const hostRaw = (req?.headers?.['x-forwarded-host'] || req?.headers?.host || '') as string | string[];
+    const host = Array.isArray(hostRaw) ? String(hostRaw[0] || '') : String(hostRaw || '');
+    const normalizedHost = host.split(',')[0]?.trim().toLowerCase() || '';
     if (session.completed_at) {
       throw new BadRequestException('Esta sessao de pagamento ja foi concluida.');
     }
@@ -1025,6 +1029,8 @@ export class AuthService {
       trialDays,
       metadata: {
         signup_session_id: String(session.id),
+        portal_brand: portalBrand,
+        ...(normalizedHost ? { portal_host: normalizedHost.slice(0, 120) } : {}),
       },
     });
 
@@ -1072,6 +1078,21 @@ export class AuthService {
     } catch (error) {
       // Non-blocking after successful signup; user should not lose access due to sync issue.
       console.error('Failed to persist Stripe binding after signup:', error);
+    }
+
+    if (portalBrand === 'convert') {
+      try {
+        await this.billingStripeService.sendConvertTrialStartedEmail({
+          to: String(session.admin_email || signupPayload.admin_email || '').trim().toLowerCase(),
+          name: String(session.admin_full_name || signupPayload.admin_full_name || '').trim() || null,
+          trialDays,
+          trialEndAt: trialEndDate,
+          monthlyAmount: Number(session.monthly_amount || 0),
+          currency: String(session.currency || 'BRL'),
+        });
+      } catch (error) {
+        console.error('Failed to send Convert trial welcome email:', error);
+      }
     }
 
     return signupResult;
@@ -1496,8 +1517,10 @@ export class AuthService {
         user_id: user.id,
       } as any);
 
+      const forgotTemplateFileName =
+        portalBrand === 'convert' ? 'forgot-password-convert.html' : 'forgot-password.html';
       const template = readFileSync(
-        join(__dirname, '..', 'mailer', 'templates', 'forgot-password.html'),
+        join(__dirname, '..', 'mailer', 'templates', forgotTemplateFileName),
         'utf8'
       );
 
