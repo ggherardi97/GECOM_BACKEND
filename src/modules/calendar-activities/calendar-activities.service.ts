@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ContractsService } from '../contracts/contracts.service';
+import { GoogleCalendarService } from '../google-calendar/google-calendar.service';
 
 type AuthUser = {
   id: string;
@@ -29,6 +30,7 @@ type LookupInput = {
 
 type ActivityTypeKey =
   | 'events'
+  | 'google_calendar_events'
   | 'service_appointments'
   | 'hr_leave_requests'
   | 'hr_employee_schedule_assignments'
@@ -54,6 +56,7 @@ type ActivityDefinition = {
   label: string;
   color: string;
   fields: ActivityField[];
+  create_enabled?: boolean;
 };
 
 type CalendarEventRow = {
@@ -108,6 +111,13 @@ const ACTIVITY_DEFINITIONS: ActivityDefinition[] = [
       { name: 'finished', label: 'Concluido', type: 'checkbox' },
       { name: 'document_related', label: 'Relacionado a documento', type: 'checkbox' },
     ],
+  },
+  {
+    type: 'google_calendar_events',
+    label: 'Google Agenda',
+    color: '#4285f4',
+    fields: [],
+    create_enabled: false,
   },
   {
     type: 'service_appointments',
@@ -316,6 +326,7 @@ export class CalendarActivitiesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contractsService: ContractsService,
+    private readonly googleCalendarService: GoogleCalendarService,
   ) {}
 
   private get db(): any {
@@ -338,6 +349,7 @@ export class CalendarActivitiesService {
 
     const byType: Record<ActivityTypeKey, () => Promise<CalendarEventRow[]>> = {
       events: () => this.listEventsRows(user, start, end),
+      google_calendar_events: () => this.googleCalendarService.listCachedEventsForAgenda(user, start, end),
       service_appointments: () => this.listServiceAppointments(user, start, end),
       hr_leave_requests: () => this.listHrLeaveRequests(user, start, end),
       hr_employee_schedule_assignments: () => this.listHrEmployeeScheduleAssignments(user, start, end),

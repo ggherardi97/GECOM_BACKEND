@@ -1357,6 +1357,9 @@ export class FinanceService {
     const toDate = this.toDateOnly(to) ?? this.addDays(fromDate, 60);
     if (toDate < fromDate) throw new BadRequestException('Invalid period: to must be >= from');
 
+    const rangeStart = new Date(fromDate);
+    const rangeEnd = this.toDateEnd(this.dateKey(toDate)) ?? new Date(toDate);
+
     const [receivables, payables, accounts] = await Promise.all([
       this.db.financial_receivables.findMany({
         where: {
@@ -1378,9 +1381,28 @@ export class FinanceService {
       }),
       this.db.financial_bank_accounts.findMany({
         where: { tenant_id: user.tenant_id, is_active: true },
-        select: { current_balance: true },
+        select: { id: true, opening_balance: true },
       }),
     ]);
+
+    const activeAccountIds = accounts
+      .map((item) => String(item.id || '').trim())
+      .filter(Boolean);
+
+    const bankMovements = activeAccountIds.length
+      ? await this.db.financial_bank_movements.findMany({
+          where: {
+            tenant_id: user.tenant_id,
+            bank_account_id: { in: activeAccountIds },
+            movement_date: { lte: rangeEnd },
+          },
+          select: {
+            movement_date: true,
+            movement_type: true,
+            amount: true,
+          },
+        })
+      : [];
 
     const incomingMap = new Map<string, number>();
     const outgoingMap = new Map<string, number>();
@@ -1393,7 +1415,27 @@ export class FinanceService {
       outgoingMap.set(key, this.roundMoney((outgoingMap.get(key) ?? 0) + Number(row.outstanding_amount || 0)));
     }
 
-    const openingBalance = accounts.reduce((acc, item) => acc + Number(item.current_balance || 0), 0);
+    let openingBalance = accounts.reduce((acc, item) => acc + Number(item.opening_balance || 0), 0);
+    for (const movement of bankMovements) {
+      const movementDate = new Date(movement.movement_date as any);
+      if (Number.isNaN(movementDate.getTime())) continue;
+
+      const amount = this.roundMoney(Number(movement.amount || 0));
+      const isCredit = movement.movement_type === FinancialMovementType.CREDIT;
+
+      if (movementDate < rangeStart) {
+        openingBalance = this.roundMoney(openingBalance + (isCredit ? amount : -amount));
+        continue;
+      }
+
+      const key = this.dateKey(movementDate);
+      if (isCredit) {
+        incomingMap.set(key, this.roundMoney((incomingMap.get(key) ?? 0) + amount));
+      } else {
+        outgoingMap.set(key, this.roundMoney((outgoingMap.get(key) ?? 0) + amount));
+      }
+    }
+
     const days: Array<{ date: string; incoming: number; outgoing: number; net: number; projected_balance: number }> = [];
     let cursor = fromDate;
     let runningBalance = this.roundMoney(openingBalance);

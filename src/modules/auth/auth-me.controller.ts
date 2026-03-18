@@ -18,6 +18,7 @@ export class AuthMeController {
       where: { id: userId },
       select: {
         id: true,
+        tenant_id: true,
         full_name: true,
         email: true,
         role: true,

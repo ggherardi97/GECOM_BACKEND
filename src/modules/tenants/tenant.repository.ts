@@ -15,6 +15,14 @@ const tenantSelect = {
     select: {
       id: true,
       company_name: true,
+      phone: true,
+      address_line: true,
+      address_street: true,
+      address_number: true,
+      address_city: true,
+      address_country: true,
+      address_postalcode: true,
+      address_state: true,
     },
   },
 } satisfies Prisma.tenantsSelect;

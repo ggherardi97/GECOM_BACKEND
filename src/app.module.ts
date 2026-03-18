@@ -49,6 +49,7 @@ import { ProjectOperationsModule } from './modules/project-operations/project-op
 import { AdminConfigModule } from './modules/admin-config/admin-config.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 import { CalendarActivitiesModule } from './modules/calendar-activities/calendar-activities.module';
+import { GoogleCalendarModule } from './modules/google-calendar/google-calendar.module';
 import { MetadataDesignerModule } from './modules/metadata-designer/metadata-designer.module';
 
 @Module({
@@ -106,6 +107,7 @@ import { MetadataDesignerModule } from './modules/metadata-designer/metadata-des
     AdminConfigModule,
     AccessControlModule,
     CalendarActivitiesModule,
+    GoogleCalendarModule,
     MetadataDesignerModule,
   ],
   controllers: [AppController],
