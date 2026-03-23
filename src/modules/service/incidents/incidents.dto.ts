@@ -3,9 +3,10 @@ import { IncidentChannel, IncidentImpact, IncidentPriority, IncidentStatus, Inci
 import { IsDateString, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateIncidentDto {
+  @IsOptional()
   @IsString()
   @MaxLength(50)
-  number: string;
+  number?: string;
 
   @IsString()
   @MaxLength(255)

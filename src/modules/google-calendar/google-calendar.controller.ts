@@ -13,6 +13,7 @@ import type { Request, Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { Public } from '../auth/decorators/public.decorator';
 import { GoogleCalendarService } from './google-calendar.service';
 
 type AuthUser = {
@@ -46,9 +47,10 @@ export class GoogleCalendarController {
   }
 
   @Get('callback')
+  @Public()
   async callback(@Req() req: Request, @Res() res: Response, @Query() query: Record<string, any>) {
     try {
-      const result = await this.service.finalizeOAuthCallback(this.getUser(req), req, query);
+      const result = await this.service.finalizeOAuthCallback(req, query);
       return res
         .status(200)
         .type('html')

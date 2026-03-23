@@ -1,5 +1,6 @@
 ﻿import { Injectable } from '@nestjs/common';
 import { AutomationAiService } from '../ai.service';
+import { AutomationMetadataService } from '../automation-metadata.service';
 import { AutomationActionRunner, ActionRunnerArgs } from './automation-action-runner.interface';
 import { renderTemplateValue } from './template.util';
 
@@ -7,7 +8,10 @@ import { renderTemplateValue } from './template.util';
 export class AiActionRunner implements AutomationActionRunner {
   readonly type = 'AI_ACTION' as const;
 
-  constructor(private readonly aiService: AutomationAiService) {}
+  constructor(
+    private readonly aiService: AutomationAiService,
+    private readonly metadataService: AutomationMetadataService,
+  ) {}
 
   async run({ action, context, accumulatedOutput }: ActionRunnerArgs): Promise<Record<string, unknown>> {
     const config = (action.config ?? {}) as Record<string, unknown>;
@@ -22,6 +26,7 @@ export class AiActionRunner implements AutomationActionRunner {
 
     const prompt = renderTemplateValue(String(config.prompt ?? ''), templateSource);
     const outputKey = String(config.outputKey ?? 'ai_result').trim() || 'ai_result';
+    const instructions = String(config.instructions ?? '').trim();
 
     if (!prompt) {
       return {
@@ -33,6 +38,8 @@ export class AiActionRunner implements AutomationActionRunner {
     const result = await this.aiService.runPrompt({
       prompt,
       context: templateSource,
+      catalog: await this.metadataService.buildAiCatalog(context.tenantId),
+      instructions,
     });
 
     return {

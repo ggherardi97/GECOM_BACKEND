@@ -28,6 +28,7 @@ type ListQuery = {
   process_id?: string;
   owner_user_id?: string;
   resource_id?: string;
+  incident_id?: string;
   priority?: string;
   work_order_id?: string;
   checklist_id?: string;
@@ -53,6 +54,7 @@ type ResourceConfig = {
   ownerField?: string;
   priorityField?: string;
   resourceField?: string;
+  incidentField?: string;
   workOrderField?: string;
   checklistField?: string;
   dueDateField?: string;
@@ -204,6 +206,9 @@ export class ProjectOperationsService {
 
     const resourceId = String(query.resource_id || '').trim();
     if (resourceId && config.resourceField) where[config.resourceField] = resourceId;
+
+    const incidentId = String(query.incident_id || '').trim();
+    if (incidentId && config.incidentField) where[config.incidentField] = incidentId;
 
     const workOrderId = String(query.work_order_id || '').trim();
     if (workOrderId && config.workOrderField) where[config.workOrderField] = workOrderId;
@@ -546,10 +551,12 @@ export class ProjectOperationsService {
       statusField: 'status_id',
       projectField: 'project_id',
       processField: 'process_id',
+      incidentField: 'incident_id',
       ownerField: 'owner_user_id',
       priorityField: 'priority',
       startDateField: 'planned_start',
       include: {
+        incident: { select: { id: true, number: true, title: true, status: true } },
         process: { select: { id: true, process_number: true } },
         project: { select: { id: true, code: true, name: true } },
         status: { select: { id: true, name: true, code: true, color: true } },
@@ -739,6 +746,9 @@ export class ProjectOperationsService {
           include: { resource: { select: { id: true, name: true, is_active: true } } },
           orderBy: [{ created_at: 'asc' }],
         },
+        incident: {
+          select: { id: true, number: true, title: true },
+        },
       },
     });
 
@@ -785,6 +795,7 @@ export class ProjectOperationsService {
           data: {
             tenant_id: user.tenant_id,
             resource_id: resource.id,
+            incident_id: workOrder.incident_id || null,
             title: `${baseTitle} (${resource.name})`,
             start_at: startAt,
             end_at: endAt,

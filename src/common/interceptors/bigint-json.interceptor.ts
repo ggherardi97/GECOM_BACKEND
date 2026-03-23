@@ -23,7 +23,7 @@ function isDecimalLike(value: any): boolean {
   return false;
 }
 
-function convertBigInt(value: any): any {
+function convertBigInt(value: any, seen = new WeakSet<object>()): any {
   if (value === null || value === undefined) return value;
 
   if (value instanceof Date) return value.toISOString();
@@ -37,12 +37,16 @@ function convertBigInt(value: any): any {
   }
 
   if (Array.isArray(value)) {
-    return value.map(convertBigInt);
+    return value.map((item) => convertBigInt(item, seen));
   }
 
   if (typeof value === "object") {
+    if (seen.has(value)) {
+      return null;
+    }
+    seen.add(value);
     const out: Record<string, any> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = convertBigInt(v);
+    for (const [k, v] of Object.entries(value)) out[k] = convertBigInt(v, seen);
     return out;
   }
 

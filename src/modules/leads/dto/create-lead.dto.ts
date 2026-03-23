@@ -11,6 +11,7 @@ export enum LeadSourceDto {
   WEBSITE = 'WEBSITE',
   INDICATION = 'INDICATION',
   IMPORT = 'IMPORT',
+  WHATSAPP = 'WHATSAPP',
   OTHER = 'OTHER',
 }
 
@@ -30,6 +31,9 @@ function normalizeEnumInput(value: unknown): unknown {
     WEB: 'WEBSITE',
     INDICACAO: 'INDICATION',
     IMPORTACAO: 'IMPORT',
+    ZAP: 'WHATSAPP',
+    WHATS: 'WHATSAPP',
+    WHATSAPP: 'WHATSAPP',
     NOVO: 'NEW',
     QUALIFICADO: 'QUALIFIED',
     DESQUALIFICADO: 'DISQUALIFIED',

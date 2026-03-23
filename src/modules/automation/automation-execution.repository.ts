@@ -21,29 +21,47 @@ export class AutomationExecutionRepository {
   async listByAutomation(tenantId: string, automationId: string, filters?: ListExecutionFilters) {
     const limit = this.normalizeLimit(filters?.limit);
     const search = String(filters?.search || '').trim();
+    const whereClauses: Prisma.Sql[] = [
+      Prisma.sql`"tenant_id" = CAST(${tenantId} AS uuid)`,
+      Prisma.sql`"automation_id" = CAST(${automationId} AS uuid)`,
+    ];
 
-    return this.prisma.automation_executions.findMany({
-      where: {
-        tenant_id: tenantId,
-        automation_id: automationId,
-        ...(filters?.status ? { status: filters.status } : {}),
-        ...(filters?.from || filters?.to
-          ? {
-              executed_at: {
-                ...(filters.from ? { gte: filters.from } : {}),
-                ...(filters.to ? { lte: filters.to } : {}),
-              },
-            }
-          : {}),
-        ...(search
-          ? {
-              error_message: { contains: search, mode: 'insensitive' },
-            }
-          : {}),
-      },
-      orderBy: [{ executed_at: 'desc' }],
-      take: limit,
-    });
+    if (filters?.status) {
+      whereClauses.push(Prisma.sql`"status" = ${filters.status}::"AutomationExecutionStatus"`);
+    }
+
+    if (filters?.from) {
+      whereClauses.push(Prisma.sql`"executed_at" >= ${filters.from}`);
+    }
+
+    if (filters?.to) {
+      whereClauses.push(Prisma.sql`"executed_at" <= ${filters.to}`);
+    }
+
+    if (search) {
+      const pattern = `%${search}%`;
+      whereClauses.push(Prisma.sql`(
+        COALESCE("error_message", '') ILIKE ${pattern}
+        OR CAST(COALESCE("input_payload", '{}'::jsonb) AS TEXT) ILIKE ${pattern}
+        OR CAST(COALESCE("output_payload", '{}'::jsonb) AS TEXT) ILIKE ${pattern}
+      )`);
+    }
+
+    return this.prisma.raw.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT
+        "id",
+        "tenant_id",
+        "automation_id",
+        "status",
+        "input_payload",
+        "output_payload",
+        "error_message",
+        "executed_at"
+      FROM "automation_executions"
+      WHERE ${Prisma.join(whereClauses, ' AND ')}
+      ORDER BY "executed_at" DESC
+      LIMIT ${limit}
+    `);
   }
 
   private normalizeLimit(limit?: number): number {

@@ -50,6 +50,7 @@ export class UpdateFieldActionRunner implements AutomationActionRunner {
 
     const columns = await this.metadataService.listEntityColumns(entityName);
     const columnSet = new Set(columns.map((column) => column.name));
+    const columnByName = new Map(columns.map((column) => [column.name, column]));
     const updatableFieldSet = new Set(updatableFields.map((item) => item.name));
     const updates: Record<string, unknown> = {};
 
@@ -70,16 +71,17 @@ export class UpdateFieldActionRunner implements AutomationActionRunner {
       updates.updated_at = new Date();
     }
 
-    const setClauses = Object.entries(updates).map(([field, value]) =>
-      Prisma.sql`${Prisma.raw(`"${field}"`)} = ${value as any}`,
-    );
+    const setClauses = Object.entries(updates).map(([field, value]) => {
+      const column = columnByName.get(field);
+      return Prisma.sql`${Prisma.raw(`"${field}"`)} = ${this.toColumnValueSql(column, value)}`;
+    });
 
     const affected = await this.prisma.raw.$executeRaw(
       Prisma.sql`
         UPDATE ${Prisma.raw(`"${entityName}"`)}
         SET ${Prisma.join(setClauses, ', ')}
         WHERE CAST("tenant_id" AS TEXT) = ${context.tenantId}
-          AND "id" = ${resolvedRecordId}
+          AND CAST("id" AS TEXT) = ${resolvedRecordId}
       `,
     );
 
@@ -125,5 +127,80 @@ export class UpdateFieldActionRunner implements AutomationActionRunner {
     }
 
     return output;
+  }
+
+  private toColumnValueSql(
+    column:
+      | {
+          dataType: string;
+          udtName: string;
+        }
+      | undefined,
+    value: unknown,
+  ): Prisma.Sql {
+    if (value === undefined) return Prisma.sql`NULL`;
+    if (!column || value === null) return Prisma.sql`${value as any}`;
+
+    const dataType = String(column.dataType || '').toLowerCase();
+    const udtName = String(column.udtName || '').toLowerCase();
+
+    if (dataType === 'uuid' || udtName === 'uuid') {
+      const normalized = String(value || '').trim();
+      return normalized ? Prisma.sql`CAST(${normalized} AS UUID)` : Prisma.sql`NULL`;
+    }
+
+    if (dataType === 'date' || udtName === 'date') {
+      if (value instanceof Date) {
+        return Prisma.sql`CAST(${value.toISOString().slice(0, 10)} AS DATE)`;
+      }
+      const normalized = String(value || '').trim();
+      return normalized ? Prisma.sql`CAST(${normalized} AS DATE)` : Prisma.sql`NULL`;
+    }
+
+    if (dataType.includes('timestamp') || udtName.includes('timestamp')) {
+      if (value instanceof Date) {
+        return Prisma.sql`CAST(${value.toISOString()} AS TIMESTAMP)`;
+      }
+      const normalized = String(value || '').trim();
+      return normalized ? Prisma.sql`CAST(${normalized} AS TIMESTAMP)` : Prisma.sql`NULL`;
+    }
+
+    if (
+      dataType === 'integer' ||
+      udtName === 'int2' ||
+      udtName === 'int4' ||
+      udtName === 'int8' ||
+      dataType === 'smallint' ||
+      dataType === 'bigint'
+    ) {
+      const normalized = Number(value);
+      return Number.isFinite(normalized) ? Prisma.sql`CAST(${Math.trunc(normalized)} AS BIGINT)` : Prisma.sql`NULL`;
+    }
+
+    if (
+      dataType === 'numeric' ||
+      dataType === 'decimal' ||
+      dataType === 'real' ||
+      dataType === 'double precision' ||
+      udtName === 'numeric' ||
+      udtName === 'float4' ||
+      udtName === 'float8'
+    ) {
+      const normalized = String(value ?? '').trim();
+      return normalized ? Prisma.sql`CAST(${normalized} AS NUMERIC)` : Prisma.sql`NULL`;
+    }
+
+    if (dataType === 'boolean' || udtName === 'bool') {
+      if (typeof value === 'boolean') return Prisma.sql`${value}`;
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) return Prisma.sql`NULL`;
+      return Prisma.sql`CAST(${['1', 'true', 'sim', 'yes'].includes(normalized)} AS BOOLEAN)`;
+    }
+
+    if (dataType === 'json' || dataType === 'jsonb' || udtName === 'json' || udtName === 'jsonb') {
+      return Prisma.sql`CAST(${JSON.stringify(value)} AS JSONB)`;
+    }
+
+    return Prisma.sql`${value as any}`;
   }
 }

@@ -301,6 +301,11 @@ export class CreatePoWorkOrderDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID('4')
+  incident_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
   process_id?: string;
 
   @ApiPropertyOptional()

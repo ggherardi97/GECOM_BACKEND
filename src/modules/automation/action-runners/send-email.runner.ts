@@ -24,10 +24,7 @@ export class SendEmailActionRunner implements AutomationActionRunner {
     const ccRaw = renderTemplateValue(String(config.cc ?? ''), templateSource);
     const bccRaw = renderTemplateValue(String(config.bcc ?? ''), templateSource);
     const subject = renderTemplateValue(String(config.subject ?? ''), templateSource);
-    const bodyHtml = renderTemplateValue(
-      String(config.body_html ?? config.body ?? ''),
-      templateSource,
-    );
+    const bodyHtml = renderTemplateValue(String(config.body_html ?? config.body ?? ''), templateSource);
     const from = renderTemplateValue(String(config.from ?? ''), templateSource);
 
     const to = this.parseRecipients(toRaw);
@@ -37,11 +34,11 @@ export class SendEmailActionRunner implements AutomationActionRunner {
     if (!to.length) {
       return {
         skipped: true,
-        reason: 'SEND_EMAIL sem destinatário (to).',
+        reason: 'SEND_EMAIL sem destinatario (to).',
       };
     }
 
-    const subjectFinal = subject || 'Automação GECOM';
+    const subjectFinal = subject || 'Notificacao de automacao';
     const textFallback = this.stripHtml(bodyHtml);
 
     await this.mailerService.sendAutomationEmail({

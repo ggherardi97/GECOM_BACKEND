@@ -8,15 +8,38 @@ export const AUTOMATION_ACTION_TYPES = [
   'WEBHOOK',
   'AI_ACTION',
   'CREATE_REGISTER',
+  'WHATSAPP',
 ] as const;
 export type AutomationActionType = (typeof AUTOMATION_ACTION_TYPES)[number];
 
 export type AutomationEventType = 'CREATE' | 'UPDATE';
 
+export type AutomationTriggerCondition = {
+  source?: 'before' | 'after';
+  field?: string;
+  operator?:
+    | 'EQUALS'
+    | 'NOT_EQUALS'
+    | 'CONTAINS'
+    | 'GREATER_THAN'
+    | 'LESS_THAN'
+    | 'GREATER_OR_EQUAL'
+    | 'LESS_OR_EQUAL'
+    | 'CHANGED_TO'
+    | 'CHANGED_FROM'
+    | 'IS_TRUE'
+    | 'IS_FALSE'
+    | 'NOT_EMPTY'
+    | 'IS_EMPTY';
+  value?: unknown;
+};
+
 export type AutomationTriggerConfig = {
   entityName?: string;
   eventType?: AutomationEventType;
   fieldChanged?: string;
+  condition?: AutomationTriggerCondition;
+  conditions?: AutomationTriggerCondition[];
   cron?: string;
   timezone?: string;
   [key: string]: unknown;

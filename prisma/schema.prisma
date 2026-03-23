@@ -280,6 +280,9 @@ model users {
   lead_stage_history_changes lead_stage_history[]    @relation("LeadStageChangedBy")
   lead_activities_created    lead_activities[]       @relation("LeadActivityCreatedBy")
   lead_activities_assigned   lead_activities[]       @relation("LeadActivityAssignedTo")
+  owned_whatsapp_integrations whatsapp_integrations[] @relation("WhatsappIntegrationOwner")
+  created_whatsapp_integrations whatsapp_integrations[] @relation("WhatsappIntegrationCreatedBy")
+  updated_whatsapp_integrations whatsapp_integrations[] @relation("WhatsappIntegrationUpdatedBy")
   owned_incidents            incidents[]             @relation("IncidentOwner")
   opened_incidents           incidents[]             @relation("IncidentOpenedBy")
   queue_memberships          service_queue_members[]
@@ -1080,6 +1083,7 @@ model lead_pipeline_stages {
   leads        leads[]
   history_from lead_stage_history[] @relation("LeadStageHistoryFrom")
   history_to   lead_stage_history[] @relation("LeadStageHistoryTo")
+  whatsapp_integrations whatsapp_integrations[] @relation("WhatsappIntegrationDefaultStage")
 
   @@unique([tenant_id, name], map: "uq_lead_pipeline_stages_tenant_name")
   @@unique([tenant_id, sort_order], map: "uq_lead_pipeline_stages_tenant_order")
@@ -1122,6 +1126,7 @@ model leads {
   tags          lead_tag_links[]
   opportunities opportunities[]      @relation("OpportunityLead")
   contracts     contracts[]          @relation("ContractLead")
+  whatsapp_conversations whatsapp_conversations[] @relation("WhatsappConversationLead")
 
   @@index([tenant_id, status], map: "IDX_leads_tenant_status")
   @@index([tenant_id, status_config_id], map: "IDX_leads_tenant_status_config")
@@ -1280,7 +1285,7 @@ model user_default_views {
 model incidents {
   id                String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id         String           @db.Uuid
-  number            String           @db.VarChar(50)
+  number            String           @default("") @db.VarChar(50)
   title             String           @db.VarChar(255)
   description       String?
   status            IncidentStatus   @default(NEW)
@@ -1315,6 +1320,7 @@ model incidents {
   tasks               service_tasks[]
   sla_events          sla_events[]
   appointments        service_appointments[]
+  work_orders         po_work_orders[]      @relation("IncidentWorkOrders")
 
   @@unique([tenant_id, number], map: "uq_incidents_tenant_number")
   @@unique([tenant_id, sla_instance_id], map: "uq_incidents_tenant_sla_instance")
@@ -1578,6 +1584,9 @@ model service_resources {
   calendar_id      String?  @db.Uuid
   skills_json      Json?
   capacity_per_day Int      @default(8)
+  can_receive_cases Boolean @default(true)
+  max_open_incidents Int?
+  board_color      String?  @db.VarChar(30)
   is_active        Boolean  @default(true)
   created_at       DateTime @default(now()) @db.Timestamp(6)
   updated_at       DateTime @default(now()) @db.Timestamp(6)
@@ -2855,6 +2864,7 @@ model po_work_orders {
   code               String              @db.VarChar(60)
   title              String              @db.VarChar(160)
   description        String?
+  incident_id        String?             @db.Uuid
   process_id         String?             @db.Uuid
   project_id         String?             @db.Uuid
   priority           PoWorkOrderPriority @default(MEDIUM)
@@ -2870,6 +2880,7 @@ model po_work_orders {
   updated_at         DateTime            @default(now()) @db.Timestamp(6)
   deleted_at         DateTime?           @db.Timestamp(6)
 
+  incident           incidents?             @relation("IncidentWorkOrders", fields: [incident_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_orders_incident")
   process            processes?             @relation(fields: [process_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_orders_process")
   project            po_projects?           @relation(fields: [project_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_orders_project")
   status             po_work_order_statuses? @relation(fields: [status_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_work_orders_status")
@@ -2884,6 +2895,7 @@ model po_work_orders {
   @@index([tenant_id, priority], map: "IDX_po_work_orders_tenant_priority")
   @@index([tenant_id, project_id], map: "IDX_po_work_orders_tenant_project")
   @@index([tenant_id, process_id], map: "IDX_po_work_orders_tenant_process")
+  @@index([tenant_id, incident_id], map: "IDX_po_work_orders_tenant_incident")
 }
 
 model po_work_order_assignments {
@@ -2957,6 +2969,105 @@ model automation_executions {
 
   @@index([tenant_id], map: "IDX_automation_executions_tenant_id")
   @@index([tenant_id, automation_id, executed_at], map: "IDX_automation_executions_tenant_automation_executed")
+}
+
+model whatsapp_integrations {
+  id                      String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id               String    @db.Uuid
+  name                    String    @db.VarChar(160)
+  provider                String    @default("IAZAP") @db.VarChar(40)
+  api_base_url            String    @db.Text
+  api_key                 String    @db.Text
+  session_name            String?   @db.VarChar(120)
+  phone_number            String?   @db.VarChar(50)
+  webhook_token           String    @unique(map: "uq_whatsapp_integrations_webhook_token") @db.VarChar(80)
+  webhook_secret          String?   @db.VarChar(120)
+  status                  String    @default("DRAFT") @db.VarChar(30)
+  is_active               Boolean   @default(true)
+  default_owner_user_id   String?   @db.Uuid
+  default_stage_id        String?   @db.Uuid
+  classifier_prompt       String?
+  auto_reply_prompt       String?
+  fallback_reply_text     String?
+  settings_json           Json?
+  last_inbound_at         DateTime? @db.Timestamp(6)
+  last_outbound_at        DateTime? @db.Timestamp(6)
+  last_connection_at      DateTime? @db.Timestamp(6)
+  last_connection_payload Json?
+  created_by_user_id      String?   @db.Uuid
+  updated_by_user_id      String?   @db.Uuid
+  created_at              DateTime  @default(now()) @db.Timestamp(6)
+  updated_at              DateTime  @default(now()) @db.Timestamp(6)
+
+  default_owner users?                @relation("WhatsappIntegrationOwner", fields: [default_owner_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_integrations_owner")
+  default_stage lead_pipeline_stages? @relation("WhatsappIntegrationDefaultStage", fields: [default_stage_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_integrations_stage")
+  created_by    users?                @relation("WhatsappIntegrationCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_integrations_created_by")
+  updated_by    users?                @relation("WhatsappIntegrationUpdatedBy", fields: [updated_by_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_integrations_updated_by")
+  conversations whatsapp_conversations[]
+  messages      whatsapp_messages[]
+
+  @@unique([tenant_id, name], map: "uq_whatsapp_integrations_tenant_name")
+  @@index([tenant_id, is_active], map: "IDX_whatsapp_integrations_tenant_active")
+  @@index([tenant_id, default_owner_user_id], map: "IDX_whatsapp_integrations_tenant_owner")
+}
+
+model whatsapp_conversations {
+  id                       String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                String    @db.Uuid
+  integration_id           String    @db.Uuid
+  contact_phone            String    @db.VarChar(50)
+  contact_phone_normalized String    @db.VarChar(30)
+  contact_name             String?   @db.VarChar(255)
+  chat_id                  String?   @db.VarChar(120)
+  last_message_preview     String?
+  first_message_at         DateTime  @default(now()) @db.Timestamp(6)
+  last_message_at          DateTime  @default(now()) @db.Timestamp(6)
+  unread_count             Int       @default(0)
+  status                   String    @default("NEW") @db.VarChar(30)
+  classification_intent    String?   @db.VarChar(40)
+  classification_confidence Decimal? @db.Decimal(5, 2)
+  classification_summary   String?
+  extracted_json           Json?
+  lead_id                  String?   @db.Uuid
+  lead_created_at          DateTime? @db.Timestamp(6)
+  team_notified_at         DateTime? @db.Timestamp(6)
+  auto_replied_at          DateTime? @db.Timestamp(6)
+  last_classified_at       DateTime? @db.Timestamp(6)
+  created_at               DateTime  @default(now()) @db.Timestamp(6)
+  updated_at               DateTime  @default(now()) @db.Timestamp(6)
+
+  integration whatsapp_integrations @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_conversations_integration")
+  lead        leads?                @relation("WhatsappConversationLead", fields: [lead_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_conversations_lead")
+  messages    whatsapp_messages[]
+
+  @@unique([tenant_id, integration_id, contact_phone_normalized], map: "uq_whatsapp_conversations_phone")
+  @@index([tenant_id, integration_id, last_message_at], map: "IDX_whatsapp_conversations_tenant_last_message")
+  @@index([tenant_id, lead_id], map: "IDX_whatsapp_conversations_tenant_lead")
+}
+
+model whatsapp_messages {
+  id                  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id           String    @db.Uuid
+  integration_id      String    @db.Uuid
+  conversation_id     String    @db.Uuid
+  external_message_id String?   @db.VarChar(120)
+  direction           String    @db.VarChar(20)
+  message_type        String    @default("TEXT") @db.VarChar(40)
+  body_text           String?
+  media_url           String?
+  sender_phone        String?   @db.VarChar(50)
+  recipient_phone     String?   @db.VarChar(50)
+  payload_json        Json?
+  ai_result_json      Json?
+  delivery_status     String?   @db.VarChar(30)
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+
+  integration  whatsapp_integrations  @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_messages_integration")
+  conversation whatsapp_conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_messages_conversation")
+
+  @@index([tenant_id, integration_id, created_at], map: "IDX_whatsapp_messages_tenant_created")
+  @@index([tenant_id, conversation_id, created_at], map: "IDX_whatsapp_messages_conversation_created")
+  @@index([tenant_id, integration_id, external_message_id], map: "IDX_whatsapp_messages_external")
 }
 
 enum IncidentStatus {
@@ -3159,6 +3270,7 @@ enum lead_source_enum {
   WEBSITE
   INDICATION
   IMPORT
+  WHATSAPP
   OTHER
 }
 

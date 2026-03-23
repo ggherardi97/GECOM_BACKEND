@@ -15,6 +15,11 @@ export class TenantInterceptor implements NestInterceptor {
     const tenantId =
       (req?.user?.tenant_id as string | undefined) ||
       (req?.user?.tenantId as string | undefined);
+    const userId =
+      (req?.user?.id as string | undefined) ||
+      (req?.user?.user_id as string | undefined) ||
+      (req?.user?.userId as string | undefined) ||
+      (req?.user?.sub as string | undefined);
 
     return new Observable((subscriber) =>
       runWithTenant(tenantId, () => {
@@ -26,7 +31,7 @@ export class TenantInterceptor implements NestInterceptor {
         });
 
         return () => subscription.unsubscribe();
-      }),
+      }, userId),
     );
   }
 }

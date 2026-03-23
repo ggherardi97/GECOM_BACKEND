@@ -67,6 +67,14 @@ export const ENTITY_REGISTRY: EntityRegistryItem[] = [
     ],
   },
   {
+    entity: 'whatsapp_conversations',
+    label: 'WhatsApp Sales',
+    route: '/sales/whatsapp',
+    icon: 'fa-whatsapp',
+    supportsCrud: false,
+    allowOptionSetEditing: false,
+  },
+  {
     entity: 'opportunities',
     label: 'Oportunidades',
     route: '/Opportunities',
@@ -98,6 +106,14 @@ export const ENTITY_REGISTRY: EntityRegistryItem[] = [
     route: '/servico/agenda',
     icon: 'fa-calendar',
     supportsCrud: false,
+    allowOptionSetEditing: false,
+  },
+  {
+    entity: 'incidents',
+    label: 'Incidentes',
+    route: '/servico/incidentes',
+    icon: 'fa-ticket',
+    supportsCrud: true,
     allowOptionSetEditing: false,
   },
   {

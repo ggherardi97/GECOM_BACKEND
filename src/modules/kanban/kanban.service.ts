@@ -5,6 +5,7 @@ import {
   board_entity_type_enum,
   view_visibility_enum,
 } from '@prisma/client';
+import { AutomationDispatcherService } from '../automation/automation-dispatcher.service';
 import { KanbanRepository } from './kanban.repository';
 import { CreateBoardDto } from './dto/create-board.dto';
 import { UpdateBoardDto } from './dto/update-board.dto';
@@ -26,7 +27,10 @@ type AuthUser = {
 
 @Injectable()
 export class KanbanService {
-  constructor(private readonly repository: KanbanRepository) {}
+  constructor(
+    private readonly repository: KanbanRepository,
+    private readonly automationDispatcher: AutomationDispatcherService,
+  ) {}
 
   private getUserId(user: AuthUser): string {
     const id = String(user.id ?? user.user_id ?? '').trim();
@@ -230,6 +234,14 @@ export class KanbanService {
       },
     });
 
+    this.dispatchCardAutomation({
+      tenantId: user.tenant_id,
+      userId,
+      eventType: 'CREATE',
+      after: created,
+      changedFields: ['board_id', 'column_id', 'title', 'description', 'priority'],
+    });
+
     return created;
   }
 
@@ -275,6 +287,15 @@ export class KanbanService {
       metaJson: { updated_fields: Object.keys(dto) },
     });
 
+    this.dispatchCardAutomation({
+      tenantId: user.tenant_id,
+      userId,
+      eventType: 'UPDATE',
+      before: card,
+      after: updated,
+      changedFields: Object.keys(dto || {}),
+    });
+
     return updated;
   }
 
@@ -308,6 +329,15 @@ export class KanbanService {
       },
     });
 
+    this.dispatchCardAutomation({
+      tenantId: user.tenant_id,
+      userId,
+      eventType: 'UPDATE',
+      before: card,
+      after: moved,
+      changedFields: ['column_id', 'sort_order', 'completed_at'],
+    });
+
     return moved;
   }
 
@@ -330,6 +360,32 @@ export class KanbanService {
 
     await this.repository.deleteCard({ tenantId: user.tenant_id, cardId });
     return { ok: true };
+  }
+
+  private dispatchCardAutomation(args: {
+    tenantId: string;
+    userId: string;
+    eventType: 'CREATE' | 'UPDATE';
+    before?: Record<string, any> | null;
+    after?: Record<string, any> | null;
+    changedFields?: string[];
+  }) {
+    const after = args.after || null;
+    if (!after?.id) return;
+
+    this.automationDispatcher.dispatch({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      entityName: 'board_cards',
+      eventType: args.eventType,
+      recordId: String(after.id),
+      changedFields: Array.isArray(args.changedFields) ? args.changedFields : [],
+      payload: {
+        before: (args.before || {}) as Record<string, unknown>,
+        after: after as Record<string, unknown>,
+        changedFields: Array.isArray(args.changedFields) ? args.changedFields : [],
+      },
+    });
   }
 
   async listTags(user: AuthUser) {

@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
-import { IncidentsModule } from './incidents/incidents.module';
-import { SlaModule } from './sla/sla.module';
-import { QueuesModule } from './queues/queues.module';
 import { AssetsModule } from './assets/assets.module';
-import { SubjectsModule } from './subjects/subjects.module';
 import { CalendarsModule } from './calendars/calendars.module';
+import { IncidentsModule } from './incidents/incidents.module';
+import { QueuesModule } from './queues/queues.module';
 import { ResourcesModule } from './resources/resources.module';
+import { ScheduleBoardModule } from './schedule-board/schedule-board.module';
+import { SlaModule } from './sla/sla.module';
+import { SubjectsModule } from './subjects/subjects.module';
 import { TasksModule } from './tasks/tasks.module';
 
 @Module({
@@ -18,6 +19,7 @@ import { TasksModule } from './tasks/tasks.module';
     CalendarsModule,
     ResourcesModule,
     TasksModule,
+    ScheduleBoardModule,
   ],
 })
 export class ServiceModule {}

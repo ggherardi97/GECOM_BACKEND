@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { lead_activity_type_enum, lead_source_enum, lead_status_enum, lead_type_enum } from '@prisma/client';
 import { LeadRepository } from './leads.repository';
 import { CreateLeadDto } from './dto/create-lead.dto';
@@ -27,6 +27,7 @@ export class LeadsService {
   constructor(
     private readonly repository: LeadRepository,
     private readonly statusConfigService: StatusConfigService,
+    @Inject(forwardRef(() => AutomationDispatcherService))
     private readonly automationDispatcher: AutomationDispatcherService,
   ) {}
 

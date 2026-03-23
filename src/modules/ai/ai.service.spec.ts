@@ -2,7 +2,7 @@
 import { AiService } from './ai.service';
 
 describe('AiService QueryBuilder', () => {
-  const service = new AiService({} as any, new ConfigService({ OPENAI_API_KEY: 'test-key' }));
+  const service = new AiService({} as any, new ConfigService({ OPENAI_API_KEY: 'test-key' }), {} as any);
 
   it('always injects tenant_id into where', () => {
     const where = service.buildPrismaWhere(

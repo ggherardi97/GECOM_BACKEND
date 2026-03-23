@@ -19,6 +19,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { UserRole } from '../users/enums/user.role';
 import { AutomationMetadataService } from './automation-metadata.service';
 import { AutomationService } from './automation.service';
+import { AutomationAiChatDto } from './dto/automation-ai-chat.dto';
 import { CreateAutomationDto } from './dto/create-automation.dto';
 import { ExecuteAutomationDto } from './dto/execute-automation.dto';
 import { UpdateAutomationDto } from './dto/update-automation.dto';
@@ -61,14 +62,28 @@ export class AutomationController {
     return this.service.create(this.getUser(req), dto);
   }
 
+  @Post('ai/chat')
+  async createWithAi(@Req() req: Request, @Body() dto: AutomationAiChatDto) {
+    return this.service.createFromAiConversation(this.getUser(req), dto);
+  }
+
   @Get('metadata/entities')
   async listEntities(@Req() req: Request) {
     return this.metadataService.listEntities(this.getUser(req).tenant_id);
   }
 
   @Get('metadata/entities/:entityName/fields')
-  async listEntityFields(@Req() req: Request, @Param('entityName') entityName: string) {
-    return this.metadataService.listUpdatableFields(entityName, this.getUser(req).tenant_id);
+  async listEntityFields(
+    @Req() req: Request,
+    @Param('entityName') entityName: string,
+    @Query('scope') scope?: string,
+  ) {
+    const tenantId = this.getUser(req).tenant_id;
+    if (String(scope || '').trim().toLowerCase() === 'all') {
+      return this.metadataService.listFields(entityName, tenantId, { writableOnly: false });
+    }
+
+    return this.metadataService.listUpdatableFields(entityName, tenantId);
   }
 
   @Get('metadata/entities/:entityName/records')
@@ -113,8 +128,8 @@ export class AutomationController {
     @Query('limit') limitRaw?: string,
   ) {
     const status = this.parseStatus(statusRaw);
-    const from = this.parseDate(fromRaw);
-    const to = this.parseDate(toRaw);
+    const from = this.parseDate(fromRaw, false);
+    const to = this.parseDate(toRaw, true);
     const limit = Number(limitRaw ?? 100);
 
     return this.service.listExecutions(this.getUser(req), id, {
@@ -136,10 +151,13 @@ export class AutomationController {
     return undefined;
   }
 
-  private parseDate(value?: string): Date | undefined {
+  private parseDate(value?: string, endOfDay = false): Date | undefined {
     const raw = String(value || '').trim();
     if (!raw) return undefined;
-    const parsed = new Date(raw);
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+      ? `${raw}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`
+      : raw;
+    const parsed = new Date(normalized);
     if (Number.isNaN(parsed.getTime())) return undefined;
     return parsed;
   }

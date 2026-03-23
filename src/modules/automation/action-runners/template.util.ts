@@ -32,6 +32,10 @@ export function renderTemplateValue<T = unknown>(
   source: Record<string, unknown>,
 ): T {
   if (typeof value === 'string') {
+    const directExprMatch = value.match(/^\s*{{\s*([^}]+)\s*}}\s*$/);
+    if (directExprMatch) {
+      return getPathValue(source, directExprMatch[1].trim()) as T;
+    }
     return interpolateString(value, source) as T;
   }
 

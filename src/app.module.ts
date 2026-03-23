@@ -51,6 +51,7 @@ import { AccessControlModule } from './modules/access-control/access-control.mod
 import { CalendarActivitiesModule } from './modules/calendar-activities/calendar-activities.module';
 import { GoogleCalendarModule } from './modules/google-calendar/google-calendar.module';
 import { MetadataDesignerModule } from './modules/metadata-designer/metadata-designer.module';
+import { WhatsappSalesModule } from './modules/whatsapp-sales/whatsapp-sales.module';
 
 @Module({
   imports: [
@@ -109,6 +110,7 @@ import { MetadataDesignerModule } from './modules/metadata-designer/metadata-des
     CalendarActivitiesModule,
     GoogleCalendarModule,
     MetadataDesignerModule,
+    WhatsappSalesModule,
   ],
   controllers: [AppController],
   providers: [

@@ -139,8 +139,9 @@ export class GoogleCalendarService {
 
   async buildConnectUrl(user: AuthUser, req: Request, returnToRaw?: string) {
     const clientId = this.getRequiredEnv('GOOGLE_OAUTH_CLIENT_ID');
-    const redirectUri = this.getRedirectUri(req);
-    const state = this.buildSignedState(user, this.normalizeReturnTo(returnToRaw, req));
+    const returnTo = this.normalizeReturnTo(returnToRaw, req);
+    const redirectUri = this.getRedirectUri(req, returnTo);
+    const state = this.buildSignedState(user, returnTo, redirectUri);
 
     const params = new URLSearchParams({
       client_id: clientId,
@@ -156,10 +157,15 @@ export class GoogleCalendarService {
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   }
 
-  async finalizeOAuthCallback(user: AuthUser, req: Request, query: Record<string, any>): Promise<GoogleCallbackResult> {
-    const parsedState = this.parseSignedState(String(query?.state || ''), user, req);
+  async finalizeOAuthCallback(req: Request, query: Record<string, any>): Promise<GoogleCallbackResult> {
+    const parsedState = this.parseSignedState(String(query?.state || ''), req);
+    const user: AuthUser = {
+      id: parsedState.userId,
+      tenant_id: parsedState.tenantId,
+    };
     const returnTo = parsedState.returnTo;
-    const targetOrigin = this.getOriginFromUrl(returnTo) || this.getRequestOrigin(req);
+    const targetOrigin =
+      this.getOriginFromUrl(returnTo) || this.getOriginFromUrl(parsedState.redirectUri) || this.getRequestOrigin(req);
 
     if (query?.error) {
       throw new BadRequestException(String(query?.error_description || query?.error || 'Autorizacao recusada.'));
@@ -171,7 +177,7 @@ export class GoogleCalendarService {
     }
 
     const existing = await this.findConnection(user);
-    const tokens = await this.exchangeCodeForTokens(code, this.getRedirectUri(req));
+    const tokens = await this.exchangeCodeForTokens(code, parsedState.redirectUri);
     const accessToken = String(tokens.access_token || '').trim();
     if (!accessToken) {
       throw new BadRequestException('Google nao retornou access token.');
@@ -965,11 +971,12 @@ export class GoogleCalendarService {
     };
   }
 
-  private buildSignedState(user: AuthUser, returnTo: string) {
+  private buildSignedState(user: AuthUser, returnTo: string, redirectUri: string) {
     const payload = JSON.stringify({
       uid: user.id,
       tid: user.tenant_id,
       return_to: returnTo,
+      redirect_uri: redirectUri,
       ts: Date.now(),
     });
     const encoded = Buffer.from(payload, 'utf8').toString('base64url');
@@ -977,7 +984,7 @@ export class GoogleCalendarService {
     return `${encoded}.${signature}`;
   }
 
-  private parseSignedState(stateRaw: string, user: AuthUser, req: Request) {
+  private parseSignedState(stateRaw: string, req: Request) {
     const [payloadEncoded, signature] = String(stateRaw || '').split('.');
     if (!payloadEncoded || !signature) {
       throw new BadRequestException('State OAuth ausente ou invalido.');
@@ -996,8 +1003,10 @@ export class GoogleCalendarService {
       throw new BadRequestException('State OAuth invalido.');
     }
 
-    if (String(parsed?.uid || '') !== user.id || String(parsed?.tid || '') !== user.tenant_id) {
-      throw new UnauthorizedException('State OAuth nao pertence ao usuario atual.');
+    const userId = String(parsed?.uid || '').trim();
+    const tenantId = String(parsed?.tid || '').trim();
+    if (!userId || !tenantId) {
+      throw new UnauthorizedException('State OAuth sem contexto de usuario.');
     }
 
     const ts = Number(parsed?.ts || 0);
@@ -1006,7 +1015,10 @@ export class GoogleCalendarService {
     }
 
     return {
+      userId,
+      tenantId,
       returnTo: this.normalizeReturnTo(parsed?.return_to, req),
+      redirectUri: this.normalizeRedirectUri(parsed?.redirect_uri, req),
     };
   }
 
@@ -1016,9 +1028,8 @@ export class GoogleCalendarService {
     if (!value) return fallback;
 
     try {
-      const requestUrl = new URL(this.getRequestOrigin(req));
-      const candidate = new URL(value, requestUrl.origin);
-      if (candidate.hostname !== requestUrl.hostname) {
+      const candidate = new URL(value, this.getRequestOrigin(req));
+      if (!this.isAllowedBrowserOrigin(candidate.origin, req)) {
         return fallback;
       }
       return candidate.toString();
@@ -1041,10 +1052,74 @@ export class GoogleCalendarService {
     return `${proto}://${host}`;
   }
 
-  private getRedirectUri(req: Request) {
+  private getRedirectUri(req: Request, returnTo?: string) {
+    const returnOrigin = this.getOriginFromUrl(String(returnTo || ''));
+    if (returnOrigin && this.isPreferredCallbackOrigin(returnOrigin)) {
+      return `${returnOrigin}/api/google-calendar/callback`;
+    }
+
     const explicit = this.normalizeOptionalText(process.env.GOOGLE_OAUTH_REDIRECT_URI);
     if (explicit) return explicit;
     return `${this.getRequestOrigin(req)}/api/google-calendar/callback`;
+  }
+
+  private normalizeRedirectUri(raw: unknown, req: Request) {
+    const value = String(raw || '').trim();
+    if (!value) {
+      throw new BadRequestException('Redirect URI OAuth ausente.');
+    }
+
+    try {
+      const candidate = new URL(value);
+      if (candidate.pathname !== '/api/google-calendar/callback') {
+        throw new BadRequestException('Redirect URI OAuth invalido.');
+      }
+      if (!this.isAllowedBrowserOrigin(candidate.origin, req)) {
+        throw new BadRequestException('Redirect URI OAuth nao permitido.');
+      }
+      return candidate.toString();
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException('Redirect URI OAuth invalido.');
+    }
+  }
+
+  private isAllowedBrowserOrigin(origin: string, req: Request) {
+    const candidateHost = this.getHostname(origin);
+    if (!candidateHost) return false;
+
+    const requestHost = this.getHostname(this.getRequestOrigin(req));
+    if (requestHost && candidateHost === requestHost) {
+      return true;
+    }
+
+    return this.isPreferredCallbackHost(candidateHost);
+  }
+
+  private isPreferredCallbackOrigin(origin: string) {
+    const hostname = this.getHostname(origin);
+    return this.isPreferredCallbackHost(hostname);
+  }
+
+  private isPreferredCallbackHost(hostname: string) {
+    return [
+      'localhost',
+      '127.0.0.1',
+      'convert-plus.com',
+      'www.convert-plus.com',
+      'portalgecom.log.br',
+      'www.portalgecom.log.br',
+    ].includes(String(hostname || '').trim().toLowerCase());
+  }
+
+  private getHostname(origin: string) {
+    try {
+      return new URL(origin).hostname.toLowerCase();
+    } catch {
+      return '';
+    }
   }
 
   private getRequiredEnv(name: string) {

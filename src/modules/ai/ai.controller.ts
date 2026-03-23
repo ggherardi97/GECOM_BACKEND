@@ -7,6 +7,7 @@ import { AiService } from './ai.service';
 import { AiGridFilterDto } from './dto/grid-filter.dto';
 import { AiDashboardDto } from './dto/dashboard.dto';
 import { AiHomeSearchDto } from './dto/home-search.dto';
+import { AiChatDto } from './dto/chat.dto';
 import { AuthUser } from './ai.types';
 
 @ApiTags('ai')
@@ -61,6 +62,18 @@ export class AiController {
       user: this.getUser(req),
       query: dto.query,
       entities: dto.entities,
+    });
+  }
+
+  @Post('chat')
+  @ApiOperation({ summary: 'Chat amplo de IA para dashboards, relatorios, registros e consultas' })
+  async chat(@Req() req: Request, @Body() dto: AiChatDto) {
+    return this.aiService.chat({
+      user: this.getUser(req),
+      lang: dto.lang,
+      confirmed: dto.confirmed,
+      draft: dto.draft,
+      messages: dto.messages,
     });
   }
 }

@@ -1,6 +1,11 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { getTenantId } from '../common/tenant/tenant-context';
+import { getTenantId, getUserId } from '../common/tenant/tenant-context';
+import {
+  shouldDispatchAutomationForEntity,
+  shouldSkipGenericAutomationOperation,
+} from '../modules/automation/automation-entity-policy';
 
 type PrismaMiddlewareParams = {
   model?: string;
@@ -11,6 +16,7 @@ type PrismaMiddlewareParams = {
 @Injectable()
 export class PrismaService implements OnModuleInit, OnModuleDestroy {
   private readonly client: PrismaClient;
+  private automationDispatcherProxy: { dispatch: (event: Record<string, unknown>) => void } | null | undefined;
 
   // Expose delegates (so existing code keeps working: this.prisma.users.findMany, etc.)
   public readonly users: PrismaClient['users'];
@@ -85,6 +91,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly contract_invoice_links: PrismaClient['contract_invoice_links'];
   public readonly automations: PrismaClient['automations'];
   public readonly automation_executions: PrismaClient['automation_executions'];
+  public readonly whatsapp_integrations: PrismaClient['whatsapp_integrations'];
+  public readonly whatsapp_conversations: PrismaClient['whatsapp_conversations'];
+  public readonly whatsapp_messages: PrismaClient['whatsapp_messages'];
   public readonly modules: PrismaClient['modules'];
   public readonly plans: PrismaClient['plans'];
   public readonly plan_modules: PrismaClient['plan_modules'];
@@ -160,6 +169,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'contract_invoice_links',
     'automations',
     'automation_executions',
+    'whatsapp_integrations',
+    'whatsapp_conversations',
+    'whatsapp_messages',
     'financial_cost_centers',
     'financial_categories',
     'financial_bank_accounts',
@@ -226,7 +238,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'password_resets',
   ]);
 
-  constructor() {
+  constructor(private readonly moduleRef: ModuleRef) {
     const enableQueryLogging = String(process.env.PRISMA_LOG_QUERIES || '')
       .trim()
       .toLowerCase() === 'true';
@@ -238,6 +250,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       log: prismaLogLevels,
     });
 
+    const prismaService = this;
     const extended = base.$extends({
       query: {
         $allModels: {
@@ -299,8 +312,56 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
               // update path: protected by where
             }
 
-            // run with modified args
-            return query(args);
+            const normalizedModel = String(params.model || '').trim().toLowerCase();
+            const changedFields = prismaService.extractChangedFields(args);
+            const canTrackCreate =
+              operation === 'create' &&
+              shouldDispatchAutomationForEntity(normalizedModel) &&
+              !shouldSkipGenericAutomationOperation(normalizedModel, 'CREATE');
+            const canTrackUpdate =
+              (operation === 'update' || operation === 'updateMany') &&
+              shouldDispatchAutomationForEntity(normalizedModel) &&
+              !shouldSkipGenericAutomationOperation(normalizedModel, 'UPDATE');
+
+            let beforeRecord: Record<string, unknown> | null = null;
+            let trackedWhere: Record<string, unknown> | null = null;
+
+            if (canTrackUpdate && params.model) {
+              trackedWhere = prismaService.normalizeAutomationWhere(args?.where, tenantId);
+              if (trackedWhere) {
+                beforeRecord = await prismaService.findFirstByWhere(base, params.model, trackedWhere);
+              }
+            }
+
+            const result = await query(args);
+
+            if (canTrackCreate) {
+              const afterRecord = prismaService.asRecord(result);
+              prismaService.dispatchGenericAutomationEvent({
+                entityName: normalizedModel,
+                eventType: 'CREATE',
+                tenantId,
+                userId: getUserId(),
+                changedFields,
+                after: afterRecord,
+              });
+            } else if (canTrackUpdate && beforeRecord && params.model) {
+              const afterRecord =
+                prismaService.asRecord(result) ||
+                (trackedWhere ? await prismaService.findFirstByWhere(base, params.model, trackedWhere) : null);
+
+              prismaService.dispatchGenericAutomationEvent({
+                entityName: normalizedModel,
+                eventType: 'UPDATE',
+                tenantId,
+                userId: getUserId(),
+                changedFields,
+                before: beforeRecord,
+                after: afterRecord,
+              });
+            }
+
+            return result;
           },
         },
       },
@@ -365,6 +426,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.contract_invoice_links = this.client.contract_invoice_links;
     this.automations = this.client.automations;
     this.automation_executions = this.client.automation_executions;
+    this.whatsapp_integrations = this.client.whatsapp_integrations;
+    this.whatsapp_conversations = this.client.whatsapp_conversations;
+    this.whatsapp_messages = this.client.whatsapp_messages;
     this.modules = this.client.modules;
     this.plans = this.client.plans;
     this.plan_modules = this.client.plan_modules;
@@ -404,6 +468,97 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   // OPTIONAL: if you need raw client sometimes
   get raw(): PrismaClient {
     return this.client;
+  }
+
+  private getAutomationDispatcher():
+    | { dispatch: (event: Record<string, unknown>) => void }
+    | null {
+    if (this.automationDispatcherProxy !== undefined) {
+      return this.automationDispatcherProxy;
+    }
+
+    try {
+      const { AutomationDispatcherService } = require('../modules/automation/automation-dispatcher.service');
+      this.automationDispatcherProxy = this.moduleRef.get(AutomationDispatcherService, { strict: false }) ?? null;
+    } catch {
+      this.automationDispatcherProxy = null;
+    }
+
+    return this.automationDispatcherProxy;
+  }
+
+  private dispatchGenericAutomationEvent(args: {
+    entityName: string;
+    eventType: 'CREATE' | 'UPDATE';
+    tenantId?: string;
+    userId?: string;
+    changedFields?: string[];
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
+  }) {
+    const tenantId = String(args.tenantId || '').trim();
+    const after = this.asRecord(args.after);
+    if (!tenantId || !after?.id) return;
+
+    const dispatcher = this.getAutomationDispatcher();
+    if (!dispatcher) return;
+
+    dispatcher.dispatch({
+      tenantId,
+      userId: String(args.userId || '').trim() || undefined,
+      entityName: String(args.entityName || '').trim().toLowerCase(),
+      eventType: args.eventType,
+      recordId: String(after.id),
+      changedFields: Array.isArray(args.changedFields) ? args.changedFields : [],
+      payload: {
+        before: this.asRecord(args.before) || {},
+        after,
+        changedFields: Array.isArray(args.changedFields) ? args.changedFields : [],
+      },
+    });
+  }
+
+  private extractChangedFields(args: any): string[] {
+    if (!args || typeof args !== 'object') return [];
+    const data = args.data;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+    return Object.keys(data).filter((key) => key !== 'updated_at');
+  }
+
+  private normalizeAutomationWhere(where: any, tenantId?: string): Record<string, unknown> | null {
+    const normalizedTenantId = String(tenantId || '').trim();
+    if (!normalizedTenantId) return null;
+    const scoped = andTenantWhere(where, normalizedTenantId);
+    if (!this.whereHasIdConstraint(scoped)) return null;
+    return scoped as Record<string, unknown>;
+  }
+
+  private whereHasIdConstraint(where: unknown): boolean {
+    if (!where || typeof where !== 'object') return false;
+    if (Array.isArray(where)) return where.some((item) => this.whereHasIdConstraint(item));
+    const record = where as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(record, 'id')) return true;
+    return Object.values(record).some((value) => this.whereHasIdConstraint(value));
+  }
+
+  private async findFirstByWhere(
+    base: PrismaClient,
+    model: string,
+    where: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    const delegate = (base as any)?.[model];
+    if (!delegate || typeof delegate.findFirst !== 'function') return null;
+    try {
+      const row = await delegate.findFirst({ where });
+      return this.asRecord(row);
+    } catch {
+      return null;
+    }
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value as Record<string, unknown>;
   }
 }
 

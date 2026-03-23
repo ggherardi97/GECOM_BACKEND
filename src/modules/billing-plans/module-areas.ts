@@ -99,6 +99,9 @@ const salesEntityNames = new Set<string>([
   'leads',
   'lead_activities',
   'lead_stage_history',
+  'whatsapp_integrations',
+  'whatsapp_conversations',
+  'whatsapp_messages',
   'opportunities',
   'contracts',
   'contract_lines',
@@ -124,6 +127,7 @@ export function inferEntityModuleArea(entityName: unknown): ModuleAreaKey | null
   if (entity.startsWith('service_') || entity.startsWith('sla_')) return 'service';
   if (entity.startsWith('sales_')) return 'sales';
   if (entity.startsWith('lead_')) return 'sales';
+  if (entity.startsWith('whatsapp_')) return 'sales';
   if (entity.startsWith('opportunity_')) return 'sales';
   if (entity.startsWith('contract_')) return 'sales';
   if (entity.startsWith('price_table_')) return 'sales';

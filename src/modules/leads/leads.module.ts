@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -9,7 +9,7 @@ import { StatusConfigModule } from '../status-config/status-config.module';
 import { AutomationModule } from '../automation/automation.module';
 
 @Module({
-  imports: [StatusConfigModule, AutomationModule],
+  imports: [StatusConfigModule, forwardRef(() => AutomationModule)],
   controllers: [LeadsController],
   providers: [PrismaService, LeadRepository, LeadsService, JwtAuthGuard, RolesGuard],
   exports: [LeadRepository, LeadsService],

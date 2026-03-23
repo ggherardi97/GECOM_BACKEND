@@ -1,8 +1,9 @@
-﻿import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MailModule } from '../mailer/mailer.module';
 import { BillingPlansModule } from '../billing-plans/billing-plans.module';
+import { WhatsappSalesModule } from '../whatsapp-sales/whatsapp-sales.module';
 import { AutomationController } from './automation.controller';
 import { AutomationService } from './automation.service';
 import { AutomationRepository } from './automation.repository';
@@ -16,9 +17,10 @@ import { AiActionRunner } from './action-runners/ai-action.runner';
 import { AutomationAiService } from './ai.service';
 import { AutomationMetadataService } from './automation-metadata.service';
 import { CreateRegisterActionRunner } from './action-runners/create-register.runner';
+import { WhatsappActionRunner } from './action-runners/whatsapp.runner';
 
 @Module({
-  imports: [PrismaModule, ConfigModule, MailModule, BillingPlansModule],
+  imports: [PrismaModule, ConfigModule, MailModule, BillingPlansModule, forwardRef(() => WhatsappSalesModule)],
   controllers: [AutomationController],
   providers: [
     AutomationService,
@@ -31,10 +33,10 @@ import { CreateRegisterActionRunner } from './action-runners/create-register.run
     WebhookActionRunner,
     AiActionRunner,
     CreateRegisterActionRunner,
+    WhatsappActionRunner,
     AutomationAiService,
     AutomationMetadataService,
   ],
   exports: [AutomationService, AutomationDispatcherService],
 })
 export class AutomationModule {}
-

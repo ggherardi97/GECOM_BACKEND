@@ -25,6 +25,20 @@ export class CreateResourceDto {
 
   @IsOptional()
   @IsBoolean()
+  can_receive_cases?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  max_open_incidents?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  board_color?: string;
+
+  @IsOptional()
+  @IsBoolean()
   is_active?: boolean;
 }
 

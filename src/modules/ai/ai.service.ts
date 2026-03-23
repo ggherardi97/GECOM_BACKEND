@@ -7,10 +7,17 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { resolveRelativeDateRange } from '../../common/utils/date-range.util';
+import { ENTITY_REGISTRY_BY_ENTITY } from '../admin-config/entity-registry';
+import {
+  AutomationMetadataService,
+  type AutomationAiEntityCatalog,
+  type AutomationRecordLookupItem,
+} from '../automation/automation-metadata.service';
 import {
   dashboardAiResponseSchema,
   dashboardSpecSchema,
@@ -54,6 +61,25 @@ class AiClient {
       input: [
         { role: 'system', content: args.systemPrompt },
         { role: 'user', content: args.userPrompt },
+      ],
+    } as any);
+
+    return this.extractJson(response);
+  }
+
+  async generateConversationJson(args: {
+    model: string;
+    systemPrompt: string;
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  }): Promise<unknown> {
+    const response = await this.client.responses.create({
+      model: args.model,
+      input: [
+        { role: 'system', content: args.systemPrompt },
+        ...args.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
       ],
     } as any);
 
@@ -105,6 +131,19 @@ export class AiService {
   private readonly aiClient: AiClient;
   private readonly filterModel: string;
   private readonly dashModel: string;
+  private readonly chatModel: string;
+  private readonly createRecordSystemFields = new Set([
+    'id',
+    'tenant_id',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+    'created_on',
+    'updated_on',
+    'created_by_user_id',
+    'updated_by_user_id',
+    'opened_by_user_id',
+  ]);
 
   private readonly entityDictionary: Record<string, EntityDictionaryEntry> = {
     companies: {
@@ -216,6 +255,7 @@ export class AiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly automationMetadataService: AutomationMetadataService,
   ) {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY')?.trim();
     if (!apiKey) {
@@ -225,6 +265,135 @@ export class AiService {
     this.aiClient = new AiClient(apiKey);
     this.filterModel = this.configService.get<string>('OPENAI_MODEL_FILTER') ?? 'gpt-5-mini';
     this.dashModel = this.configService.get<string>('OPENAI_MODEL_DASH') ?? 'gpt-5.2';
+    this.chatModel = this.configService.get<string>('OPENAI_MODEL_AI_HUB') ?? this.dashModel;
+  }
+
+  async chat(input: {
+    user: AuthUser;
+    lang?: string;
+    confirmed?: boolean;
+    draft?: Record<string, unknown>;
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  }) {
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = Array.isArray(input.messages)
+      ? input.messages
+          .map((message) => ({
+            role: (message?.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+            content: String(message?.content || '').trim(),
+          }))
+          .filter((message) => message.content)
+      : [];
+
+    if (!messages.length) {
+      throw new BadRequestException('Informe um pedido para a IA.');
+    }
+
+    const catalog = await this.automationMetadataService.buildAiCatalog(input.user.tenant_id);
+    const relevantCatalog = this.selectRelevantCatalog(messages, catalog);
+
+    if (input.confirmed && input.draft && typeof input.draft === 'object') {
+      const draftIntent = String((input.draft as Record<string, unknown>).intent || '').trim().toLowerCase();
+      if (draftIntent === 'create_record') {
+        const created = await this.createRecordFromDraft(input.user, input.draft as Record<string, unknown>, relevantCatalog);
+        return {
+          status: 'created',
+          reply: created.reply,
+          intent: 'create_record',
+          artifact: created.artifact,
+        };
+      }
+    }
+
+    const latestUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user');
+    const latestPrompt = String(latestUserMessage?.content || '').trim();
+
+    const aiJson = await this.aiClient.generateConversationJson({
+      model: this.chatModel,
+      systemPrompt: this.buildAiHubPlannerPrompt(input.lang, relevantCatalog),
+      messages,
+    });
+
+    const plan = this.normalizeHubChatPlan(aiJson, latestPrompt);
+    if (plan.mode === 'needs_clarification') {
+      return {
+        status: 'needs_clarification',
+        reply: plan.reply,
+        intent: plan.intent || null,
+        missing: plan.missing || [],
+        questions: plan.questions || [],
+      };
+    }
+
+    if (plan.intent === 'create_record') {
+      const validation = await this.validateRecordDraft(input.user, plan.record_draft || {}, relevantCatalog);
+      if (!validation.ok) {
+        return {
+          status: 'needs_clarification',
+          reply: validation.reply,
+          intent: 'create_record',
+          missing: validation.missing,
+          questions: validation.questions,
+        };
+      }
+
+      return {
+        status: 'needs_confirmation',
+        reply: plan.reply,
+        intent: 'create_record',
+        summary: plan.summary || 'Revise o registro antes de criar.',
+        draft: {
+          intent: 'create_record',
+          record_draft: validation.draft,
+        },
+      };
+    }
+
+    if (plan.intent === 'dashboard') {
+      const naturalLanguage = String(plan.dashboard_request?.natural_language || latestPrompt).trim();
+      const entityHints = Array.isArray(plan.dashboard_request?.entity_hints)
+        ? plan.dashboard_request?.entity_hints?.map((item: unknown) => String(item || '').trim().toLowerCase()).filter(Boolean)
+        : [];
+      const dashboard = await this.generateDashboard({
+        user: input.user,
+        naturalLanguage,
+        entityHints,
+      });
+
+      return {
+        status: 'completed',
+        reply: plan.reply,
+        intent: 'dashboard',
+        artifact: {
+          type: 'dashboard',
+          title: String(plan.title || dashboard.dashboardSpec?.title || 'Dashboard'),
+          summary: String(plan.summary || dashboard.insights_ptbr || '').trim(),
+          dashboardSpec: dashboard.dashboardSpec,
+          data: dashboard.data,
+          insights_ptbr: dashboard.insights_ptbr,
+        },
+      };
+    }
+
+    const queryArtifact = await this.executeGenericQueryPlan(
+      input.user,
+      plan.intent === 'report' ? 'report' : 'information',
+      plan.query || {},
+      relevantCatalog,
+      {
+        latestPrompt,
+        title: plan.title,
+        summary: plan.summary,
+      },
+    );
+
+    return {
+      status: 'completed',
+      reply: plan.reply,
+      intent: plan.intent,
+      artifact: queryArtifact,
+    };
   }
 
   async generateGridFilter(input: {
@@ -1158,6 +1327,682 @@ export class AiService {
                 : 0,
       }))
       .sort((left, right) => left.period.localeCompare(right.period));
+  }
+
+  private buildAiHubPlannerPrompt(
+    lang: string | undefined,
+    catalog: AutomationAiEntityCatalog[],
+  ): string {
+    const language = this.resolveConversationLanguage(lang);
+    const catalogText = catalog.map((entity) => this.formatCatalogEntity(entity)).join('\n\n');
+
+    return [
+      `Voce e a central de IA do ERP. Responda em ${language}.`,
+      'Voce ajuda o usuario com dashboards, relatorios, criacao de registros e consultas gerais do sistema.',
+      'Voce entende linguagem natural de negocio. Nao peca UUID, IDs tecnicos ou nomes de campos desnecessariamente.',
+      'Voce deve usar o catalogo real do ERP para mapear tabelas, campos, lookups, options e rotas.',
+      'Sempre responda somente JSON puro, sem markdown.',
+      'Use exatamente um dos formatos abaixo:',
+      '{"mode":"needs_clarification","reply":"texto curto","intent":"information","missing":["entity_name"],"questions":["Sobre qual area voce quer consultar?"]}',
+      '{"mode":"completed","reply":"texto curto","intent":"dashboard","title":"Titulo curto","summary":"resumo curto","dashboard_request":{"natural_language":"pedido reescrito","entity_hints":["invoices"]}}',
+      '{"mode":"completed","reply":"texto curto","intent":"report","title":"Titulo curto","summary":"resumo curto","query":{"entity_name":"incidents","columns":["number","title","status"],"filters":[{"field":"status","operator":"eq","value":"OPEN"}],"sort":[{"field":"created_at","direction":"desc"}],"limit":20}}',
+      '{"mode":"completed","reply":"texto curto","intent":"information","title":"Titulo curto","summary":"resumo curto","query":{"entity_name":"companies","columns":["company_name","phone"],"filters":[{"field":"company_name","operator":"contains","value":"Disney"}],"sort":[{"field":"company_name","direction":"asc"}],"limit":10}}',
+      '{"mode":"needs_confirmation","reply":"texto curto","intent":"create_record","summary":"resumo amigavel","record_draft":{"entity_name":"incidents","values":{"title":"Chamado Walt Disney","description":"...","status":"NEW"},"lookup_searches":[{"field":"company_id","entity_name":"companies","search":"THE WALT DISNEY COMPANY (BRASIL) LTDA"}]}}',
+      'Regras obrigatorias:',
+      '- intent permitido: dashboard, report, create_record, information.',
+      '- Para dashboard, use dashboard_request. Nao use query.',
+      '- Para report e information, use query com entity_name, columns, filters, sort e limit.',
+      '- Operadores permitidos em query.filters: eq, neq, contains, startsWith, endsWith, in, notIn, gte, lte, between, isNull, isNotNull.',
+      '- Para create_record, use needs_confirmation e record_draft.',
+      '- Em record_draft.values, use apenas campos diretos e valores literais. Para lookups por nome humano, use lookup_searches.',
+      '- lookup_searches formato: { field, entity_name, search }. Nunca peca IDs ao usuario.',
+      '- Se faltar um campo realmente obrigatorio para criar um registro, use needs_clarification com uma pergunta humana simples.',
+      '- Se o usuario so quiser consultar dados, nao force criacao nem confirmacao.',
+      '- Para dashboards analiticos, prefira entidades com metricas claras como invoices, processes, companies, products, incidents, financial_receivables e financial_payables.',
+      '- Para listagens, topicos operacionais e respostas tabulares, prefira report ou information.',
+      '- Use nomes e valores conforme o catalogo. Se um campo tiver options, prefira essas options.',
+      '- Seja objetivo e amigavel no campo reply.',
+      'Catalogo relevante do ERP:',
+      catalogText || 'Sem catalogo disponivel.',
+    ].join('\n');
+  }
+
+  private normalizeHubChatPlan(payload: unknown, latestPrompt: string): Record<string, any> {
+    const root = payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, any>) : {};
+    const mode = String(root.mode || '').trim().toLowerCase();
+    const intent = String(root.intent || '').trim().toLowerCase();
+
+    if (mode === 'needs_confirmation' && intent === 'create_record') {
+      return {
+        mode: 'needs_confirmation',
+        intent: 'create_record',
+        reply: String(root.reply || 'Preparei um registro para sua confirmacao.').trim(),
+        summary: String(root.summary || 'Confira os dados antes de criar.').trim(),
+        record_draft:
+          root.record_draft && typeof root.record_draft === 'object' && !Array.isArray(root.record_draft)
+            ? (root.record_draft as Record<string, unknown>)
+            : {},
+      };
+    }
+
+    if (mode === 'completed' && ['dashboard', 'report', 'information'].includes(intent)) {
+      return {
+        mode: 'completed',
+        intent,
+        reply: String(root.reply || 'Conclui sua solicitacao.').trim(),
+        title: String(root.title || '').trim(),
+        summary: String(root.summary || '').trim(),
+        dashboard_request:
+          root.dashboard_request && typeof root.dashboard_request === 'object' && !Array.isArray(root.dashboard_request)
+            ? (root.dashboard_request as Record<string, unknown>)
+            : {},
+        query: root.query && typeof root.query === 'object' && !Array.isArray(root.query) ? root.query : {},
+      };
+    }
+
+    return {
+      mode: 'needs_clarification',
+      intent: intent || this.inferFallbackIntent(latestPrompt),
+      reply: String(root.reply || 'Preciso de mais detalhes para continuar.').trim(),
+      missing: Array.isArray(root.missing)
+        ? root.missing.map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+      questions: Array.isArray(root.questions)
+        ? root.questions.map((item) => String(item || '').trim()).filter(Boolean)
+        : [],
+    };
+  }
+
+  private inferFallbackIntent(prompt: string): string {
+    const text = this.normalizeSearchText(prompt);
+    if (/\b(dashboard|grafico|gráfico|kpi|indicador)\b/.test(text)) return 'dashboard';
+    if (/\b(criar|cadastre|cadastro|novo registro|abrir chamado|novo incidente)\b/.test(text)) return 'create_record';
+    if (/\b(relatorio|relatório|listar|liste|mostre tabela|exportar)\b/.test(text)) return 'report';
+    return 'information';
+  }
+
+  private selectRelevantCatalog(
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    catalog: AutomationAiEntityCatalog[],
+  ): AutomationAiEntityCatalog[] {
+    if (!catalog.length) return [];
+
+    const conversation = this.normalizeSearchText(messages.map((message) => message.content).join(' '));
+    const scored = catalog
+      .map((entity) => ({ entity, score: this.scoreCatalogEntity(conversation, entity) }))
+      .sort((left, right) => right.score - left.score);
+
+    const top = scored.filter((item) => item.score > 0).slice(0, 16).map((item) => item.entity);
+    const selected = top.length ? top : scored.slice(0, 16).map((item) => item.entity);
+    const expanded = new Map<string, AutomationAiEntityCatalog>(selected.map((entity) => [entity.name, entity]));
+
+    selected.forEach((entity) => {
+      entity.fields.forEach((field) => {
+        if (!field.relationEntity) return;
+        const relation = catalog.find((item) => item.name === field.relationEntity);
+        if (relation && expanded.size < 20) {
+          expanded.set(relation.name, relation);
+        }
+      });
+    });
+
+    return Array.from(expanded.values()).slice(0, 20);
+  }
+
+  private scoreCatalogEntity(searchText: string, entity: AutomationAiEntityCatalog): number {
+    let score = 0;
+
+    entity.aliases.slice(0, 12).forEach((alias) => {
+      const normalized = this.normalizeSearchText(alias);
+      if (normalized && searchText.includes(normalized)) {
+        score += normalized.includes(' ') ? 18 : 12;
+      }
+    });
+
+    entity.fields.slice(0, 25).forEach((field) => {
+      field.aliases.slice(0, 10).forEach((alias) => {
+        const normalized = this.normalizeSearchText(alias);
+        if (normalized && searchText.includes(normalized)) {
+          score += field.required ? 5 : 3;
+        }
+      });
+
+      (field.options || []).slice(0, 12).forEach((option) => {
+        const label = this.normalizeSearchText(option.label);
+        const value = this.normalizeSearchText(option.value);
+        if (label && searchText.includes(label)) score += 5;
+        if (value && searchText.includes(value)) score += 4;
+      });
+    });
+
+    return score;
+  }
+
+  private formatCatalogEntity(entity: AutomationAiEntityCatalog): string {
+    const aliases = entity.aliases.slice(0, 10).join(', ');
+    const fields = entity.fields
+      .slice(0, 30)
+      .map((field) => {
+        const parts = [
+          `${field.name} [${field.label}]`,
+          field.dataType,
+          field.required ? 'required' : field.writable ? 'optional' : 'readonly',
+        ];
+
+        if (field.relationEntity) {
+          parts.push(`lookup:${field.relationEntity}`);
+        }
+
+        if (field.options?.length) {
+          parts.push(
+            `options:${field.options
+              .slice(0, 8)
+              .map((option) => `${option.label}${option.value && option.value !== option.label ? `=${option.value}` : ''}`)
+              .join(', ')}`,
+          );
+        }
+
+        return `- ${parts.join(' | ')}`;
+      })
+      .join('\n');
+
+    return [
+      `ENTITY ${entity.name} | ${entity.label}${entity.route ? ` | route:${entity.route}` : ''}`,
+      `ALIASES: ${aliases}`,
+      'FIELDS:',
+      fields || '- none',
+    ].join('\n');
+  }
+
+  private resolveConversationLanguage(lang?: string): string {
+    const normalized = String(lang || '').trim().toLowerCase();
+    if (normalized.startsWith('en')) return 'ingles';
+    if (normalized.startsWith('es')) return 'espanhol';
+    return 'portugues do Brasil';
+  }
+
+  private async executeGenericQueryPlan(
+    user: AuthUser,
+    intent: 'report' | 'information',
+    query: Record<string, unknown>,
+    catalog: AutomationAiEntityCatalog[],
+    meta: { latestPrompt: string; title?: string; summary?: string },
+  ) {
+    const entityName = String(query.entity_name || query.entityName || '').trim().toLowerCase();
+    if (!entityName) {
+      throw new BadRequestException('A IA nao definiu a tabela da consulta.');
+    }
+
+    const entity = catalog.find((item) => item.name === entityName);
+    if (!entity) {
+      throw new BadRequestException(`A entidade ${entityName} nao esta disponivel neste tenant.`);
+    }
+
+    const columns = await this.automationMetadataService.listEntityColumns(entityName, user.tenant_id);
+    const columnByName = new Map(columns.map((column) => [column.name, column]));
+    if (!columnByName.has('tenant_id') || !columnByName.has('id')) {
+      throw new BadRequestException('A tabela informada nao e compativel com consultas da IA.');
+    }
+
+    const requestedColumns = Array.isArray(query.columns)
+      ? query.columns.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+      : [];
+    const validColumns = (requestedColumns.length ? requestedColumns : this.getDefaultQueryColumns(entity, columns))
+      .filter((field) => columnByName.has(field))
+      .slice(0, 8);
+
+    const filters = Array.isArray(query.filters) ? query.filters : [];
+    const sort = Array.isArray(query.sort) ? query.sort : [];
+    const limit = this.normalizeChatLimit(query.limit);
+
+    const whereClauses: Prisma.Sql[] = [Prisma.sql`CAST("tenant_id" AS TEXT) = ${user.tenant_id}`];
+    filters.forEach((rawFilter) => {
+      const clause = this.buildGenericFilterClause(rawFilter, columnByName);
+      if (clause) whereClauses.push(clause);
+    });
+
+    const tableSql = Prisma.raw(`"${entityName}"`);
+    const whereSql = Prisma.join(whereClauses, ' AND ');
+    const selectColumns = validColumns.length ? validColumns : ['id'];
+    const selectSql = Prisma.join(
+      selectColumns.map((columnName) => Prisma.raw(`"${columnName}"`)),
+      ', ',
+    );
+    const orderSql = this.buildGenericOrderClause(sort, columnByName);
+
+    const rows = await this.prisma.raw.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT ${selectSql}
+      FROM ${tableSql}
+      WHERE ${whereSql}
+      ${orderSql}
+      LIMIT ${limit}
+    `);
+
+    const countRows = await this.prisma.raw.$queryRaw<Array<{ total: bigint | number }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS total
+      FROM ${tableSql}
+      WHERE ${whereSql}
+    `);
+
+    return {
+      type: intent,
+      title: String(meta.title || this.buildQueryTitle(intent, entity)).trim(),
+      summary: String(meta.summary || '').trim(),
+      entityName,
+      entityLabel: entity.label,
+      route: ENTITY_REGISTRY_BY_ENTITY.get(entityName)?.route || entity.route || null,
+      total: Number(countRows?.[0]?.total || 0),
+      columns: selectColumns.map((columnName) => ({
+        name: columnName,
+        label: entity.fields.find((field) => field.name === columnName)?.label || this.humanizeLabel(columnName),
+      })),
+      rows,
+      prompt: meta.latestPrompt,
+    };
+  }
+
+  private buildQueryTitle(intent: 'report' | 'information', entity: AutomationAiEntityCatalog): string {
+    if (intent === 'report') {
+      return `Relatorio de ${entity.label}`;
+    }
+    return `Consulta de ${entity.label}`;
+  }
+
+  private buildGenericOrderClause(sort: unknown[], columnByName: Map<string, { name: string }>): Prisma.Sql {
+    const items = Array.isArray(sort)
+      ? sort
+          .map((item) => {
+            const row = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
+            const field = String(row.field || '').trim().toLowerCase();
+            const direction = String(row.direction || 'asc').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+            if (!field || !columnByName.has(field)) return null;
+            return Prisma.sql`${Prisma.raw(`"${field}"`)} ${Prisma.raw(direction)}`;
+          })
+          .filter((item): item is Prisma.Sql => !!item)
+      : [];
+
+    if (!items.length) {
+      if (columnByName.has('updated_at')) return Prisma.sql`ORDER BY "updated_at" DESC`;
+      if (columnByName.has('created_at')) return Prisma.sql`ORDER BY "created_at" DESC`;
+      return Prisma.empty;
+    }
+
+    return Prisma.sql`ORDER BY ${Prisma.join(items, ', ')}`;
+  }
+
+  private buildGenericFilterClause(
+    rawFilter: unknown,
+    columnByName: Map<string, { name: string; dataType: string; udtName: string }>,
+  ): Prisma.Sql | null {
+    const filter = rawFilter && typeof rawFilter === 'object' ? (rawFilter as Record<string, unknown>) : {};
+    const field = String(filter.field || '').trim().toLowerCase();
+    const operator = String(filter.operator || '').trim();
+    if (!field || !operator || !columnByName.has(field)) return null;
+
+    const column = columnByName.get(field)!;
+    const fieldSql = Prisma.raw(`"${field}"`);
+
+    switch (operator) {
+      case 'eq':
+        return Prisma.sql`${fieldSql} = ${this.toColumnValueSql(column, filter.value)}`;
+      case 'neq':
+        return Prisma.sql`${fieldSql} <> ${this.toColumnValueSql(column, filter.value)}`;
+      case 'contains':
+        return Prisma.sql`CAST(${fieldSql} AS TEXT) ILIKE ${`%${String(filter.value ?? '').trim()}%`}`;
+      case 'startsWith':
+        return Prisma.sql`CAST(${fieldSql} AS TEXT) ILIKE ${`${String(filter.value ?? '').trim()}%`}`;
+      case 'endsWith':
+        return Prisma.sql`CAST(${fieldSql} AS TEXT) ILIKE ${`%${String(filter.value ?? '').trim()}`}`;
+      case 'in': {
+        const values = Array.isArray(filter.values) ? filter.values : [];
+        if (!values.length) return null;
+        return Prisma.sql`CAST(${fieldSql} AS TEXT) IN (${Prisma.join(values.map((value) => Prisma.sql`${String(value ?? '')}`), ', ')})`;
+      }
+      case 'notIn': {
+        const values = Array.isArray(filter.values) ? filter.values : [];
+        if (!values.length) return null;
+        return Prisma.sql`CAST(${fieldSql} AS TEXT) NOT IN (${Prisma.join(values.map((value) => Prisma.sql`${String(value ?? '')}`), ', ')})`;
+      }
+      case 'gte':
+        return Prisma.sql`${fieldSql} >= ${this.toColumnValueSql(column, filter.value)}`;
+      case 'lte':
+        return Prisma.sql`${fieldSql} <= ${this.toColumnValueSql(column, filter.value)}`;
+      case 'between':
+        if (filter.from === undefined || filter.to === undefined) return null;
+        return Prisma.sql`${fieldSql} BETWEEN ${this.toColumnValueSql(column, filter.from)} AND ${this.toColumnValueSql(column, filter.to)}`;
+      case 'isNull':
+        return Prisma.sql`${fieldSql} IS NULL`;
+      case 'isNotNull':
+        return Prisma.sql`${fieldSql} IS NOT NULL`;
+      default:
+        return null;
+    }
+  }
+
+  private getDefaultQueryColumns(
+    entity: AutomationAiEntityCatalog,
+    columns: Array<{ name: string }>,
+  ): string[] {
+    const preferred = ['number', 'title', 'name', 'company_name', 'status', 'created_at', 'updated_at'];
+    const available = new Set(columns.map((column) => column.name));
+    const ordered = preferred.filter((column) => available.has(column));
+    if (ordered.length) return ordered;
+    return entity.fields.slice(0, 6).map((field) => field.name);
+  }
+
+  private normalizeChatLimit(value: unknown): number {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 20;
+    return Math.max(1, Math.min(Math.trunc(num), 50));
+  }
+
+  private async validateRecordDraft(
+    user: AuthUser,
+    draft: Record<string, unknown>,
+    catalog: AutomationAiEntityCatalog[],
+  ): Promise<
+    | { ok: true; draft: Record<string, unknown> }
+    | { ok: false; reply: string; missing: string[]; questions: string[] }
+  > {
+    const entityName = String(draft.entity_name || '').trim().toLowerCase();
+    if (!entityName) {
+      return {
+        ok: false,
+        reply: 'Preciso saber em qual tabela devo criar o registro.',
+        missing: ['entity_name'],
+        questions: ['Qual registro voce quer criar?'],
+      };
+    }
+
+    const entity = catalog.find((item) => item.name === entityName);
+    if (!entity) {
+      return {
+        ok: false,
+        reply: `A tabela ${entityName} nao esta disponivel neste ambiente.`,
+        missing: ['entity_name'],
+        questions: ['Qual outra tabela devo usar?'],
+      };
+    }
+
+    const rawValues =
+      draft.values && typeof draft.values === 'object' && !Array.isArray(draft.values)
+        ? { ...(draft.values as Record<string, unknown>) }
+        : {};
+    const lookupSearches = Array.isArray(draft.lookup_searches) ? draft.lookup_searches : [];
+    const fields = await this.automationMetadataService.listFields(entityName, user.tenant_id, { writableOnly: true });
+    const fieldByName = new Map(fields.map((field) => [field.name, field]));
+
+    for (const rawLookup of lookupSearches) {
+      const lookup = rawLookup && typeof rawLookup === 'object' ? (rawLookup as Record<string, unknown>) : {};
+      const field = String(lookup.field || '').trim().toLowerCase();
+      const relationEntity = String(lookup.entity_name || '').trim().toLowerCase();
+      const search = String(lookup.search || '').trim();
+      if (!field || !relationEntity || !search || !fieldByName.has(field)) continue;
+
+      const matches = await this.automationMetadataService.searchRecords({
+        tenantId: user.tenant_id,
+        entityName: relationEntity,
+        query: search,
+        limit: 6,
+      });
+
+      if (!matches.length) {
+        return {
+          ok: false,
+          reply: `Nao encontrei um registro de ${this.humanizeLabel(relationEntity)} para "${search}".`,
+          missing: [field],
+          questions: [`Qual ${fieldByName.get(field)?.label || field} devo relacionar?`],
+        };
+      }
+
+      const resolved = this.pickResolvedMatch(search, matches);
+      if (!resolved) {
+        return {
+          ok: false,
+          reply: `Encontrei mais de uma opcao para "${search}".`,
+          missing: [field],
+          questions: [
+            `Qual voce quer usar em ${fieldByName.get(field)?.label || field}? Opcoes: ${matches
+              .slice(0, 5)
+              .map((item) => item.label)
+              .join(', ')}`,
+          ],
+        };
+      }
+
+      rawValues[field] = resolved.id;
+    }
+
+    const missingRequired = fields
+      .filter((field) => field.required && !this.createRecordSystemFields.has(field.name))
+      .filter((field) => rawValues[field.name] === undefined || rawValues[field.name] === null || rawValues[field.name] === '')
+      .map((field) => field.label || field.name);
+
+    if (missingRequired.length) {
+      return {
+        ok: false,
+        reply: 'Ainda faltam alguns dados obrigatorios para criar o registro.',
+        missing: missingRequired,
+        questions: [`Pode me informar: ${missingRequired.join(', ')}?`],
+      };
+    }
+
+    const sanitizedValues: Record<string, unknown> = {};
+    Object.entries(rawValues).forEach(([key, value]) => {
+      const normalized = String(key || '').trim().toLowerCase();
+      if (!fieldByName.has(normalized)) return;
+      sanitizedValues[normalized] = value;
+    });
+
+    return {
+      ok: true,
+      draft: {
+        entity_name: entityName,
+        values: sanitizedValues,
+      },
+    };
+  }
+
+  private pickResolvedMatch(query: string, matches: AutomationRecordLookupItem[]): AutomationRecordLookupItem | null {
+    if (matches.length === 1) return matches[0];
+
+    const normalizedQuery = this.normalizeSearchText(query);
+    const exact = matches.filter((item) => {
+      const label = this.normalizeSearchText(item.label);
+      const subtitle = this.normalizeSearchText(item.subtitle || '');
+      return label === normalizedQuery || subtitle === normalizedQuery;
+    });
+    if (exact.length === 1) return exact[0];
+
+    const startsWith = matches.filter((item) => this.normalizeSearchText(item.label).startsWith(normalizedQuery));
+    if (startsWith.length === 1) return startsWith[0];
+
+    return null;
+  }
+
+  private async createRecordFromDraft(
+    user: AuthUser,
+    draft: Record<string, unknown>,
+    catalog: AutomationAiEntityCatalog[],
+  ): Promise<{ reply: string; artifact: Record<string, unknown> }> {
+    const normalized = await this.validateRecordDraft(
+      user,
+      draft.record_draft && typeof draft.record_draft === 'object'
+        ? (draft.record_draft as Record<string, unknown>)
+        : draft,
+      catalog,
+    );
+
+    if (!normalized.ok) {
+      throw new BadRequestException(normalized.reply);
+    }
+
+    const recordDraft = normalized.draft;
+    const entityName = String(recordDraft.entity_name || '').trim().toLowerCase();
+    const values =
+      recordDraft.values && typeof recordDraft.values === 'object' && !Array.isArray(recordDraft.values)
+        ? { ...(recordDraft.values as Record<string, unknown>) }
+        : {};
+
+    const columns = await this.automationMetadataService.listEntityColumns(entityName, user.tenant_id);
+    const columnByName = new Map(columns.map((column) => [column.name, column]));
+    if (!columns.length || !columnByName.has('tenant_id')) {
+      throw new BadRequestException('Nao foi possivel preparar a criacao deste registro.');
+    }
+
+    if (columnByName.has('tenant_id') && values.tenant_id === undefined) values.tenant_id = user.tenant_id;
+    if (columnByName.has('created_at') && values.created_at === undefined) values.created_at = new Date();
+    if (columnByName.has('updated_at') && values.updated_at === undefined) values.updated_at = new Date();
+    if (columnByName.has('created_by_user_id') && values.created_by_user_id === undefined) values.created_by_user_id = user.id;
+    if (columnByName.has('updated_by_user_id') && values.updated_by_user_id === undefined) values.updated_by_user_id = user.id;
+
+    const idColumn = columnByName.get('id');
+    if (
+      idColumn &&
+      !idColumn.isNullable &&
+      !idColumn.isIdentity &&
+      !idColumn.columnDefault &&
+      values.id === undefined
+    ) {
+      values.id = randomUUID();
+    }
+
+    const finalEntries = Object.entries(values).filter(([field]) => columnByName.has(field));
+    if (!finalEntries.length) {
+      throw new BadRequestException('Nenhum campo valido foi informado para criar o registro.');
+    }
+
+    const tableSql = Prisma.raw(`"${entityName}"`);
+    const insertColumns = Prisma.join(finalEntries.map(([field]) => Prisma.raw(`"${field}"`)), ', ');
+    const insertValues = Prisma.join(
+      finalEntries.map(([field, value]) => this.toColumnValueSql(columnByName.get(field)!, value)),
+      ', ',
+    );
+
+    const inserted = await this.prisma.raw.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      INSERT INTO ${tableSql} (${insertColumns})
+      VALUES (${insertValues})
+      RETURNING CAST("id" AS TEXT) AS id
+    `);
+
+    const recordId = String(inserted?.[0]?.id || values.id || '').trim();
+    const entity = catalog.find((item) => item.name === entityName);
+    const fetched = recordId
+      ? await this.automationMetadataService.findRecordById({
+          tenantId: user.tenant_id,
+          entityName,
+          recordId,
+        })
+      : null;
+
+    return {
+      reply: `${entity?.label || this.humanizeLabel(entityName)} criado com sucesso.`,
+      artifact: {
+        type: 'create_record',
+        entityName,
+        entityLabel: entity?.label || this.humanizeLabel(entityName),
+        route: ENTITY_REGISTRY_BY_ENTITY.get(entityName)?.route || entity?.route || null,
+        recordId: recordId || null,
+        record: fetched || null,
+      },
+    };
+  }
+
+  private toColumnValueSql(
+    column:
+      | {
+          dataType: string;
+          udtName: string;
+          udtNameRaw?: string;
+        }
+      | undefined,
+    value: unknown,
+  ): Prisma.Sql {
+    if (value === undefined) return Prisma.sql`NULL`;
+    if (!column || value === null) return Prisma.sql`${value as any}`;
+
+    const dataType = String(column.dataType || '').toLowerCase();
+    const udtName = String(column.udtName || '').toLowerCase();
+
+    if (dataType === 'uuid' || udtName === 'uuid') {
+      const normalized = String(value || '').trim();
+      return normalized ? Prisma.sql`CAST(${normalized} AS UUID)` : Prisma.sql`NULL`;
+    }
+
+    if (dataType === 'date' || udtName === 'date') {
+      if (value instanceof Date) {
+        return Prisma.sql`CAST(${value.toISOString().slice(0, 10)} AS DATE)`;
+      }
+      const normalized = String(value || '').trim();
+      return normalized ? Prisma.sql`CAST(${normalized} AS DATE)` : Prisma.sql`NULL`;
+    }
+
+    if (dataType.includes('timestamp') || udtName.includes('timestamp')) {
+      if (value instanceof Date) {
+        return Prisma.sql`CAST(${value.toISOString()} AS TIMESTAMP)`;
+      }
+      const normalized = String(value || '').trim();
+      return normalized ? Prisma.sql`CAST(${normalized} AS TIMESTAMP)` : Prisma.sql`NULL`;
+    }
+
+    if (
+      dataType === 'integer' ||
+      dataType === 'smallint' ||
+      dataType === 'bigint' ||
+      udtName === 'int2' ||
+      udtName === 'int4' ||
+      udtName === 'int8'
+    ) {
+      const normalized = Number(value);
+      return Number.isFinite(normalized) ? Prisma.sql`CAST(${Math.trunc(normalized)} AS BIGINT)` : Prisma.sql`NULL`;
+    }
+
+    if (
+      dataType === 'numeric' ||
+      dataType === 'decimal' ||
+      dataType === 'real' ||
+      dataType === 'double precision' ||
+      udtName === 'numeric' ||
+      udtName === 'float4' ||
+      udtName === 'float8'
+    ) {
+      const normalized = String(value ?? '').trim();
+      return normalized ? Prisma.sql`CAST(${normalized} AS NUMERIC)` : Prisma.sql`NULL`;
+    }
+
+    if (dataType === 'boolean' || udtName === 'bool') {
+      if (typeof value === 'boolean') return Prisma.sql`${value}`;
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) return Prisma.sql`NULL`;
+      return Prisma.sql`CAST(${['1', 'true', 'yes', 'sim'].includes(normalized)} AS BOOLEAN)`;
+    }
+
+    if (dataType === 'json' || dataType === 'jsonb' || udtName === 'json' || udtName === 'jsonb') {
+      return Prisma.sql`CAST(${JSON.stringify(value)} AS JSONB)`;
+    }
+
+    if (dataType === 'user-defined' && column.udtNameRaw) {
+      return Prisma.sql`CAST(${String(value ?? '').trim()} AS ${Prisma.raw(`"${column.udtNameRaw}"`)})`;
+    }
+
+    return Prisma.sql`${value as any}`;
+  }
+
+  private humanizeLabel(value: string): string {
+    return String(value || '')
+      .split('_')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
+  private normalizeSearchText(value: string): string {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, ' ')
+      .trim()
+      .toLowerCase();
   }
 
   private getDefaultDateField(entityName: string): string | null {
