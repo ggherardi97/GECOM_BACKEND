@@ -5,6 +5,7 @@ import { CreateInvoiceDTO } from './dto/create.dto';
 import { UpdateInvoiceDTO } from './dto/update.dto';
 import { StatusConfigService } from '../status-config/status-config.service';
 import { AutomationDispatcherService } from '../automation/automation-dispatcher.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class InvoiceService {
@@ -12,6 +13,7 @@ export class InvoiceService {
     private readonly repository: InvoiceRepository,
     private readonly statusConfigService: StatusConfigService,
     private readonly automationDispatcher: AutomationDispatcherService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async findAll(
@@ -71,6 +73,21 @@ export class InvoiceService {
           linesToCreate: [],
         };
 
+    const exchangeRateInput = this.parseExchangeRateInput(data.exchange_rate);
+    const receivedAmountBrl = await this.resolveReceivedAmountBrl({
+      currencyId: data.currency_id,
+      total: computed.total,
+      exchangeRate: exchangeRateInput.decimal,
+      explicitExchangeRate: exchangeRateInput.explicit,
+      clearedExchangeRate: exchangeRateInput.cleared,
+    });
+
+    if (this.isPaidStatus(resolvedStatus.status) && (await this.isNonBrlCurrency(data.currency_id))) {
+      if (!receivedAmountBrl) {
+        throw new BadRequestException('exchange_rate é obrigatório quando a fatura for marcada como paga em moeda diferente de BRL.');
+      }
+    }
+
     const created = await this.repository.create({
       invoice_number: '',
       companies: { connect: { id: data.company_id } },
@@ -80,7 +97,7 @@ export class InvoiceService {
       quote_at: data.quote_at ? new Date(data.quote_at) : undefined,
       due_at: data.due_at ? new Date(data.due_at) : undefined,
 
-      exchange_rate: data.exchange_rate != null ? new Prisma.Decimal(data.exchange_rate) : new Prisma.Decimal(1),
+      exchange_rate: exchangeRateInput.decimal,
       version: data.version ?? 1,
 
       billing_address_line1: data.billing_address_line1 ?? null,
@@ -98,6 +115,7 @@ export class InvoiceService {
       tax_total: computed.taxTotal,
       fee_total: new Prisma.Decimal(0),
       total: computed.total,
+      received_amount_brl: receivedAmountBrl,
 
       notes: data.notes ?? null,
       terms: data.terms ?? null,
@@ -122,7 +140,7 @@ export class InvoiceService {
             },
           }
         : {}),
-    });
+    } as any);
 
     if (!created) throw new BadRequestException('Failed to create invoice');
     return created;
@@ -136,7 +154,15 @@ export class InvoiceService {
       updated_at: new Date(),
     };
 
+    const nextCurrencyId = String(data.currency_id ?? existing.currency_id ?? '').trim();
+    const exchangeRateInput = this.parseExchangeRateInput(
+      data.exchange_rate !== undefined ? data.exchange_rate : existing.exchange_rate,
+      data.exchange_rate !== undefined,
+    );
+
     if (data.invoice_number !== undefined) patch.invoice_number = data.invoice_number ?? '';
+    if (data.company_id !== undefined) (patch as any).company_id = data.company_id;
+    if (data.currency_id !== undefined) (patch as any).currency_id = data.currency_id;
 
     if (data.status !== undefined || data.status_config_id !== undefined) {
       const resolvedStatus = await this.statusConfigService.resolveInvoiceStatus(tenantId, {
@@ -153,8 +179,7 @@ export class InvoiceService {
     if (data.due_at !== undefined) patch.due_at = data.due_at ? new Date(data.due_at) : null;
 
     if (data.exchange_rate !== undefined) {
-      const raw = String(data.exchange_rate ?? '').trim();
-      patch.exchange_rate = raw ? new Prisma.Decimal(raw) : new Prisma.Decimal(1);
+      patch.exchange_rate = exchangeRateInput.decimal;
     }
 
     if (data.billing_address_line1 !== undefined) patch.billing_address_line1 = data.billing_address_line1 ?? null;
@@ -176,6 +201,16 @@ export class InvoiceService {
         patch.discount_amount = new Prisma.Decimal(0);
         patch.tax_total = new Prisma.Decimal(0);
         patch.total = new Prisma.Decimal(0);
+        (patch as any).received_amount_brl = await this.resolveReceivedAmountBrl({
+          currencyId: nextCurrencyId,
+          total: new Prisma.Decimal(0),
+          exchangeRate: exchangeRateInput.decimal,
+          explicitExchangeRate: exchangeRateInput.explicit,
+          clearedExchangeRate: exchangeRateInput.cleared,
+          previousReceivedAmountBrl: (existing as any).received_amount_brl,
+        });
+
+        await this.assertPaidForeignInvoiceHasRate(patch.status ?? existing.status, nextCurrencyId, (patch as any).received_amount_brl);
 
         const updatedHeader = await this.repository.update(id, tenantId, patch);
         if (!updatedHeader) throw new NotFoundException('Invoice not found');
@@ -207,6 +242,16 @@ export class InvoiceService {
       patch.discount_amount = computed.headerDiscountAmount;
       patch.tax_total = computed.taxTotal;
       patch.total = computed.total;
+      (patch as any).received_amount_brl = await this.resolveReceivedAmountBrl({
+        currencyId: nextCurrencyId,
+        total: computed.total,
+        exchangeRate: exchangeRateInput.decimal,
+        explicitExchangeRate: exchangeRateInput.explicit,
+        clearedExchangeRate: exchangeRateInput.cleared,
+        previousReceivedAmountBrl: (existing as any).received_amount_brl,
+      });
+
+      await this.assertPaidForeignInvoiceHasRate(patch.status ?? existing.status, nextCurrencyId, (patch as any).received_amount_brl);
 
       const updatedHeader = await this.repository.update(id, tenantId, patch);
       if (!updatedHeader) throw new NotFoundException('Invoice not found');
@@ -251,6 +296,16 @@ export class InvoiceService {
     }
 
     if (data.discount_percent !== undefined) patch.discount_percent = this.normalizePercent(data.discount_percent);
+    (patch as any).received_amount_brl = await this.resolveReceivedAmountBrl({
+      currencyId: nextCurrencyId,
+      total: this.decimalOrZero(existing.total),
+      exchangeRate: exchangeRateInput.decimal,
+      explicitExchangeRate: exchangeRateInput.explicit,
+      clearedExchangeRate: exchangeRateInput.cleared,
+      previousReceivedAmountBrl: (existing as any).received_amount_brl,
+    });
+
+    await this.assertPaidForeignInvoiceHasRate(patch.status ?? existing.status, nextCurrencyId, (patch as any).received_amount_brl);
 
     const updated = await this.repository.update(id, tenantId, patch);
     if (!updated) throw new NotFoundException('Invoice not found');
@@ -285,6 +340,98 @@ export class InvoiceService {
     const n = Number(value ?? 0);
     if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(100, Math.trunc(n)));
+  }
+
+  private parseExchangeRateInput(value: unknown, explicitOverride = true) {
+    const raw = this.normalizeDecimalString(value);
+    return {
+      explicit: explicitOverride ? raw.length > 0 : false,
+      cleared: explicitOverride && raw.length === 0,
+      decimal: raw ? new Prisma.Decimal(raw) : new Prisma.Decimal(1),
+    };
+  }
+
+  private normalizeDecimalString(value: unknown): string {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+
+    const cleaned = raw.replace(/\s+/g, '').replace(/[^\d,.-]/g, '');
+    if (!cleaned) return '';
+
+    if (cleaned.includes('.') && cleaned.includes(',')) {
+      return cleaned.replace(/\./g, '').replace(',', '.');
+    }
+
+    if (cleaned.includes(',') && !cleaned.includes('.')) {
+      return cleaned.replace(',', '.');
+    }
+
+    return cleaned;
+  }
+
+  private decimalOrZero(value: Prisma.Decimal.Value | null | undefined) {
+    const raw = value == null || String(value).trim() === '' ? '0' : String(value);
+    return new Prisma.Decimal(raw);
+  }
+
+  private async resolveCurrencyCode(currencyId: string): Promise<string> {
+    const normalizedId = String(currencyId || '').trim();
+    if (!normalizedId) return '';
+    const currency = await this.prisma.currencies.findFirst({
+      where: { id: normalizedId },
+      select: { code: true },
+    });
+    return String(currency?.code || '').trim().toUpperCase();
+  }
+
+  private async isNonBrlCurrency(currencyId: string): Promise<boolean> {
+    const code = await this.resolveCurrencyCode(currencyId);
+    return !!code && code !== 'BRL';
+  }
+
+  private isPaidStatus(status: unknown): boolean {
+    return Number(status) === 4;
+  }
+
+  private async resolveReceivedAmountBrl(params: {
+    currencyId: string;
+    total: Prisma.Decimal;
+    exchangeRate: Prisma.Decimal;
+    explicitExchangeRate: boolean;
+    clearedExchangeRate: boolean;
+    previousReceivedAmountBrl?: Prisma.Decimal.Value | null;
+  }): Promise<Prisma.Decimal | null> {
+    const currencyCode = await this.resolveCurrencyCode(params.currencyId);
+    if (!currencyCode) return null;
+    if (currencyCode === 'BRL') {
+      return params.total;
+    }
+
+    if (params.clearedExchangeRate) {
+      return null;
+    }
+
+    const shouldCompute =
+      params.explicitExchangeRate ||
+      params.previousReceivedAmountBrl !== undefined && params.previousReceivedAmountBrl !== null;
+
+    if (!shouldCompute) return null;
+
+    if (params.exchangeRate.lte(new Prisma.Decimal(0))) return null;
+    return params.total.mul(params.exchangeRate);
+  }
+
+  private async assertPaidForeignInvoiceHasRate(
+    status: unknown,
+    currencyId: string,
+    receivedAmountBrl: Prisma.Decimal.Value | null | undefined,
+  ) {
+    if (!this.isPaidStatus(status)) return;
+    if (!(await this.isNonBrlCurrency(currencyId))) return;
+
+    if (receivedAmountBrl == null) {
+      throw new BadRequestException('exchange_rate é obrigatório quando a fatura for marcada como paga em moeda diferente de BRL.');
+    }
   }
 
   private assertIntegerDecimal(qty: Prisma.Decimal, message: string) {

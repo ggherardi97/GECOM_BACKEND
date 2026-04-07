@@ -22,6 +22,14 @@ import { UpdateWhatsappIntegrationDto } from './dto/update-whatsapp-integration.
 import { ListWhatsappConversationsDto } from './dto/list-whatsapp-conversations.dto';
 import { SendWhatsappMessageDto } from './dto/send-whatsapp-message.dto';
 import { ProvisionWhatsappIntegrationDto } from './dto/provision-whatsapp-integration.dto';
+import { UpdateWhatsappConversationWorkflowDto } from './dto/update-whatsapp-conversation-workflow.dto';
+import { CreateWhatsappConversationNoteDto } from './dto/create-whatsapp-conversation-note.dto';
+import { UpdateWhatsappConversationConsentDto } from './dto/update-whatsapp-conversation-consent.dto';
+import { CreateWhatsappTemplateDto } from './dto/create-whatsapp-template.dto';
+import { UpdateWhatsappTemplateDto } from './dto/update-whatsapp-template.dto';
+import { CreateWhatsappCampaignDto } from './dto/create-whatsapp-campaign.dto';
+import { UpdateWhatsappCampaignDto } from './dto/update-whatsapp-campaign.dto';
+import { LaunchWhatsappCampaignDto } from './dto/launch-whatsapp-campaign.dto';
 
 @ApiTags('sales-whatsapp')
 @ApiBearerAuth()
@@ -108,6 +116,25 @@ export class WhatsappSalesController {
     return this.service.listMessages(this.getUser(req), id);
   }
 
+  @Patch('conversations/:id/workflow')
+  async updateWorkflow(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateWhatsappConversationWorkflowDto,
+  ) {
+    return this.service.updateConversationWorkflow(this.getUser(req), id, dto);
+  }
+
+  @Post('conversations/:id/claim')
+  async claimConversation(@Req() req: Request, @Param('id') id: string) {
+    return this.service.claimConversation(this.getUser(req), id);
+  }
+
+  @Post('conversations/:id/release')
+  async releaseConversation(@Req() req: Request, @Param('id') id: string) {
+    return this.service.releaseConversation(this.getUser(req), id);
+  }
+
   @Post('conversations/:id/reply')
   async reply(@Req() req: Request, @Param('id') id: string, @Body() dto: SendWhatsappMessageDto) {
     return this.service.replyToConversation(this.getUser(req), id, dto);
@@ -116,6 +143,65 @@ export class WhatsappSalesController {
   @Post('conversations/:id/reprocess')
   async reprocess(@Req() req: Request, @Param('id') id: string) {
     return this.service.reprocessConversation(this.getUser(req), id);
+  }
+
+  @Get('conversations/:id/notes')
+  async listNotes(@Req() req: Request, @Param('id') id: string) {
+    return this.service.listConversationNotes(this.getUser(req), id);
+  }
+
+  @Post('conversations/:id/notes')
+  async addNote(@Req() req: Request, @Param('id') id: string, @Body() dto: CreateWhatsappConversationNoteDto) {
+    return this.service.addConversationNote(this.getUser(req), id, dto);
+  }
+
+  @Patch('conversations/:id/consent')
+  async updateConsent(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateWhatsappConversationConsentDto,
+  ) {
+    return this.service.updateConversationConsent(this.getUser(req), id, dto);
+  }
+
+  @Get('templates')
+  async listTemplates(@Req() req: Request, @Query('integration_id') integrationId?: string) {
+    return this.service.listTemplates(this.getUser(req), integrationId);
+  }
+
+  @Post('templates')
+  async createTemplate(@Req() req: Request, @Body() dto: CreateWhatsappTemplateDto) {
+    return this.service.createTemplate(this.getUser(req), dto);
+  }
+
+  @Patch('templates/:id')
+  async updateTemplate(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateWhatsappTemplateDto) {
+    return this.service.updateTemplate(this.getUser(req), id, dto);
+  }
+
+  @Get('campaigns')
+  async listCampaigns(@Req() req: Request, @Query('integration_id') integrationId?: string) {
+    return this.service.listCampaigns(this.getUser(req), integrationId);
+  }
+
+  @Get('campaigns/:id')
+  async getCampaign(@Req() req: Request, @Param('id') id: string) {
+    return this.service.getCampaign(this.getUser(req), id);
+  }
+
+  @Post('campaigns')
+  async createCampaign(@Req() req: Request, @Body() dto: CreateWhatsappCampaignDto) {
+    return this.service.createCampaign(this.getUser(req), dto);
+  }
+
+  @Patch('campaigns/:id')
+  async updateCampaign(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateWhatsappCampaignDto) {
+    return this.service.updateCampaign(this.getUser(req), id, dto);
+  }
+
+  @Post('campaigns/:id/launch')
+  async launchCampaign(@Req() req: Request, @Param('id') id: string, @Body() dto: LaunchWhatsappCampaignDto) {
+    return this.service.launchCampaign(this.getUser(req), id, dto);
   }
 
   @Public()

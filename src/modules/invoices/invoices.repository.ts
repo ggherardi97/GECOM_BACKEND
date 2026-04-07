@@ -34,6 +34,8 @@ export class InvoiceRepository {
           select: {
             id: true,
             total: true,
+            exchange_rate: true,
+            received_amount_brl: true,
             quote_at: true,
             created_at: true,
             status: true,
@@ -57,7 +59,7 @@ export class InvoiceRepository {
                 entity: true,
               },
             },
-          },
+          } as any,
         });
       }
 
@@ -68,6 +70,8 @@ export class InvoiceRepository {
           select: {
             id: true,
             total: true,
+            exchange_rate: true,
+            received_amount_brl: true,
             invoice_number:true,
             subtotal:true,
             discount_amount: true,
@@ -102,7 +106,7 @@ export class InvoiceRepository {
                 id:true,
               }
             }
-          },
+          } as any,
         });
       }
 

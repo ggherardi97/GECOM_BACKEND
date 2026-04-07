@@ -10,13 +10,17 @@ import {
   Req,
   UnauthorizedException,
   UseGuards,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { FinanceService } from './finance.service';
 import {
+  ApplyFinancialImportDto,
   CreateFinancialBankAccountDto,
   CreateFinancialBankMovementDto,
   CreateFinancialCategoryDto,
@@ -28,6 +32,8 @@ import {
   GenerateReceivableFromInvoiceDto,
   ReconcileFinancialBankAccountDto,
   ReconcileFinancialBankMovementDto,
+  ReviewFinancialImportLineDto,
+  UploadFinancialImportDto,
   UpdateFinancialBankAccountDto,
   UpdateFinancialBankMovementDto,
   UpdateFinancialCategoryDto,
@@ -202,11 +208,12 @@ export class FinanceController {
     @Req() req: Request,
     @Query('q') q?: string,
     @Query('status') status?: string,
+    @Query('entry_group') entry_group?: string,
     @Query('company_id') company_id?: string,
     @Query('from_due') from_due?: string,
     @Query('to_due') to_due?: string,
   ) {
-    return this.service.listReceivables(this.getUser(req), { q, status, company_id, from_due, to_due });
+    return this.service.listReceivables(this.getUser(req), { q, status, entry_group, company_id, from_due, to_due });
   }
 
   @Get('receivables/:id')
@@ -267,11 +274,12 @@ export class FinanceController {
     @Req() req: Request,
     @Query('q') q?: string,
     @Query('status') status?: string,
+    @Query('entry_group') entry_group?: string,
     @Query('company_id') company_id?: string,
     @Query('from_due') from_due?: string,
     @Query('to_due') to_due?: string,
   ) {
-    return this.service.listPayables(this.getUser(req), { q, status, company_id, from_due, to_due });
+    return this.service.listPayables(this.getUser(req), { q, status, entry_group, company_id, from_due, to_due });
   }
 
   @Get('payables/:id')
@@ -322,5 +330,45 @@ export class FinanceController {
   ) {
     return this.service.getCashFlowProjection(this.getUser(req), from, to);
   }
-}
 
+  @Get('import-jobs')
+  listImportJobs(@Req() req: Request, @Query('status') status?: string, @Query('bank_account_id') bank_account_id?: string) {
+    return this.service.listImportJobs(this.getUser(req), { status, bank_account_id });
+  }
+
+  @Get('import-jobs/:id')
+  findImportJobById(@Req() req: Request, @Param('id') id: string) {
+    return this.service.findImportJobById(this.getUser(req), id);
+  }
+
+  @Post('import-jobs/upload')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadImportJob(
+    @Req() req: Request,
+    @UploadedFile() file: any,
+    @Body() dto: UploadFinancialImportDto,
+  ) {
+    return this.service.uploadImportJob(this.getUser(req), dto, file);
+  }
+
+  @Post('import-jobs/:id/reanalyze')
+  reanalyzeImportJob(@Req() req: Request, @Param('id') id: string) {
+    return this.service.reanalyzeImportJob(this.getUser(req), id);
+  }
+
+  @Patch('import-jobs/:id/lines/:lineId')
+  reviewImportLine(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() dto: ReviewFinancialImportLineDto,
+  ) {
+    return this.service.reviewImportLine(this.getUser(req), id, lineId, dto);
+  }
+
+  @Post('import-jobs/:id/apply')
+  applyImportJob(@Req() req: Request, @Param('id') id: string, @Body() dto: ApplyFinancialImportDto) {
+    return this.service.applyImportJob(this.getUser(req), id, dto);
+  }
+}

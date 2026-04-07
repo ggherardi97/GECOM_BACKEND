@@ -94,6 +94,8 @@ const ACTIVITY_DEFINITIONS: ActivityDefinition[] = [
           { value: 'opportunities', label: 'Oportunidades' },
           { value: 'contracts', label: 'Contratos' },
           { value: 'incidents', label: 'Incidentes' },
+          { value: 'po_projects', label: 'Projetos' },
+          { value: 'po_work_orders', label: 'Work orders' },
         ],
       },
       {
@@ -1618,6 +1620,50 @@ export class CalendarActivitiesService {
         return this.lookupContracts(user, q, limit);
       case 'incidents':
         return this.lookupIncidents(user, q, limit);
+      case 'po_projects': {
+        const rows = await this.db.po_projects.findMany({
+          where: {
+            tenant_id: user.tenant_id,
+            deleted_at: null,
+            ...(q
+              ? {
+                  OR: [
+                    { code: this.searchContains(q) },
+                    { name: this.searchContains(q) },
+                  ],
+                }
+              : {}),
+          },
+          select: { id: true, code: true, name: true },
+          orderBy: [{ updated_at: 'desc' }],
+          take: limit,
+        });
+        return this.mapLookup(
+          rows.map((row: any) => ({ id: row.id, label: row.name || row.code || row.id, subtitle: row.code || undefined })),
+        );
+      }
+      case 'po_work_orders': {
+        const rows = await this.db.po_work_orders.findMany({
+          where: {
+            tenant_id: user.tenant_id,
+            deleted_at: null,
+            ...(q
+              ? {
+                  OR: [
+                    { code: this.searchContains(q) },
+                    { title: this.searchContains(q) },
+                  ],
+                }
+              : {}),
+          },
+          select: { id: true, code: true, title: true },
+          orderBy: [{ updated_at: 'desc' }],
+          take: limit,
+        });
+        return this.mapLookup(
+          rows.map((row: any) => ({ id: row.id, label: row.title || row.code || row.id, subtitle: row.code || undefined })),
+        );
+      }
       default:
         throw new BadRequestException(`related_table não suportada: ${relatedTable}.`);
     }

@@ -49,6 +49,8 @@ export class CreateRegisterActionRunner implements AutomationActionRunner {
       data[normalizedField] = renderTemplateValue(value, templateSource);
     });
 
+    await this.applyInvoiceReceivableDefaults(entityName, data, templateSource);
+
     if (columnByName.has('tenant_id') && !Object.prototype.hasOwnProperty.call(data, 'tenant_id')) {
       data.tenant_id = context.tenantId;
     }
@@ -99,6 +101,52 @@ export class CreateRegisterActionRunner implements AutomationActionRunner {
       createdId: createdId || null,
       createdFields: finalEntries.map(([field]) => field),
     };
+  }
+
+  private async applyInvoiceReceivableDefaults(
+    entityName: string,
+    data: Record<string, unknown>,
+    templateSource: Record<string, unknown>,
+  ) {
+    if (entityName !== 'financial_receivables') return;
+    if (String(templateSource.entityName || '').trim().toLowerCase() !== 'invoices') return;
+
+    const payload = (templateSource.payload || {}) as Record<string, unknown>;
+    const after = ((payload.after || payload.before || {}) as Record<string, unknown>) || {};
+    const receivedAmountBrl = after.received_amount_brl;
+    const totalAmount = after.total;
+    const invoiceCurrencyId = String(after.currency_id || '').trim();
+    const invoiceCurrency = ((after.currencies || after.currency || {}) as Record<string, unknown>) || {};
+    const invoiceCurrencyCode = String(
+      invoiceCurrency.code || after.currency_code || after.currencyCode || '',
+    )
+      .trim()
+      .toUpperCase();
+
+    const currentOriginalAmount = data.original_amount;
+    const shouldPreferBrlAmount =
+      receivedAmountBrl != null &&
+      (currentOriginalAmount == null || Number(currentOriginalAmount) === Number(totalAmount || 0));
+
+    if (shouldPreferBrlAmount) {
+      data.original_amount = receivedAmountBrl;
+    }
+
+    const currentCurrencyId = String(data.currency_id || '').trim();
+    if (
+      invoiceCurrencyCode &&
+      invoiceCurrencyCode !== 'BRL' &&
+      receivedAmountBrl != null &&
+      (!currentCurrencyId || currentCurrencyId === invoiceCurrencyId)
+    ) {
+      const brlCurrency = await this.prisma.currencies.findFirst({
+        where: { code: 'BRL' },
+        select: { id: true },
+      });
+      if (brlCurrency?.id) {
+        data.currency_id = brlCurrency.id;
+      }
+    }
   }
 
   private collectConfiguredValues(

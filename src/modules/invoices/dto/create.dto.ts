@@ -114,6 +114,14 @@ export class CreateInvoiceDTO {
   exchange_rate?: string;
 
   @ApiPropertyOptional({
+    description: 'Amount converted to BRL (decimal string). Used for dashboards and receivables when invoice currency is not BRL.',
+    example: '28450.00',
+  })
+  @IsOptional()
+  @IsString()
+  received_amount_brl?: string;
+
+  @ApiPropertyOptional({
     description: 'Invoice version.',
     example: 1,
   })

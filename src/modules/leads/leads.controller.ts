@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { LeadsService } from './leads.service';
 import { CreateLeadDto } from './dto/create-lead.dto';
+import { CreatePublicGecomLeadDto } from './dto/create-public-gecom-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { MoveLeadStageDto } from './dto/move-lead-stage.dto';
 import { CreateLeadStageDto } from './dto/create-lead-stage.dto';
@@ -28,6 +29,7 @@ import { SetLeadTagsDto } from './dto/set-lead-tags.dto';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
 import { ListLeadsQueryDto } from './dto/list-leads.dto';
 import { AccessResource } from '../access-control/decorators/access-resource.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('leads')
 @ApiBearerAuth()
@@ -83,6 +85,12 @@ export class LeadsController {
   @Post()
   async createLead(@Req() req: Request, @Body() dto: CreateLeadDto) {
     return this.service.createLead(this.getUser(req), dto);
+  }
+
+  @Public()
+  @Post('public/gecom-contact')
+  async createPublicGecomContactLead(@Body() dto: CreatePublicGecomLeadDto) {
+    return this.service.createPublicGecomContactLead(dto);
   }
 
   @Patch(':leadId')

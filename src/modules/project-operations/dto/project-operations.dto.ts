@@ -148,9 +148,15 @@ export class CreatePoProjectProcessDto {
 export class UpdatePoProjectProcessDto extends PartialType(CreatePoProjectProcessDto) {}
 
 export class CreatePoMilestoneDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsUUID('4')
-  process_id: string;
+  process_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  project_id?: string;
 
   @ApiProperty()
   @IsString()
@@ -181,9 +187,15 @@ export class CreatePoMilestoneDto {
 export class UpdatePoMilestoneDto extends PartialType(CreatePoMilestoneDto) {}
 
 export class CreatePoDeliverableDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsUUID('4')
-  process_id: string;
+  process_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  project_id?: string;
 
   @ApiProperty()
   @IsString()
@@ -219,9 +231,15 @@ export class CreatePoDeliverableDto {
 export class UpdatePoDeliverableDto extends PartialType(CreatePoDeliverableDto) {}
 
 export class CreatePoChecklistDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsUUID('4')
-  process_id: string;
+  process_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  project_id?: string;
 
   @ApiProperty()
   @IsString()

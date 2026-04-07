@@ -3,11 +3,17 @@ import { PartialType } from '@nestjs/mapped-types';
 import {
   FinancialAccountType,
   FinancialCategoryKind,
+  FinancialEntryGroup,
   FinancialEntryStatus,
+  FinancialImportSourceType,
+  FinancialImportSuggestionKind,
+  FinancialImportSuggestionStatus,
   FinancialMovementType,
   FinancialPaymentMethod,
+  FinancialRecurrenceFrequency,
 } from '@prisma/client';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -261,6 +267,11 @@ export class CreateFinancialReceivableDto {
   @IsString()
   original_amount?: string;
 
+  @ApiPropertyOptional({ enum: FinancialEntryGroup, default: FinancialEntryGroup.VARIABLE })
+  @IsOptional()
+  @IsEnum(FinancialEntryGroup)
+  entry_group?: FinancialEntryGroup;
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @IsInt()
@@ -272,6 +283,46 @@ export class CreateFinancialReceivableDto {
   @IsInt()
   @Min(1)
   installment_total?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  recurrence_enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: FinancialRecurrenceFrequency, default: FinancialRecurrenceFrequency.MONTHLY })
+  @IsOptional()
+  @IsEnum(FinancialRecurrenceFrequency)
+  recurrence_frequency?: FinancialRecurrenceFrequency;
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  recurrence_interval?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  recurrence_day_of_month?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(240)
+  recurrence_occurrences?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  recurrence_end_date?: string;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  recurrence_auto_create?: boolean;
 
   @ApiPropertyOptional({ enum: FinancialEntryStatus })
   @IsOptional()
@@ -418,6 +469,11 @@ export class CreateFinancialPayableDto {
   @IsString()
   original_amount?: string;
 
+  @ApiPropertyOptional({ enum: FinancialEntryGroup, default: FinancialEntryGroup.VARIABLE })
+  @IsOptional()
+  @IsEnum(FinancialEntryGroup)
+  entry_group?: FinancialEntryGroup;
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @IsInt()
@@ -429,6 +485,46 @@ export class CreateFinancialPayableDto {
   @IsInt()
   @Min(1)
   installment_total?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  recurrence_enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: FinancialRecurrenceFrequency, default: FinancialRecurrenceFrequency.MONTHLY })
+  @IsOptional()
+  @IsEnum(FinancialRecurrenceFrequency)
+  recurrence_frequency?: FinancialRecurrenceFrequency;
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  recurrence_interval?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  recurrence_day_of_month?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(240)
+  recurrence_occurrences?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  recurrence_end_date?: string;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  recurrence_auto_create?: boolean;
 
   @ApiPropertyOptional({ enum: FinancialEntryStatus })
   @IsOptional()
@@ -491,3 +587,69 @@ export class CreateFinancialPayablePaymentDto {
 
 export class UpdateFinancialPayablePaymentDto extends PartialType(CreateFinancialPayablePaymentDto) {}
 
+export class UploadFinancialImportDto {
+  @ApiPropertyOptional({ enum: FinancialImportSourceType })
+  @IsOptional()
+  @IsEnum(FinancialImportSourceType)
+  source_type?: FinancialImportSourceType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  bank_account_id?: string;
+}
+
+export class ReviewFinancialImportLineDto {
+  @ApiPropertyOptional({ enum: FinancialImportSuggestionKind })
+  @IsOptional()
+  @IsEnum(FinancialImportSuggestionKind)
+  suggestion_kind?: FinancialImportSuggestionKind;
+
+  @ApiPropertyOptional({ enum: FinancialImportSuggestionStatus })
+  @IsOptional()
+  @IsEnum(FinancialImportSuggestionStatus)
+  suggestion_status?: FinancialImportSuggestionStatus;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  suggested_category_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  suggested_cost_center_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  suggested_company_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  matched_receivable_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  matched_payable_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  review_note?: string;
+}
+
+export class ApplyFinancialImportDto {
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  line_ids?: string[];
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  apply_approved_only?: boolean;
+}

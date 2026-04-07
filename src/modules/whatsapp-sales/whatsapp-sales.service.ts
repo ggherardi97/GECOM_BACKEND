@@ -17,6 +17,15 @@ import { UpdateWhatsappIntegrationDto } from './dto/update-whatsapp-integration.
 import { ListWhatsappConversationsDto } from './dto/list-whatsapp-conversations.dto';
 import { SendWhatsappMessageDto } from './dto/send-whatsapp-message.dto';
 import { ProvisionWhatsappIntegrationDto } from './dto/provision-whatsapp-integration.dto';
+import { UpdateWhatsappConversationWorkflowDto } from './dto/update-whatsapp-conversation-workflow.dto';
+import { CreateWhatsappConversationNoteDto } from './dto/create-whatsapp-conversation-note.dto';
+import { UpdateWhatsappConversationConsentDto } from './dto/update-whatsapp-conversation-consent.dto';
+import { CreateWhatsappTemplateDto } from './dto/create-whatsapp-template.dto';
+import { UpdateWhatsappTemplateDto } from './dto/update-whatsapp-template.dto';
+import { CreateWhatsappCampaignDto } from './dto/create-whatsapp-campaign.dto';
+import { UpdateWhatsappCampaignDto } from './dto/update-whatsapp-campaign.dto';
+import { LaunchWhatsappCampaignDto } from './dto/launch-whatsapp-campaign.dto';
+import { runWithTenant } from '../../common/tenant/tenant-context';
 
 type AuthUser = {
   id?: string;
@@ -30,6 +39,8 @@ type SettingsJson = {
   assistantTone: string;
   webhookBaseUrl: string;
   providerClientToken: string;
+  campaignFooterText: string;
+  optOutKeywords: string[];
   classifyWithAi: boolean;
   autoCreateLead: boolean;
   createLeadActivity: boolean;
@@ -39,6 +50,7 @@ type SettingsJson = {
   autoReplyEnabled: boolean;
   autoReplyOnIntents: string[];
   keywordReplyRules: KeywordReplyRule[];
+  quickReplyTemplates: QuickReplyTemplate[];
   defaultLeadType: 'PERSON' | 'COMPANY';
   activitySubjectTemplate: string;
 };
@@ -46,6 +58,11 @@ type SettingsJson = {
 type KeywordReplyRule = {
   keywords: string[];
   responseText: string;
+};
+
+type QuickReplyTemplate = {
+  label: string;
+  text: string;
 };
 
 type ClassificationResult = {
@@ -70,6 +87,7 @@ type NormalizedWebhookMessage = {
   phone: string;
   phoneNormalized: string;
   contactName: string | null;
+  contactAvatarUrl: string | null;
   chatId: string | null;
   bodyText: string | null;
   mediaUrl: string | null;
@@ -125,17 +143,16 @@ export class WhatsappSalesService {
 
   async getMeta(user: AuthUser) {
     const providerDefaults = this.getProviderDefaults();
-    const [stageRows, userRows] = await Promise.all([
+    const [stageRows, currentUserRow] = await Promise.all([
       this.prisma.lead_pipeline_stages.findMany({
         where: { tenant_id: user.tenant_id, is_active: true },
         orderBy: { sort_order: 'asc' },
       }),
-      this.prisma.users.findMany({
+      this.prisma.users.findFirst({
         where: {
           tenant_id: user.tenant_id,
-          status: 'ACTIVE',
+          id: this.requireUserId(user),
         },
-        orderBy: { full_name: 'asc' },
         select: {
           id: true,
           full_name: true,
@@ -145,6 +162,22 @@ export class WhatsappSalesService {
         },
       }),
     ]);
+
+    const userRows = await this.prisma.users.findMany({
+      where: {
+        tenant_id: user.tenant_id,
+        status: 'ACTIVE',
+        company_id: currentUserRow?.company_id ?? null,
+      },
+      orderBy: { full_name: 'asc' },
+      select: {
+        id: true,
+        full_name: true,
+        email: true,
+        role: true,
+        company_id: true,
+      },
+    });
 
     return {
       providers: [
@@ -156,6 +189,18 @@ export class WhatsappSalesService {
       partner_config: this.getPartnerConfig(),
       public_webhook_base_url: this.resolvePublicWebhookBaseUrl(null),
       settings_defaults: this.defaultSettings(),
+      current_user: currentUserRow || {
+        id: this.requireUserId(user),
+        full_name: null,
+        email: null,
+        role: user.role ?? null,
+        company_id: null,
+      },
+      conversation_statuses: this.getConversationStatusOptions(),
+      consent_statuses: this.getConsentStatusOptions(),
+      template_scopes: this.getTemplateScopeOptions(),
+      template_categories: this.getTemplateCategoryOptions(),
+      campaign_statuses: this.getCampaignStatusOptions(),
       stages: stageRows.map((row) => ({
         id: row.id,
         name: row.name,
@@ -543,10 +588,14 @@ export class WhatsappSalesService {
   }
 
   async listConversations(user: AuthUser, query: ListWhatsappConversationsDto) {
+    const ownership = this.normalizeNullableString(query.ownership)?.toUpperCase();
     const where: Prisma.whatsapp_conversationsWhereInput = {
       tenant_id: user.tenant_id,
       ...(query.integration_id ? { integration_id: query.integration_id } : {}),
       ...(query.status ? { status: String(query.status).trim().toUpperCase() } : {}),
+      ...(query.owner_user_id ? { owner_user_id: query.owner_user_id } : {}),
+      ...(ownership === 'MINE' ? { owner_user_id: this.requireUserId(user) } : {}),
+      ...(ownership === 'UNASSIGNED' ? { owner_user_id: null } : {}),
       ...(query.intent ? { classification_intent: String(query.intent).trim().toUpperCase() } : {}),
       ...(query.lead_linked === 'true' ? { lead_id: { not: null } } : {}),
       ...(query.lead_linked === 'false' ? { lead_id: null } : {}),
@@ -566,6 +615,8 @@ export class WhatsappSalesService {
       include: {
         lead: { select: { id: true, name: true, status: true } },
         integration: { select: { id: true, name: true, phone_number: true } },
+        owner_user: { select: { id: true, full_name: true, email: true } },
+        _count: { select: { notes: true } },
       },
       orderBy: [{ last_message_at: 'desc' }],
       take: 100,
@@ -575,15 +626,33 @@ export class WhatsappSalesService {
   }
 
   async getConversation(user: AuthUser, id: string) {
-    const row = await this.prisma.whatsapp_conversations.findFirst({
+    let row = await this.prisma.whatsapp_conversations.findFirst({
       where: { tenant_id: user.tenant_id, id },
       include: {
         lead: { select: { id: true, name: true, status: true, owner_user_id: true } },
         integration: { select: { id: true, name: true, phone_number: true, is_active: true } },
+        owner_user: { select: { id: true, full_name: true, email: true } },
+        _count: { select: { notes: true } },
       },
     });
 
     if (!row) throw new NotFoundException('Conversa não encontrada.');
+    if (row.unread_count > 0) {
+      row = await this.prisma.whatsapp_conversations.update({
+        where: { id: row.id },
+        data: {
+          unread_count: 0,
+          updated_at: new Date(),
+        },
+        include: {
+          lead: { select: { id: true, name: true, status: true, owner_user_id: true } },
+          integration: { select: { id: true, name: true, phone_number: true, is_active: true } },
+          owner_user: { select: { id: true, full_name: true, email: true } },
+          _count: { select: { notes: true } },
+        },
+      });
+    }
+
     return this.serializeConversation(row);
   }
 
@@ -602,7 +671,523 @@ export class WhatsappSalesService {
     return rows.map((row) => this.serializeMessage(row));
   }
 
+  async updateConversationWorkflow(user: AuthUser, conversationId: string, dto: UpdateWhatsappConversationWorkflowDto) {
+    const conversation = await this.getConversationRow(user.tenant_id, conversationId);
+    const data: Prisma.whatsapp_conversationsUpdateInput = {
+      updated_at: new Date(),
+    };
+
+    if (dto.owner_user_id !== undefined) {
+      const ownerUserId = this.normalizeNullableString(dto.owner_user_id);
+      if (ownerUserId) {
+        await this.assertConversationOwner(user.tenant_id, ownerUserId);
+      }
+      data.owner_user = ownerUserId ? { connect: { id: ownerUserId } } : { disconnect: true };
+      data.claimed_at = ownerUserId ? new Date() : null;
+    }
+
+    if (dto.status !== undefined) {
+      data.status = this.normalizeConversationStatus(dto.status, conversation.status);
+    }
+
+    const updated = await this.prisma.whatsapp_conversations.update({
+      where: { id: conversation.id },
+      data,
+      include: {
+        lead: { select: { id: true, name: true, status: true, owner_user_id: true } },
+        integration: { select: { id: true, name: true, phone_number: true, is_active: true } },
+        owner_user: { select: { id: true, full_name: true, email: true } },
+        _count: { select: { notes: true } },
+      },
+    });
+
+    return this.serializeConversation(updated);
+  }
+
+  async claimConversation(user: AuthUser, conversationId: string) {
+    const actorId = this.requireUserId(user);
+    const conversation = await this.getConversationRow(user.tenant_id, conversationId);
+    const updated = await this.prisma.whatsapp_conversations.update({
+      where: { id: conversation.id },
+      data: {
+        owner_user: { connect: { id: actorId } },
+        claimed_at: new Date(),
+        status: this.resolveConversationStatusAfterClaim(conversation.status),
+        updated_at: new Date(),
+      },
+      include: {
+        lead: { select: { id: true, name: true, status: true, owner_user_id: true } },
+        integration: { select: { id: true, name: true, phone_number: true, is_active: true } },
+        owner_user: { select: { id: true, full_name: true, email: true } },
+        _count: { select: { notes: true } },
+      },
+    });
+
+    return this.serializeConversation(updated);
+  }
+
+  async releaseConversation(user: AuthUser, conversationId: string) {
+    const conversation = await this.getConversationRow(user.tenant_id, conversationId);
+    const updated = await this.prisma.whatsapp_conversations.update({
+      where: { id: conversation.id },
+      data: {
+        owner_user: { disconnect: true },
+        claimed_at: null,
+        updated_at: new Date(),
+      },
+      include: {
+        lead: { select: { id: true, name: true, status: true, owner_user_id: true } },
+        integration: { select: { id: true, name: true, phone_number: true, is_active: true } },
+        owner_user: { select: { id: true, full_name: true, email: true } },
+        _count: { select: { notes: true } },
+      },
+    });
+
+    return this.serializeConversation(updated);
+  }
+
+  async listConversationNotes(user: AuthUser, conversationId: string) {
+    await this.getConversationRow(user.tenant_id, conversationId);
+    const rows = await this.prisma.whatsapp_conversation_notes.findMany({
+      where: { tenant_id: user.tenant_id, conversation_id: conversationId },
+      include: {
+        user: { select: { id: true, full_name: true, email: true } },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+    });
+
+    return rows.map((row) => this.serializeConversationNote(row));
+  }
+
+  async addConversationNote(user: AuthUser, conversationId: string, dto: CreateWhatsappConversationNoteDto) {
+    const actorId = this.requireUserId(user);
+    const conversation = await this.getConversationRow(user.tenant_id, conversationId);
+    const noteText = this.normalizeNullableString(dto.note_text);
+    if (!noteText) {
+      throw new BadRequestException('A nota interna nao pode ficar vazia.');
+    }
+
+    const now = new Date();
+    const created = await this.prisma.whatsapp_conversation_notes.create({
+      data: {
+        id: randomUUID(),
+        tenant_id: user.tenant_id,
+        conversation_id: conversation.id,
+        user_id: actorId,
+        note_text: noteText,
+        created_at: now,
+        updated_at: now,
+      },
+      include: {
+        user: { select: { id: true, full_name: true, email: true } },
+      },
+    });
+
+    await this.prisma.whatsapp_conversations.update({
+      where: { id: conversation.id },
+      data: {
+        last_note_at: now,
+        ...(conversation.owner_user_id ? {} : { owner_user_id: actorId }),
+        claimed_at: conversation.owner_user_id ? conversation.claimed_at : now,
+        updated_at: now,
+      },
+    });
+
+    return this.serializeConversationNote(created);
+  }
+
+  async updateConversationConsent(user: AuthUser, conversationId: string, dto: UpdateWhatsappConversationConsentDto) {
+    const conversation = await this.getConversationRow(user.tenant_id, conversationId);
+    const nextStatus = this.normalizeConsentStatus(dto.marketing_opt_in_status, conversation.marketing_opt_in_status);
+    const now = new Date();
+
+    await this.prisma.whatsapp_conversations.update({
+      where: { id: conversation.id },
+      data: {
+        marketing_opt_in_status: nextStatus,
+        marketing_opt_in_source:
+          dto.marketing_opt_in_source !== undefined
+            ? this.normalizeNullableString(dto.marketing_opt_in_source)
+            : conversation.marketing_opt_in_source,
+        marketing_opt_in_at:
+          nextStatus === 'OPTED_IN'
+            ? conversation.marketing_opt_in_at ?? now
+            : nextStatus === 'UNKNOWN'
+              ? null
+              : conversation.marketing_opt_in_at,
+        marketing_opt_out_at:
+          nextStatus === 'OPTED_OUT'
+            ? now
+            : nextStatus === 'UNKNOWN'
+              ? null
+              : conversation.marketing_opt_out_at,
+        updated_at: now,
+      },
+    });
+
+    return this.getConversation(user, conversation.id);
+  }
+
+  async listTemplates(user: AuthUser, integrationId?: string) {
+    const rows = await this.prisma.whatsapp_message_templates.findMany({
+      where: {
+        tenant_id: user.tenant_id,
+        ...(integrationId ? { OR: [{ integration_id: integrationId }, { integration_id: null }] } : {}),
+      },
+      include: {
+        integration: { select: { id: true, name: true, phone_number: true } },
+      },
+      orderBy: [{ sort_order: 'asc' }, { name: 'asc' }],
+    });
+
+    return rows.map((row) => this.serializeTemplate(row));
+  }
+
+  async createTemplate(user: AuthUser, dto: CreateWhatsappTemplateDto) {
+    const actorId = this.requireUserId(user);
+    const name = String(dto.name || '').trim();
+    const messageText = String(dto.message_text || '').trim();
+    if (!name || !messageText) {
+      throw new BadRequestException('Nome e mensagem do template sao obrigatorios.');
+    }
+    if (dto.integration_id) {
+      await this.getIntegrationRow(user.tenant_id, dto.integration_id);
+    }
+
+    const created = await this.prisma.whatsapp_message_templates.create({
+      data: {
+        id: randomUUID(),
+        tenant_id: user.tenant_id,
+        integration_id: this.normalizeNullableString(dto.integration_id),
+        name,
+        category: this.normalizeTemplateCategory(dto.category),
+        usage_scope: this.normalizeTemplateScope(dto.usage_scope),
+        message_text: messageText,
+        variables_json: this.normalizeTemplateVariables(dto.variables_json) as Prisma.InputJsonValue,
+        is_active: dto.is_active ?? true,
+        sort_order: Number.isFinite(Number(dto.sort_order)) ? Number(dto.sort_order) : 0,
+        created_by_user_id: actorId,
+        updated_by_user_id: actorId,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+      include: {
+        integration: { select: { id: true, name: true, phone_number: true } },
+      },
+    });
+
+    return this.serializeTemplate(created);
+  }
+
+  async updateTemplate(user: AuthUser, id: string, dto: UpdateWhatsappTemplateDto) {
+    const actorId = this.requireUserId(user);
+    const existing = await this.getTemplateRow(user.tenant_id, id);
+    if (dto.integration_id) {
+      await this.getIntegrationRow(user.tenant_id, dto.integration_id);
+    }
+    if (dto.name !== undefined && !String(dto.name || '').trim()) {
+      throw new BadRequestException('Nome do template nao pode ficar vazio.');
+    }
+    if (dto.message_text !== undefined && !String(dto.message_text || '').trim()) {
+      throw new BadRequestException('Mensagem do template nao pode ficar vazia.');
+    }
+
+    const updated = await this.prisma.whatsapp_message_templates.update({
+      where: { id: existing.id },
+      data: {
+        ...(dto.integration_id !== undefined ? { integration_id: this.normalizeNullableString(dto.integration_id) } : {}),
+        ...(dto.name !== undefined ? { name: String(dto.name || '').trim() } : {}),
+        ...(dto.category !== undefined ? { category: this.normalizeTemplateCategory(dto.category) } : {}),
+        ...(dto.usage_scope !== undefined ? { usage_scope: this.normalizeTemplateScope(dto.usage_scope) } : {}),
+        ...(dto.message_text !== undefined ? { message_text: String(dto.message_text || '').trim() } : {}),
+        ...(dto.variables_json !== undefined
+          ? { variables_json: this.normalizeTemplateVariables(dto.variables_json) as Prisma.InputJsonValue }
+          : {}),
+        ...(dto.is_active !== undefined ? { is_active: dto.is_active } : {}),
+        ...(dto.sort_order !== undefined && Number.isFinite(Number(dto.sort_order))
+          ? { sort_order: Number(dto.sort_order) }
+          : {}),
+        updated_by_user_id: actorId,
+        updated_at: new Date(),
+      },
+      include: {
+        integration: { select: { id: true, name: true, phone_number: true } },
+      },
+    });
+
+    return this.serializeTemplate(updated);
+  }
+
+  async listCampaigns(user: AuthUser, integrationId?: string) {
+    const rows = await this.prisma.whatsapp_campaigns.findMany({
+      where: {
+        tenant_id: user.tenant_id,
+        ...(integrationId ? { integration_id: integrationId } : {}),
+      },
+      include: {
+        integration: { select: { id: true, name: true, phone_number: true } },
+        template: { select: { id: true, name: true, usage_scope: true } },
+        _count: { select: { recipients: true } },
+      },
+      orderBy: [{ updated_at: 'desc' }],
+      take: 50,
+    });
+
+    return rows.map((row) => this.serializeCampaign(row));
+  }
+
+  async getCampaign(user: AuthUser, id: string) {
+    const row = await this.prisma.whatsapp_campaigns.findFirst({
+      where: { tenant_id: user.tenant_id, id },
+      include: {
+        integration: { select: { id: true, name: true, phone_number: true } },
+        template: { select: { id: true, name: true, usage_scope: true } },
+        recipients: {
+          include: {
+            conversation: {
+              select: {
+                id: true,
+                contact_name: true,
+                contact_phone: true,
+                marketing_opt_in_status: true,
+                lead_id: true,
+              },
+            },
+          },
+          orderBy: [{ created_at: 'asc' }],
+        },
+        _count: { select: { recipients: true } },
+      },
+    });
+    if (!row) throw new NotFoundException('Campanha WhatsApp nao encontrada.');
+    return this.serializeCampaign(row, true);
+  }
+
+  async createCampaign(user: AuthUser, dto: CreateWhatsappCampaignDto) {
+    const actorId = this.requireUserId(user);
+    const integration = await this.getIntegrationRow(user.tenant_id, dto.integration_id);
+    const template = dto.template_id ? await this.getTemplateRow(user.tenant_id, dto.template_id) : null;
+    const campaignName = String(dto.name || '').trim();
+    if (!campaignName) {
+      throw new BadRequestException('Nome da campanha obrigatorio.');
+    }
+    const messageText = this.resolveCampaignMessageText(dto.message_text, template?.message_text);
+
+    const created = await this.prisma.transaction(async (tx) => {
+      const campaign = await tx.whatsapp_campaigns.create({
+        data: {
+          id: randomUUID(),
+          tenant_id: user.tenant_id,
+          integration_id: integration.id,
+          template_id: template?.id || null,
+          name: campaignName,
+          status: 'DRAFT',
+          audience_mode: this.normalizeAudienceMode(dto.audience_mode),
+          message_text: messageText,
+          filters_json: this.normalizePlainObject(dto.filters_json) as Prisma.InputJsonValue,
+          created_by_user_id: actorId,
+          updated_by_user_id: actorId,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+      });
+
+      await this.replaceCampaignRecipients(tx, user.tenant_id, campaign.id, dto.recipients);
+      await this.refreshCampaignMetrics(tx, user.tenant_id, campaign.id);
+      return campaign.id;
+    });
+
+    return this.getCampaign(user, created);
+  }
+
+  async updateCampaign(user: AuthUser, id: string, dto: UpdateWhatsappCampaignDto) {
+    const actorId = this.requireUserId(user);
+    const existing = await this.getCampaignRow(user.tenant_id, id);
+    const integration =
+      dto.integration_id !== undefined ? await this.getIntegrationRow(user.tenant_id, dto.integration_id) : null;
+    const template = dto.template_id ? await this.getTemplateRow(user.tenant_id, dto.template_id) : null;
+    if (dto.name !== undefined && !String(dto.name || '').trim()) {
+      throw new BadRequestException('Nome da campanha nao pode ficar vazio.');
+    }
+    const resolvedMessage =
+      dto.message_text !== undefined || dto.template_id !== undefined
+        ? this.resolveCampaignMessageText(dto.message_text, template?.message_text, existing.message_text)
+        : existing.message_text;
+
+    await this.prisma.transaction(async (tx) => {
+      await tx.whatsapp_campaigns.update({
+        where: { id: existing.id },
+        data: {
+          ...(integration ? { integration_id: integration.id } : {}),
+          ...(dto.template_id !== undefined ? { template_id: template?.id || null } : {}),
+          ...(dto.name !== undefined ? { name: String(dto.name || '').trim() } : {}),
+          ...(dto.audience_mode !== undefined ? { audience_mode: this.normalizeAudienceMode(dto.audience_mode) } : {}),
+          ...(dto.message_text !== undefined || dto.template_id !== undefined ? { message_text: resolvedMessage } : {}),
+          ...(dto.filters_json !== undefined
+            ? { filters_json: this.normalizePlainObject(dto.filters_json) as Prisma.InputJsonValue }
+            : {}),
+          updated_by_user_id: actorId,
+          updated_at: new Date(),
+        },
+      });
+
+      if (dto.recipients !== undefined) {
+        await this.replaceCampaignRecipients(tx, user.tenant_id, existing.id, dto.recipients);
+      }
+      await this.refreshCampaignMetrics(tx, user.tenant_id, existing.id);
+    });
+
+    return this.getCampaign(user, existing.id);
+  }
+
+  async launchCampaign(user: AuthUser, id: string, dto: LaunchWhatsappCampaignDto) {
+    const campaign = await this.prisma.whatsapp_campaigns.findFirst({
+      where: { tenant_id: user.tenant_id, id },
+      include: {
+        integration: true,
+        template: true,
+        recipients: {
+          include: {
+            conversation: true,
+          },
+          orderBy: [{ created_at: 'asc' }],
+        },
+      },
+    });
+    if (!campaign) throw new NotFoundException('Campanha WhatsApp nao encontrada.');
+
+    const resendFailed = !!dto?.resend_failed;
+    const settings = this.normalizeSettings(campaign.integration.settings_json as Record<string, unknown> | null | undefined);
+    const candidates = (campaign.recipients || []).filter((recipient) => {
+      if (recipient.send_status === 'SENT') return false;
+      if (!resendFailed && recipient.send_status === 'FAILED') return false;
+      return true;
+    });
+
+    if (!candidates.length) {
+      throw new BadRequestException('Nao ha destinatarios pendentes para envio nesta campanha.');
+    }
+
+    await this.prisma.whatsapp_campaigns.update({
+      where: { id: campaign.id },
+      data: {
+        status: 'RUNNING',
+        launched_at: campaign.launched_at ?? new Date(),
+        finished_at: null,
+        last_error: null,
+        updated_at: new Date(),
+      },
+    });
+
+    const result = { sent: 0, failed: 0, skipped: 0, errors: [] as string[] };
+
+    for (const recipient of candidates) {
+      try {
+        const liveConversation = recipient.conversation_id
+          ? await this.prisma.whatsapp_conversations.findFirst({
+              where: { tenant_id: user.tenant_id, id: recipient.conversation_id },
+            })
+          : null;
+        const effectiveConsent = this.normalizeConsentStatus(
+          liveConversation?.marketing_opt_in_status || recipient.snapshot_opt_in_status,
+          recipient.snapshot_opt_in_status,
+        );
+
+        if (effectiveConsent !== 'OPTED_IN') {
+          result.skipped += 1;
+          await this.prisma.whatsapp_campaign_recipients.update({
+            where: { id: recipient.id },
+            data: {
+              snapshot_opt_in_status: effectiveConsent,
+              send_status: 'SKIPPED',
+              last_error: 'Contato sem opt-in para campanhas outbound.',
+              updated_at: new Date(),
+            },
+          });
+          continue;
+        }
+
+        const messageText = this.buildCampaignMessageText(campaign, recipient, liveConversation, settings);
+        const response = await this.sendTextMessage(
+          campaign.integration,
+          recipient.phone_number_normalized,
+          messageText,
+        );
+        const externalMessageId = this.extractProviderMessageId(response.data);
+        await this.saveOutboundMessage({
+          integration: campaign.integration,
+          phone: recipient.phone_number_normalized,
+          contactName: liveConversation?.contact_name || recipient.contact_name || null,
+          chatId: liveConversation?.chat_id || null,
+          externalMessageId,
+          bodyText: messageText,
+          messageType: 'TEXT',
+          mediaUrl: null,
+          providerPayload: response.data,
+          existingConversationId: liveConversation?.id || undefined,
+        });
+
+        await this.prisma.whatsapp_campaign_recipients.update({
+          where: { id: recipient.id },
+          data: {
+            snapshot_opt_in_status: effectiveConsent,
+            send_status: 'SENT',
+            campaign_message_id: externalMessageId,
+            sent_at: new Date(),
+            last_error: null,
+            updated_at: new Date(),
+          },
+        });
+        if (liveConversation?.id) {
+          await this.prisma.whatsapp_conversations.update({
+            where: { id: liveConversation.id },
+            data: {
+              last_campaign_at: new Date(),
+              updated_at: new Date(),
+            },
+          });
+        }
+        result.sent += 1;
+      } catch (error) {
+        const message = this.extractErrorMessage(error);
+        result.failed += 1;
+        result.errors.push(`${recipient.phone_number}: ${message}`);
+        await this.prisma.whatsapp_campaign_recipients.update({
+          where: { id: recipient.id },
+          data: {
+            send_status: 'FAILED',
+            last_error: message,
+            updated_at: new Date(),
+          },
+        });
+      }
+    }
+
+    await this.prisma.transaction(async (tx) => {
+      const metrics = await this.refreshCampaignMetrics(tx, user.tenant_id, campaign.id);
+      await tx.whatsapp_campaigns.update({
+        where: { id: campaign.id },
+        data: {
+          status:
+            metrics.sent_total > 0 && metrics.failed_total === 0 && metrics.skipped_total === 0
+              ? 'COMPLETED'
+              : 'PARTIAL',
+          finished_at: new Date(),
+          last_error: result.errors.length ? result.errors.slice(0, 5).join(' | ') : null,
+          updated_at: new Date(),
+        },
+      });
+    });
+
+    return {
+      campaign: await this.getCampaign(user, campaign.id),
+      result,
+    };
+  }
+
   async replyToConversation(user: AuthUser, conversationId: string, dto: SendWhatsappMessageDto) {
+    const actorId = this.requireUserId(user);
     const conversation = await this.prisma.whatsapp_conversations.findFirst({
       where: { tenant_id: user.tenant_id, id: conversationId },
       include: { integration: true },
@@ -626,6 +1211,18 @@ export class WhatsappSalesService {
       mediaUrl: null,
       providerPayload: response.data,
       existingConversationId: conversation.id,
+    });
+
+    await this.prisma.whatsapp_conversations.update({
+      where: { id: conversation.id },
+      data: {
+        owner_user: { connect: { id: actorId } },
+        claimed_at: conversation.claimed_at ?? new Date(),
+        last_replied_at: new Date(),
+        unread_count: 0,
+        status: this.resolveConversationStatusAfterReply(conversation.status),
+        updated_at: new Date(),
+      },
     });
 
     return {
@@ -660,7 +1257,7 @@ export class WhatsappSalesService {
   }
 
   async handleWebhook(webhookToken: string, querySecret: string | undefined, payload: Record<string, unknown>) {
-    const integration = await this.prisma.whatsapp_integrations.findFirst({
+    const integration = await this.prisma.unscoped.whatsapp_integrations.findFirst({
       where: {
         webhook_token: webhookToken,
         is_active: true,
@@ -671,6 +1268,11 @@ export class WhatsappSalesService {
       throw new NotFoundException('Webhook WhatsApp não encontrado.');
     }
 
+    return runWithTenant(integration.tenant_id, async () =>
+      this.handleWebhookWithinTenant(integration, querySecret, payload),
+    );
+
+    /*
     this.assertWebhookSecret(integration, querySecret, payload);
     const receivedAt = new Date();
     this.logger.log(
@@ -782,10 +1384,144 @@ export class WhatsappSalesService {
       conversation_id: processedConversation.id,
       message_id: message.id,
     };
+    */
+  }
+
+  private async handleWebhookWithinTenant(
+    integration: any,
+    querySecret: string | undefined,
+    payload: Record<string, unknown>,
+  ) {
+    this.assertWebhookSecret(integration, querySecret, payload);
+    const receivedAt = new Date();
+    this.logger.log(
+      `Webhook recebido integration=${integration.id} provider=${integration.provider} keys=${Object.keys(payload || {}).join(',')}`,
+    );
+
+    const normalized = this.normalizeWebhookPayload(integration, payload);
+    if (!normalized) {
+      await this.storeWebhookDebug(integration, {
+        received_at: receivedAt.toISOString(),
+        status: 'IGNORED',
+        reason: 'Payload sem mensagem utilizÃƒÂ¡vel.',
+        callback_type: this.normalizeNullableString(payload.type),
+        payload,
+      });
+      this.logger.warn(`Webhook ignorado integration=${integration.id} reason=payload-sem-mensagem-utilizavel`);
+      return {
+        ok: true,
+        ignored: true,
+        reason: 'Payload sem mensagem utilizÃ¡vel.',
+      };
+    }
+
+    if (normalized.externalMessageId) {
+      const duplicated = await this.prisma.whatsapp_messages.findFirst({
+        where: {
+          tenant_id: integration.tenant_id,
+          integration_id: integration.id,
+          external_message_id: normalized.externalMessageId,
+        },
+        select: { id: true },
+      });
+
+      if (duplicated) {
+        await this.storeWebhookDebug(integration, {
+          received_at: receivedAt.toISOString(),
+          status: 'DUPLICATED',
+          direction: normalized.direction,
+          external_message_id: normalized.externalMessageId,
+          phone: normalized.phoneNormalized,
+          payload,
+        });
+        this.logger.log(
+          `Webhook duplicado integration=${integration.id} externalMessageId=${normalized.externalMessageId}`,
+        );
+        return { ok: true, duplicated: true, message_id: duplicated.id };
+      }
+    }
+
+    const conversation = await this.upsertConversationFromWebhook(integration, normalized);
+    const message = await this.prisma.whatsapp_messages.create({
+      data: {
+        id: randomUUID(),
+        tenant_id: integration.tenant_id,
+        integration_id: integration.id,
+        conversation_id: conversation.id,
+        external_message_id: normalized.externalMessageId,
+        direction: normalized.direction,
+        message_type: normalized.messageType,
+        body_text: normalized.bodyText,
+        media_url: normalized.mediaUrl,
+        sender_phone: normalized.direction === 'INBOUND' ? normalized.phone : integration.phone_number,
+        recipient_phone: normalized.direction === 'INBOUND' ? integration.phone_number : normalized.phone,
+        payload_json: normalized.payload as Prisma.InputJsonValue,
+        created_at: normalized.occurredAt,
+      },
+    });
+
+    let processedConversation = conversation;
+    if (normalized.direction === 'INBOUND') {
+      processedConversation = await this.processInboundAutomation(integration, conversation, message);
+    }
+
+    await this.storeWebhookDebug(integration, {
+      received_at: receivedAt.toISOString(),
+      status: 'PROCESSED',
+      direction: normalized.direction,
+      external_message_id: normalized.externalMessageId,
+      phone: normalized.phoneNormalized,
+      body_preview: this.normalizeNullableString(normalized.bodyText)?.slice(0, 180) || null,
+      conversation_id: processedConversation.id,
+      message_id: message.id,
+      classification:
+        normalized.direction === 'INBOUND'
+          ? {
+              intent: processedConversation.classification_intent,
+              summary: processedConversation.classification_summary,
+              lead_id: processedConversation.lead_id,
+            }
+          : null,
+      payload,
+    });
+    this.logger.log(
+      `Webhook processado integration=${integration.id} direction=${normalized.direction} conversation=${processedConversation.id}`,
+    );
+
+    await this.prisma.whatsapp_integrations.update({
+      where: { id: integration.id },
+      data: {
+        ...(normalized.direction === 'INBOUND'
+          ? { last_inbound_at: normalized.occurredAt }
+          : { last_outbound_at: normalized.occurredAt }),
+        updated_at: new Date(),
+      },
+    });
+
+    return {
+      ok: true,
+      conversation_id: processedConversation.id,
+      message_id: message.id,
+    };
   }
 
   private async processInboundAutomation(integration: any, conversation: any, message: any) {
     const settings = this.normalizeSettings(integration.settings_json as Record<string, unknown> | null | undefined);
+    const now = new Date();
+    const shouldOptOut = this.detectOptOutRequest(message.body_text, settings);
+    if (shouldOptOut) {
+      return this.prisma.whatsapp_conversations.update({
+        where: { id: conversation.id },
+        data: {
+          marketing_opt_in_status: 'OPTED_OUT',
+          marketing_opt_in_source: 'WHATSAPP_KEYWORD',
+          marketing_opt_out_at: now,
+          classification_summary: 'Contato solicitou opt-out para campanhas.',
+          updated_at: now,
+        },
+        include: { lead: true, integration: true, owner_user: true, _count: { select: { notes: true } } },
+      });
+    }
     const transcriptRows = await this.prisma.whatsapp_messages.findMany({
       where: { tenant_id: integration.tenant_id, conversation_id: conversation.id },
       orderBy: { created_at: 'asc' },
@@ -808,12 +1544,17 @@ export class WhatsappSalesService {
         classification_summary: classification.summary,
         extracted_json: classification as unknown as Prisma.InputJsonValue,
         last_classified_at: new Date(),
-        status: classification.needsLead ? 'QUALIFIED' : conversation.status,
+        status:
+          classification.needsLead && ['NEW', 'QUALIFIED'].includes(this.normalizeConversationStatus(conversation.status))
+            ? 'QUALIFIED'
+            : conversation.status,
         updated_at: new Date(),
       },
       include: {
         lead: true,
         integration: true,
+        owner_user: true,
+        _count: { select: { notes: true } },
       },
     });
 
@@ -824,7 +1565,7 @@ export class WhatsappSalesService {
       },
     });
 
-    let conversationAfterLead = updatedConversation;
+    let conversationAfterLead: any = updatedConversation;
     if (classification.needsLead && settings.autoCreateLead) {
       conversationAfterLead = await this.captureLeadFromConversation(integration, updatedConversation, classification, message, settings);
     }
@@ -904,9 +1645,15 @@ export class WhatsappSalesService {
         data: {
           lead_id: existingLead.id,
           lead_created_at: conversation.lead_created_at ?? new Date(),
+          ...(!conversation.owner_user_id && integration.default_owner_user_id
+            ? { owner_user_id: integration.default_owner_user_id }
+            : {}),
+          claimed_at:
+            conversation.claimed_at ??
+            (integration.default_owner_user_id && !conversation.owner_user_id ? new Date() : conversation.claimed_at),
           updated_at: new Date(),
         },
-        include: { lead: true, integration: true },
+        include: { lead: true, integration: true, owner_user: true, _count: { select: { notes: true } } },
       });
     }
 
@@ -982,9 +1729,11 @@ export class WhatsappSalesService {
         lead_id: lead.id,
         lead_created_at: new Date(),
         status: 'LEAD_CAPTURED',
+        ...(conversation.owner_user_id ? {} : { owner_user_id: owner.id }),
+        claimed_at: conversation.claimed_at ?? new Date(),
         updated_at: new Date(),
       },
-      include: { lead: true, integration: true },
+      include: { lead: true, integration: true, owner_user: true, _count: { select: { notes: true } } },
     });
   }
 
@@ -1052,13 +1801,18 @@ export class WhatsappSalesService {
         data: {
           contact_phone: message.phone,
           contact_name: message.contactName || existing.contact_name,
+          contact_avatar_url: message.contactAvatarUrl || existing.contact_avatar_url,
           chat_id: message.chatId || existing.chat_id,
           last_message_preview: message.bodyText || message.mediaUrl || existing.last_message_preview,
           last_message_at: message.occurredAt,
           unread_count: message.direction === 'INBOUND' ? existing.unread_count + 1 : existing.unread_count,
+          status:
+            message.direction === 'INBOUND'
+              ? this.resolveConversationStatusAfterInbound(existing.status)
+              : existing.status,
           updated_at: new Date(),
         },
-        include: { lead: true, integration: true },
+        include: { lead: true, integration: true, owner_user: true, _count: { select: { notes: true } } },
       });
     }
 
@@ -1070,16 +1824,19 @@ export class WhatsappSalesService {
         contact_phone: message.phone,
         contact_phone_normalized: message.phoneNormalized,
         contact_name: message.contactName,
+        contact_avatar_url: message.contactAvatarUrl,
         chat_id: message.chatId,
         last_message_preview: message.bodyText || message.mediaUrl,
         first_message_at: message.occurredAt,
         last_message_at: message.occurredAt,
         unread_count: message.direction === 'INBOUND' ? 1 : 0,
         status: 'NEW',
+        owner_user_id: integration.default_owner_user_id || null,
+        claimed_at: integration.default_owner_user_id ? new Date() : null,
         created_at: message.occurredAt,
         updated_at: new Date(),
       },
-      include: { lead: true, integration: true },
+      include: { lead: true, integration: true, owner_user: true, _count: { select: { notes: true } } },
     });
   }
 
@@ -1104,6 +1861,7 @@ export class WhatsappSalesService {
         phone: input.phone,
         phoneNormalized: input.phone,
         contactName: input.contactName,
+        contactAvatarUrl: null,
         chatId: input.chatId,
         bodyText: input.bodyText,
         mediaUrl: input.mediaUrl,
@@ -1135,6 +1893,7 @@ export class WhatsappSalesService {
       data: {
         last_message_preview: input.bodyText || input.mediaUrl,
         last_message_at: new Date(),
+        last_replied_at: new Date(),
         updated_at: new Date(),
       },
     });
@@ -1420,6 +2179,7 @@ export class WhatsappSalesService {
     let phone = '';
     let bodyText = '';
     let contactName = '';
+    let contactAvatarUrl = '';
     let chatId = '';
     let externalMessageId = '';
     let mediaUrl = '';
@@ -1464,6 +2224,23 @@ export class WhatsappSalesService {
           item.notifyName,
           this.pickObject(item.sender)?.name,
         );
+      contactAvatarUrl =
+        contactAvatarUrl ||
+        this.pickString(
+          item.profilePictureUrl,
+          item.profilePicUrl,
+          item.avatar,
+          item.photo,
+          item.picture,
+          this.pickObject(item.contact)?.profilePictureUrl,
+          this.pickObject(item.contact)?.profilePicUrl,
+          this.pickObject(item.contact)?.avatar,
+          this.pickObject(item.sender)?.photo,
+          this.pickObject(item.sender)?.avatar,
+          this.pickObject(item.sender)?.profilePictureUrl,
+          this.pickObject(item.sender)?.profilePicUrl,
+          this.pickObject(item.chat)?.imageUrl,
+        );
       chatId = chatId || this.pickString(item.chatId, item.remoteJid, this.pickObject(item.key)?.remoteJid);
       externalMessageId = externalMessageId || this.pickString(item.id, item.messageId, this.pickObject(item.key)?.id);
       mediaUrl =
@@ -1495,6 +2272,7 @@ export class WhatsappSalesService {
       phone: this.normalizeNullableString(phone) || normalizedPhone,
       phoneNormalized: normalizedPhone,
       contactName: this.normalizeNullableString(contactName),
+      contactAvatarUrl: this.normalizeNullableString(contactAvatarUrl),
       chatId: this.normalizeNullableString(chatId),
       bodyText: this.normalizeNullableString(bodyText),
       mediaUrl: this.normalizeNullableString(mediaUrl),
@@ -1509,6 +2287,8 @@ export class WhatsappSalesService {
       assistantTone: 'Consultivo, rápido e cordial',
       webhookBaseUrl: '',
       providerClientToken: '',
+      campaignFooterText: 'Para parar de receber mensagens, responda SAIR.',
+      optOutKeywords: ['SAIR', 'PARAR', 'STOP', 'CANCELAR', 'REMOVER'],
       classifyWithAi: true,
       autoCreateLead: true,
       createLeadActivity: true,
@@ -1518,6 +2298,24 @@ export class WhatsappSalesService {
       autoReplyEnabled: false,
       autoReplyOnIntents: ['BUDGET', 'QUOTE', 'PRICE'],
       keywordReplyRules: [],
+      quickReplyTemplates: [
+        {
+          label: 'Qualificar',
+          text: 'Perfeito. Para eu te ajudar melhor, me diga seu nome, empresa e o que voce precisa neste momento.',
+        },
+        {
+          label: 'Dashboard',
+          text: 'Consigo te ajudar com isso. Me confirme quais indicadores voce quer acompanhar no dashboard.',
+        },
+        {
+          label: 'Relatorio',
+          text: 'Posso montar isso. Me diga o periodo, os filtros e qual formato de relatorio voce precisa.',
+        },
+        {
+          label: 'Follow-up',
+          text: 'Recebi sua mensagem e vou seguir com o atendimento. Se quiser, ja me envie mais contexto para agilizar.',
+        },
+      ],
       defaultLeadType: 'PERSON',
       activitySubjectTemplate: 'Novo contato via WhatsApp - {{intent}} - {{phone}}',
     };
@@ -1531,6 +2329,8 @@ export class WhatsappSalesService {
       assistantTone: this.normalizeNullableString(source.assistantTone) || defaults.assistantTone,
       webhookBaseUrl: this.normalizeNullableString(source.webhookBaseUrl) || defaults.webhookBaseUrl,
       providerClientToken: this.normalizeNullableString(source.providerClientToken) || defaults.providerClientToken,
+      campaignFooterText: this.normalizeNullableString(source.campaignFooterText) || defaults.campaignFooterText,
+      optOutKeywords: this.normalizeKeywordList(source.optOutKeywords, defaults.optOutKeywords),
       classifyWithAi: this.toBoolean(source.classifyWithAi, defaults.classifyWithAi),
       autoCreateLead: this.toBoolean(source.autoCreateLead, defaults.autoCreateLead),
       createLeadActivity: this.toBoolean(source.createLeadActivity, defaults.createLeadActivity),
@@ -1540,6 +2340,7 @@ export class WhatsappSalesService {
       autoReplyEnabled: this.toBoolean(source.autoReplyEnabled, defaults.autoReplyEnabled),
       autoReplyOnIntents: this.normalizeIntentArray(source.autoReplyOnIntents, defaults.autoReplyOnIntents),
       keywordReplyRules: this.normalizeKeywordReplyRules(source.keywordReplyRules),
+      quickReplyTemplates: this.normalizeQuickReplyTemplates(source.quickReplyTemplates, defaults.quickReplyTemplates),
       defaultLeadType:
         this.normalizeNullableString(source.defaultLeadType) === 'COMPANY' ? 'COMPANY' : defaults.defaultLeadType,
       activitySubjectTemplate:
@@ -1588,12 +2389,24 @@ export class WhatsappSalesService {
       contact_phone: row.contact_phone,
       contact_phone_normalized: row.contact_phone_normalized,
       contact_name: row.contact_name,
+      contact_avatar_url: row.contact_avatar_url,
       chat_id: row.chat_id,
       last_message_preview: row.last_message_preview,
       first_message_at: row.first_message_at,
       last_message_at: row.last_message_at,
       unread_count: row.unread_count,
       status: row.status,
+      marketing_opt_in_status: row.marketing_opt_in_status,
+      marketing_opt_in_source: row.marketing_opt_in_source,
+      marketing_opt_in_at: row.marketing_opt_in_at,
+      marketing_opt_out_at: row.marketing_opt_out_at,
+      last_campaign_at: row.last_campaign_at,
+      owner_user_id: row.owner_user_id,
+      owner_user: row.owner_user || null,
+      claimed_at: row.claimed_at,
+      last_replied_at: row.last_replied_at,
+      last_note_at: row.last_note_at,
+      notes_count: Number(row?._count?.notes || 0),
       classification_intent: row.classification_intent,
       classification_confidence: row.classification_confidence,
       classification_summary: row.classification_summary,
@@ -1604,6 +2417,82 @@ export class WhatsappSalesService {
       team_notified_at: row.team_notified_at,
       auto_replied_at: row.auto_replied_at,
       integration: row.integration || null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  private serializeTemplate(row: any) {
+    return {
+      id: row.id,
+      integration_id: row.integration_id,
+      integration: row.integration || null,
+      name: row.name,
+      category: row.category,
+      usage_scope: row.usage_scope,
+      message_text: row.message_text,
+      variables_json: row.variables_json || [],
+      is_active: row.is_active,
+      sort_order: row.sort_order,
+      created_by_user_id: row.created_by_user_id,
+      updated_by_user_id: row.updated_by_user_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  private serializeCampaign(row: any, withRecipients = false) {
+    return {
+      id: row.id,
+      integration_id: row.integration_id,
+      integration: row.integration || null,
+      template_id: row.template_id,
+      template: row.template || null,
+      name: row.name,
+      status: row.status,
+      audience_mode: row.audience_mode,
+      message_text: row.message_text,
+      filters_json: row.filters_json || null,
+      launched_at: row.launched_at,
+      finished_at: row.finished_at,
+      last_error: row.last_error,
+      recipients_total: Number(row.recipients_total ?? row?._count?.recipients ?? 0),
+      sent_total: Number(row.sent_total || 0),
+      failed_total: Number(row.failed_total || 0),
+      skipped_total: Number(row.skipped_total || 0),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      recipients: withRecipients
+        ? (row.recipients || []).map((recipient: any) => ({
+            id: recipient.id,
+            conversation_id: recipient.conversation_id,
+            lead_id: recipient.lead_id,
+            phone_number: recipient.phone_number,
+            phone_number_normalized: recipient.phone_number_normalized,
+            contact_name: recipient.contact_name,
+            company_name: recipient.company_name,
+            source_label: recipient.source_label,
+            snapshot_opt_in_status: recipient.snapshot_opt_in_status,
+            send_status: recipient.send_status,
+            campaign_message_id: recipient.campaign_message_id,
+            last_error: recipient.last_error,
+            sent_at: recipient.sent_at,
+            delivered_at: recipient.delivered_at,
+            created_at: recipient.created_at,
+            updated_at: recipient.updated_at,
+            conversation: recipient.conversation || null,
+          }))
+        : undefined,
+    };
+  }
+
+  private serializeConversationNote(row: any) {
+    return {
+      id: row.id,
+      conversation_id: row.conversation_id,
+      user_id: row.user_id,
+      note_text: row.note_text,
+      user: row.user || null,
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -1631,6 +2520,33 @@ export class WhatsappSalesService {
       where: { tenant_id: tenantId, id },
     });
     if (!row) throw new NotFoundException('Integração WhatsApp não encontrada.');
+    return row;
+  }
+
+  private async getConversationRow(tenantId: string, id: string) {
+    const row = await this.prisma.whatsapp_conversations.findFirst({
+      where: { tenant_id: tenantId, id },
+    });
+    if (!row) throw new NotFoundException('Conversa nÃ£o encontrada.');
+    return row;
+  }
+
+  private async getTemplateRow(tenantId: string, id: string) {
+    const row = await this.prisma.whatsapp_message_templates.findFirst({
+      where: { tenant_id: tenantId, id },
+      include: {
+        integration: { select: { id: true, name: true, phone_number: true } },
+      },
+    });
+    if (!row) throw new NotFoundException('Template WhatsApp nao encontrado.');
+    return row;
+  }
+
+  private async getCampaignRow(tenantId: string, id: string) {
+    const row = await this.prisma.whatsapp_campaigns.findFirst({
+      where: { tenant_id: tenantId, id },
+    });
+    if (!row) throw new NotFoundException('Campanha WhatsApp nao encontrada.');
     return row;
   }
 
@@ -1736,6 +2652,14 @@ export class WhatsappSalesService {
     }
   }
 
+  private async assertConversationOwner(tenantId: string, ownerUserId: string) {
+    const owner = await this.prisma.users.findFirst({
+      where: { tenant_id: tenantId, id: ownerUserId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (!owner) throw new BadRequestException('owner_user_id invalido para o tenant.');
+  }
+
   private requireUserId(user: AuthUser): string {
     const id = this.normalizeNullableString(user.id || user.user_id);
     if (!id) throw new BadRequestException('Usuário autenticado inválido.');
@@ -1746,6 +2670,271 @@ export class WhatsappSalesService {
     const raw = (this.normalizeNullableString(value) || 'IAZAP').toUpperCase();
     if (raw === 'Z-API') return 'ZAPI';
     return raw;
+  }
+
+  private getConversationStatusOptions() {
+    return [
+      { value: 'NEW', label: 'Nova' },
+      { value: 'QUALIFIED', label: 'Qualificada' },
+      { value: 'LEAD_CAPTURED', label: 'Lead criado' },
+      { value: 'IN_PROGRESS', label: 'Em atendimento' },
+      { value: 'WAITING_CUSTOMER', label: 'Aguardando cliente' },
+      { value: 'WON', label: 'Ganha' },
+      { value: 'LOST', label: 'Perdida' },
+      { value: 'CLOSED', label: 'Encerrada' },
+    ];
+  }
+
+  private getConsentStatusOptions() {
+    return [
+      { value: 'UNKNOWN', label: 'Nao definido' },
+      { value: 'OPTED_IN', label: 'Opt-in ativo' },
+      { value: 'OPTED_OUT', label: 'Opt-out ativo' },
+    ];
+  }
+
+  private getTemplateScopeOptions() {
+    return [
+      { value: 'INBOX', label: 'Inbox' },
+      { value: 'CAMPAIGN', label: 'Campanha' },
+      { value: 'BOTH', label: 'Ambos' },
+    ];
+  }
+
+  private getTemplateCategoryOptions() {
+    return [
+      { value: 'GENERAL', label: 'Geral' },
+      { value: 'QUALIFICATION', label: 'Qualificacao' },
+      { value: 'FOLLOW_UP', label: 'Follow-up' },
+      { value: 'REACTIVATION', label: 'Reativacao' },
+      { value: 'SCHEDULING', label: 'Agendamento' },
+      { value: 'SUPPORT', label: 'Suporte' },
+      { value: 'CUSTOM', label: 'Customizado' },
+    ];
+  }
+
+  private getCampaignStatusOptions() {
+    return [
+      { value: 'DRAFT', label: 'Rascunho' },
+      { value: 'READY', label: 'Pronta' },
+      { value: 'RUNNING', label: 'Em envio' },
+      { value: 'COMPLETED', label: 'Concluida' },
+      { value: 'PARTIAL', label: 'Concluida com ressalvas' },
+      { value: 'CANCELED', label: 'Cancelada' },
+    ];
+  }
+
+  private normalizeConversationStatus(value?: string | null, fallback = 'NEW') {
+    const normalized = this.normalizeNullableString(value)?.toUpperCase();
+    const allowed = new Set(this.getConversationStatusOptions().map((item) => item.value));
+    if (normalized && allowed.has(normalized)) return normalized;
+    return fallback;
+  }
+
+  private normalizeConsentStatus(value?: string | null, fallback = 'UNKNOWN') {
+    const normalized = this.normalizeNullableString(value)?.toUpperCase();
+    const allowed = new Set(this.getConsentStatusOptions().map((item) => item.value));
+    if (normalized && allowed.has(normalized)) return normalized;
+    return fallback;
+  }
+
+  private normalizeTemplateScope(value?: string | null) {
+    const normalized = this.normalizeNullableString(value)?.toUpperCase();
+    const allowed = new Set(this.getTemplateScopeOptions().map((item) => item.value));
+    return normalized && allowed.has(normalized) ? normalized : 'BOTH';
+  }
+
+  private normalizeTemplateCategory(value?: string | null) {
+    const normalized = this.normalizeNullableString(value)?.toUpperCase();
+    const allowed = new Set(this.getTemplateCategoryOptions().map((item) => item.value));
+    return normalized && allowed.has(normalized) ? normalized : 'GENERAL';
+  }
+
+  private normalizeAudienceMode(value?: string | null) {
+    const normalized = this.normalizeNullableString(value)?.toUpperCase();
+    return normalized || 'MANUAL';
+  }
+
+  private resolveConversationStatusAfterInbound(currentStatus?: string | null) {
+    const normalized = this.normalizeConversationStatus(currentStatus);
+    if (['WAITING_CUSTOMER', 'CLOSED', 'LOST', 'WON'].includes(normalized)) {
+      return 'NEW';
+    }
+    return normalized;
+  }
+
+  private resolveConversationStatusAfterClaim(currentStatus?: string | null) {
+    const normalized = this.normalizeConversationStatus(currentStatus);
+    if (['NEW', 'QUALIFIED', 'LEAD_CAPTURED'].includes(normalized)) {
+      return 'IN_PROGRESS';
+    }
+    return normalized;
+  }
+
+  private resolveConversationStatusAfterReply(currentStatus?: string | null) {
+    const normalized = this.normalizeConversationStatus(currentStatus, 'IN_PROGRESS');
+    if (['NEW', 'QUALIFIED', 'LEAD_CAPTURED', 'WAITING_CUSTOMER'].includes(normalized)) {
+      return 'IN_PROGRESS';
+    }
+    return normalized;
+  }
+
+  private normalizeQuickReplyTemplates(input: unknown, fallback: QuickReplyTemplate[] = []): QuickReplyTemplate[] {
+    const rows = Array.isArray(input) ? input : [];
+    const normalized = rows
+      .map((item) => {
+        const payload = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
+        const label = this.normalizeNullableString(payload.label);
+        const text = this.normalizeNullableString(payload.text || payload.responseText);
+        if (!label || !text) return null;
+        return { label, text };
+      })
+      .filter((item): item is QuickReplyTemplate => !!item)
+      .slice(0, 20);
+
+    return normalized.length ? normalized : fallback;
+  }
+
+  private detectOptOutRequest(messageText: string | null | undefined, settings: SettingsJson) {
+    const normalized = String(messageText || '')
+      .trim()
+      .toUpperCase();
+    if (!normalized) return false;
+    return settings.optOutKeywords.some((keyword) => normalized === keyword || normalized.includes(` ${keyword}`));
+  }
+
+  private resolveCampaignMessageText(
+    informedText?: string | null,
+    templateText?: string | null,
+    fallbackText?: string | null,
+  ) {
+    const resolved =
+      this.normalizeNullableString(informedText) ||
+      this.normalizeNullableString(templateText) ||
+      this.normalizeNullableString(fallbackText);
+    if (!resolved) {
+      throw new BadRequestException('Informe o texto da campanha ou selecione um template.');
+    }
+    return resolved;
+  }
+
+  private async replaceCampaignRecipients(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    campaignId: string,
+    recipientsInput: Array<Record<string, unknown>> | undefined,
+  ) {
+    await tx.whatsapp_campaign_recipients.deleteMany({
+      where: { tenant_id: tenantId, campaign_id: campaignId },
+    });
+
+    const normalizedRecipients = await this.normalizeCampaignRecipients(tx, tenantId, recipientsInput || []);
+    if (!normalizedRecipients.length) return;
+
+    await tx.whatsapp_campaign_recipients.createMany({
+      data: normalizedRecipients.map((recipient) => ({
+        id: randomUUID(),
+        tenant_id: tenantId,
+        campaign_id: campaignId,
+        conversation_id: recipient.conversation_id,
+        lead_id: recipient.lead_id,
+        phone_number: recipient.phone_number,
+        phone_number_normalized: recipient.phone_number_normalized,
+        contact_name: recipient.contact_name,
+        company_name: recipient.company_name,
+        source_label: recipient.source_label,
+        snapshot_opt_in_status: recipient.snapshot_opt_in_status,
+        send_status: 'PENDING',
+        created_at: new Date(),
+        updated_at: new Date(),
+      })),
+    });
+  }
+
+  private async normalizeCampaignRecipients(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    recipientsInput: Array<Record<string, unknown>>,
+  ) {
+    const results: Array<Record<string, any>> = [];
+    const seenPhones = new Set<string>();
+
+    for (const rawRecipient of recipientsInput || []) {
+      const payload = rawRecipient && typeof rawRecipient === 'object' ? rawRecipient : {};
+      const conversationId = this.normalizeNullableString(payload.conversation_id);
+      let conversation: any = null;
+      if (conversationId) {
+        conversation = await tx.whatsapp_conversations.findFirst({
+          where: { tenant_id: tenantId, id: conversationId },
+        });
+      }
+
+      const phone = this.normalizePhone(payload.phone_number || conversation?.contact_phone_normalized || conversation?.contact_phone);
+      if (!phone || seenPhones.has(phone)) continue;
+      seenPhones.add(phone);
+
+      results.push({
+        conversation_id: conversation?.id || null,
+        lead_id: this.normalizeNullableString(payload.lead_id || conversation?.lead_id),
+        phone_number: this.normalizeNullableString(payload.phone_number || conversation?.contact_phone) || phone,
+        phone_number_normalized: phone,
+        contact_name:
+          this.normalizeNullableString(payload.contact_name || conversation?.contact_name) || `Contato ${phone}`,
+        company_name: this.normalizeNullableString(payload.company_name),
+        source_label: this.normalizeNullableString(payload.source_label || (conversation ? 'Inbox WhatsApp' : 'Manual')),
+        snapshot_opt_in_status: this.normalizeConsentStatus(
+          this.normalizeNullableString(payload.snapshot_opt_in_status),
+          conversation?.marketing_opt_in_status || 'UNKNOWN',
+        ),
+      });
+    }
+
+    return results;
+  }
+
+  private async refreshCampaignMetrics(tx: Prisma.TransactionClient, tenantId: string, campaignId: string) {
+    const recipients = await tx.whatsapp_campaign_recipients.findMany({
+      where: { tenant_id: tenantId, campaign_id: campaignId },
+      select: { send_status: true },
+    });
+
+    const metrics = {
+      recipients_total: recipients.length,
+      sent_total: recipients.filter((item) => item.send_status === 'SENT').length,
+      failed_total: recipients.filter((item) => item.send_status === 'FAILED').length,
+      skipped_total: recipients.filter((item) => item.send_status === 'SKIPPED').length,
+    };
+
+    await tx.whatsapp_campaigns.update({
+      where: { id: campaignId },
+      data: {
+        ...metrics,
+        status: metrics.recipients_total > 0 ? 'READY' : 'DRAFT',
+        updated_at: new Date(),
+      },
+    });
+
+    return metrics;
+  }
+
+  private buildCampaignMessageText(campaign: any, recipient: any, conversation: any, settings: SettingsJson) {
+    const base = this.renderTemplate(campaign.message_text, this.buildCampaignVariables(campaign, recipient, conversation));
+    const footer = this.normalizeNullableString(settings.campaignFooterText);
+    return footer && !base.includes(footer) ? `${base}\n\n${footer}` : base;
+  }
+
+  private buildCampaignVariables(campaign: any, recipient: any, conversation: any) {
+    const contactName =
+      this.normalizeNullableString(conversation?.contact_name || recipient?.contact_name) || 'cliente';
+    const firstName = contactName.split(/\s+/).filter(Boolean)[0] || contactName;
+    return {
+      campaign_name: campaign.name,
+      contact_name: contactName,
+      first_name: firstName,
+      company_name: this.normalizeNullableString(recipient?.company_name) || '',
+      phone: this.normalizeNullableString(recipient?.phone_number) || recipient?.phone_number_normalized || '',
+      integration_name: this.normalizeNullableString(campaign?.integration?.name) || '',
+    };
   }
 
   private getProviderDefaults() {
@@ -1880,6 +3069,38 @@ export class WhatsappSalesService {
     return value
       .map((item) => this.normalizeNullableString(item))
       .filter((item): item is string => !!item);
+  }
+
+  private normalizeKeywordList(value: unknown, fallback: string[] = []): string[] {
+    const source = Array.isArray(value)
+      ? value
+      : String(value || '')
+          .split(/[,\n]/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+    const rows = Array.from(
+      new Set(
+        source
+          .map((item) => this.normalizeNullableString(item)?.toUpperCase())
+          .filter((item): item is string => !!item),
+      ),
+    );
+    return rows.length ? rows : [...fallback];
+  }
+
+  private normalizeTemplateVariables(value: unknown) {
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => this.normalizeNullableString(item))
+        .filter((item): item is string => !!item)
+        .slice(0, 20);
+    }
+    if (value && typeof value === 'object') return value;
+    return [];
+  }
+
+  private normalizePlainObject(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
   }
 
   private normalizeIntentArray(value: unknown, fallback: string[]): string[] {

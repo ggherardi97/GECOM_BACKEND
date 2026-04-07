@@ -280,9 +280,11 @@ model users {
   lead_stage_history_changes lead_stage_history[]    @relation("LeadStageChangedBy")
   lead_activities_created    lead_activities[]       @relation("LeadActivityCreatedBy")
   lead_activities_assigned   lead_activities[]       @relation("LeadActivityAssignedTo")
-  owned_whatsapp_integrations whatsapp_integrations[] @relation("WhatsappIntegrationOwner")
-  created_whatsapp_integrations whatsapp_integrations[] @relation("WhatsappIntegrationCreatedBy")
-  updated_whatsapp_integrations whatsapp_integrations[] @relation("WhatsappIntegrationUpdatedBy")
+  owned_whatsapp_integrations    whatsapp_integrations[]       @relation("WhatsappIntegrationOwner")
+  created_whatsapp_integrations  whatsapp_integrations[]       @relation("WhatsappIntegrationCreatedBy")
+  updated_whatsapp_integrations  whatsapp_integrations[]       @relation("WhatsappIntegrationUpdatedBy")
+  owned_whatsapp_conversations   whatsapp_conversations[]      @relation("WhatsappConversationOwner")
+  whatsapp_conversation_notes    whatsapp_conversation_notes[] @relation("WhatsappConversationNoteUser")
   owned_incidents            incidents[]             @relation("IncidentOwner")
   opened_incidents           incidents[]             @relation("IncidentOpenedBy")
   queue_memberships          service_queue_members[]
@@ -394,6 +396,7 @@ model companies {
   contracts         contracts[]         @relation("ContractCompany")
   receivables       financial_receivables[] @relation("FinancialReceivableCompany")
   payables          financial_payables[]    @relation("FinancialPayableCompany")
+  finance_import_lines financial_import_lines[]
   po_projects       po_projects[]           @relation("PoProjectCompany")
 
   // opposite side of tenants.company
@@ -525,11 +528,12 @@ model invoices {
   status_config_id             String?                  @db.Uuid
   subtotal                     Decimal                  @default(0) @db.Decimal(19, 4)
   discount_percent             Int                      @default(0)
-  discount_amount              Decimal                  @default(0) @db.Decimal(19, 4)
-  tax_total                    Decimal                  @default(0) @db.Decimal(19, 4)
-  fee_total                    Decimal                  @default(0) @db.Decimal(19, 4)
-  total                        Decimal                  @default(0) @db.Decimal(19, 4)
-  issued_at                    DateTime?                @db.Timestamptz(6)
+    discount_amount              Decimal                  @default(0) @db.Decimal(19, 4)
+    tax_total                    Decimal                  @default(0) @db.Decimal(19, 4)
+    fee_total                    Decimal                  @default(0) @db.Decimal(19, 4)
+    total                        Decimal                  @default(0) @db.Decimal(19, 4)
+    received_amount_brl          Decimal?                 @db.Decimal(19, 4)
+    issued_at                    DateTime?                @db.Timestamptz(6)
   due_at                       DateTime?                @db.Timestamptz(6)
   paid_at                      DateTime?                @db.Timestamptz(6)
   notes                        String?
@@ -1954,6 +1958,7 @@ model financial_cost_centers {
   receivables   financial_receivables[]
   payables      financial_payables[]
   bank_movements financial_bank_movements[]
+  import_lines  financial_import_lines[]
 
   @@unique([tenant_id, code], map: "uq_financial_cost_centers_tenant_code")
   @@index([tenant_id], map: "IDX_financial_cost_centers_tenant_id")
@@ -1979,6 +1984,7 @@ model financial_categories {
   receivables  financial_receivables[]
   payables     financial_payables[]
   bank_movements financial_bank_movements[]
+  import_lines financial_import_lines[]
 
   @@unique([tenant_id, code], map: "uq_financial_categories_tenant_code")
   @@index([tenant_id], map: "IDX_financial_categories_tenant_id")
@@ -2006,6 +2012,7 @@ model financial_bank_accounts {
 
   currency            currencies                    @relation("FinancialBankAccountCurrency", fields: [currency_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_financial_bank_accounts_currency")
   movements           financial_bank_movements[]
+  import_jobs         financial_import_jobs[]
   receivable_payments financial_receivable_payments[]
   payable_payments    financial_payable_payments[]
 
@@ -2059,8 +2066,18 @@ model financial_receivables {
   original_amount    Decimal              @default(0) @db.Decimal(19, 4)
   paid_amount        Decimal              @default(0) @db.Decimal(19, 4)
   outstanding_amount Decimal              @default(0) @db.Decimal(19, 4)
+  entry_group        FinancialEntryGroup  @default(VARIABLE)
   installment_number Int                  @default(1)
   installment_total  Int                  @default(1)
+  recurrence_enabled Boolean              @default(false)
+  recurrence_frequency FinancialRecurrenceFrequency?
+  recurrence_interval Int                 @default(1)
+  recurrence_day_of_month Int?
+  recurrence_occurrences Int?
+  recurrence_end_date DateTime?           @db.Date
+  recurrence_auto_create Boolean          @default(false)
+  recurrence_series_id String?            @db.Uuid
+  recurrence_parent_id String?            @db.Uuid
   status             FinancialEntryStatus @default(OPEN)
   is_delinquent      Boolean              @default(false)
   delinquent_days    Int                  @default(0)
@@ -2081,6 +2098,8 @@ model financial_receivables {
   @@index([tenant_id, status], map: "IDX_financial_receivables_tenant_status")
   @@index([tenant_id, due_date], map: "IDX_financial_receivables_tenant_due")
   @@index([tenant_id, company_id], map: "IDX_financial_receivables_tenant_company")
+  @@index([tenant_id, entry_group], map: "IDX_financial_receivables_tenant_group")
+  @@index([tenant_id, recurrence_series_id], map: "IDX_financial_receivables_tenant_series")
 }
 
 model financial_receivable_payments {
@@ -2124,8 +2143,18 @@ model financial_payables {
   original_amount    Decimal              @default(0) @db.Decimal(19, 4)
   paid_amount        Decimal              @default(0) @db.Decimal(19, 4)
   outstanding_amount Decimal              @default(0) @db.Decimal(19, 4)
+  entry_group        FinancialEntryGroup  @default(VARIABLE)
   installment_number Int                  @default(1)
   installment_total  Int                  @default(1)
+  recurrence_enabled Boolean              @default(false)
+  recurrence_frequency FinancialRecurrenceFrequency?
+  recurrence_interval Int                 @default(1)
+  recurrence_day_of_month Int?
+  recurrence_occurrences Int?
+  recurrence_end_date DateTime?           @db.Date
+  recurrence_auto_create Boolean          @default(false)
+  recurrence_series_id String?            @db.Uuid
+  recurrence_parent_id String?            @db.Uuid
   status             FinancialEntryStatus @default(OPEN)
   is_delinquent      Boolean              @default(false)
   delinquent_days    Int                  @default(0)
@@ -2145,6 +2174,8 @@ model financial_payables {
   @@index([tenant_id, status], map: "IDX_financial_payables_tenant_status")
   @@index([tenant_id, due_date], map: "IDX_financial_payables_tenant_due")
   @@index([tenant_id, company_id], map: "IDX_financial_payables_tenant_company")
+  @@index([tenant_id, entry_group], map: "IDX_financial_payables_tenant_group")
+  @@index([tenant_id, recurrence_series_id], map: "IDX_financial_payables_tenant_series")
 }
 
 model financial_payable_payments {
@@ -2171,6 +2202,91 @@ model financial_payable_payments {
   @@index([tenant_id], map: "IDX_financial_payable_payments_tenant_id")
   @@index([tenant_id, payable_id], map: "IDX_financial_payable_payments_tenant_payable")
   @@index([tenant_id, payment_date], map: "IDX_financial_payable_payments_tenant_date")
+}
+
+model financial_import_jobs {
+  id               String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id        String                   @db.Uuid
+  bank_account_id  String?                  @db.Uuid
+  source_type      FinancialImportSourceType
+  source_name      String                   @db.VarChar(255)
+  mime_type        String?                  @db.VarChar(120)
+  file_size        Int?
+  status           FinancialImportJobStatus @default(REVIEW)
+  parsed_summary   Json?
+  parser_warnings  Json?
+  ai_summary       Json?
+  lines_total      Int                      @default(0)
+  lines_reviewed   Int                      @default(0)
+  lines_applied    Int                      @default(0)
+  lines_ignored    Int                      @default(0)
+  uploaded_by      String?                  @db.Uuid
+  applied_by       String?                  @db.Uuid
+  uploaded_at      DateTime                 @default(now()) @db.Timestamp(6)
+  analyzed_at      DateTime?                @db.Timestamp(6)
+  applied_at       DateTime?                @db.Timestamp(6)
+  created_at       DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at       DateTime                 @default(now()) @db.Timestamp(6)
+
+  bank_account     financial_bank_accounts? @relation(fields: [bank_account_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_import_jobs_bank_account")
+  lines            financial_import_lines[]
+
+  @@index([tenant_id], map: "IDX_financial_import_jobs_tenant_id")
+  @@index([tenant_id, status], map: "IDX_financial_import_jobs_tenant_status")
+  @@index([tenant_id, bank_account_id], map: "IDX_financial_import_jobs_tenant_account")
+  @@index([tenant_id, uploaded_at], map: "IDX_financial_import_jobs_tenant_uploaded")
+}
+
+model financial_import_lines {
+  id                            String                         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id                     String                         @db.Uuid
+  import_job_id                 String                         @db.Uuid
+  line_number                   Int
+  external_id                   String?                        @db.VarChar(120)
+  transaction_date              DateTime?                      @db.Date
+  movement_type                 FinancialMovementType?
+  amount                        Decimal                        @default(0) @db.Decimal(19, 4)
+  balance_after                 Decimal?                       @db.Decimal(19, 4)
+  currency_code                 String?                        @db.VarChar(10)
+  description                   String?
+  counterparty_name             String?                        @db.VarChar(150)
+  document_number               String?                        @db.VarChar(120)
+  source_payload                Json?
+  raw_text                      String?
+  normalized_text               String?
+  suggestion_kind               FinancialImportSuggestionKind  @default(CREATE_MOVEMENT)
+  suggestion_status             FinancialImportSuggestionStatus @default(SUGGESTED)
+  confidence_score              Decimal                        @default(0) @db.Decimal(5, 2)
+  rule_code                     String?                        @db.VarChar(80)
+  ai_reasoning                  String?
+  approved_action               Json?
+  review_note                   String?
+  suggested_category_id         String?                        @db.Uuid
+  suggested_cost_center_id      String?                        @db.Uuid
+  suggested_company_id          String?                        @db.Uuid
+  matched_bank_movement_id      String?                        @db.Uuid
+  matched_receivable_id         String?                        @db.Uuid
+  matched_payable_id            String?                        @db.Uuid
+  matched_receivable_payment_id String?                        @db.Uuid
+  matched_payable_payment_id    String?                        @db.Uuid
+  generated_bank_movement_id    String?                        @db.Uuid
+  generated_receivable_id       String?                        @db.Uuid
+  generated_payable_id          String?                        @db.Uuid
+  generated_receivable_payment_id String?                      @db.Uuid
+  generated_payable_payment_id  String?                        @db.Uuid
+  applied_at                    DateTime?                      @db.Timestamp(6)
+  created_at                    DateTime                       @default(now()) @db.Timestamp(6)
+  updated_at                    DateTime                       @default(now()) @db.Timestamp(6)
+
+  import_job      financial_import_jobs   @relation(fields: [import_job_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_financial_import_lines_job")
+  category        financial_categories?   @relation(fields: [suggested_category_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_import_lines_category")
+  cost_center     financial_cost_centers? @relation(fields: [suggested_cost_center_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_import_lines_cost_center")
+  company         companies?              @relation(fields: [suggested_company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_financial_import_lines_company")
+
+  @@index([tenant_id], map: "IDX_financial_import_lines_tenant_id")
+  @@index([tenant_id, import_job_id], map: "IDX_financial_import_lines_tenant_job")
+  @@index([tenant_id, suggestion_status], map: "IDX_financial_import_lines_tenant_status")
+  @@index([tenant_id, transaction_date], map: "IDX_financial_import_lines_tenant_date")
 }
 
 model hr_employment_statuses {
@@ -2747,11 +2863,14 @@ model po_projects {
   updated_at      DateTime  @default(now()) @db.Timestamp(6)
   deleted_at      DateTime? @db.Timestamp(6)
 
-  status          po_project_statuses?  @relation(fields: [status_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_projects_status")
-  owner_user      users                 @relation("PoProjectOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_po_projects_owner_user")
-  company         companies?            @relation("PoProjectCompany", fields: [company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_projects_company")
+  status            po_project_statuses?  @relation(fields: [status_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_projects_status")
+  owner_user        users                 @relation("PoProjectOwner", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_po_projects_owner_user")
+  company           companies?            @relation("PoProjectCompany", fields: [company_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_projects_company")
   project_processes po_project_processes[]
-  work_orders     po_work_orders[]
+  milestones        po_milestones[]
+  deliverables      po_deliverables[]
+  checklists        po_checklists[]
+  work_orders       po_work_orders[]
 
   @@unique([tenant_id, code], map: "uq_po_projects_tenant_code")
   @@index([tenant_id], map: "IDX_po_projects_tenant_id")
@@ -2780,7 +2899,8 @@ model po_project_processes {
 model po_milestones {
   id          String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id   String            @db.Uuid
-  process_id  String            @db.Uuid
+  process_id  String?           @db.Uuid
+  project_id  String?           @db.Uuid
   title       String            @db.VarChar(160)
   description String?
   due_date    DateTime?         @db.Date
@@ -2790,17 +2910,20 @@ model po_milestones {
   updated_at  DateTime          @default(now()) @db.Timestamp(6)
   deleted_at  DateTime?         @db.Timestamp(6)
 
-  process processes @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_milestones_process")
+  process processes?   @relation(fields: [process_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_milestones_process")
+  project po_projects? @relation(fields: [project_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_milestones_project")
 
   @@index([tenant_id], map: "IDX_po_milestones_tenant_id")
   @@index([tenant_id, process_id], map: "IDX_po_milestones_tenant_process")
+  @@index([tenant_id, project_id], map: "IDX_po_milestones_tenant_project")
   @@index([tenant_id, status], map: "IDX_po_milestones_tenant_status")
 }
 
 model po_deliverables {
   id          String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   tenant_id   String                   @db.Uuid
-  process_id  String                   @db.Uuid
+  process_id  String?                  @db.Uuid
+  project_id  String?                  @db.Uuid
   title       String                   @db.VarChar(160)
   description String?
   due_date    DateTime?                @db.Date
@@ -2811,29 +2934,34 @@ model po_deliverables {
   updated_at  DateTime                 @default(now()) @db.Timestamp(6)
   deleted_at  DateTime?                @db.Timestamp(6)
 
-  process  processes               @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_deliverables_process")
-  currency currencies?             @relation("PoDeliverableCurrency", fields: [currency_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_deliverables_currency")
+  process  processes?               @relation(fields: [process_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_deliverables_process")
+  project  po_projects?             @relation(fields: [project_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_deliverables_project")
+  currency currencies?              @relation("PoDeliverableCurrency", fields: [currency_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_deliverables_currency")
   status   po_deliverable_statuses? @relation(fields: [status_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_deliverables_status")
 
   @@index([tenant_id], map: "IDX_po_deliverables_tenant_id")
   @@index([tenant_id, process_id], map: "IDX_po_deliverables_tenant_process")
+  @@index([tenant_id, project_id], map: "IDX_po_deliverables_tenant_project")
   @@index([tenant_id, status_id], map: "IDX_po_deliverables_tenant_status")
 }
 
 model po_checklists {
-  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id  String   @db.Uuid
-  process_id String   @db.Uuid
-  name       String   @db.VarChar(160)
-  created_at DateTime @default(now()) @db.Timestamp(6)
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  process_id String?   @db.Uuid
+  project_id String?   @db.Uuid
+  name       String    @db.VarChar(160)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
   updated_at DateTime @default(now()) @db.Timestamp(6)
   deleted_at DateTime? @db.Timestamp(6)
 
-  process processes           @relation(fields: [process_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_po_checklists_process")
+  process processes?    @relation(fields: [process_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_checklists_process")
+  project po_projects?  @relation(fields: [project_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_po_checklists_project")
   items   po_checklist_items[]
 
   @@index([tenant_id], map: "IDX_po_checklists_tenant_id")
   @@index([tenant_id, process_id], map: "IDX_po_checklists_tenant_process")
+  @@index([tenant_id, project_id], map: "IDX_po_checklists_tenant_project")
 }
 
 model po_checklist_items {
@@ -3005,6 +3133,8 @@ model whatsapp_integrations {
   updated_by    users?                @relation("WhatsappIntegrationUpdatedBy", fields: [updated_by_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_integrations_updated_by")
   conversations whatsapp_conversations[]
   messages      whatsapp_messages[]
+  templates     whatsapp_message_templates[]
+  campaigns     whatsapp_campaigns[]
 
   @@unique([tenant_id, name], map: "uq_whatsapp_integrations_tenant_name")
   @@index([tenant_id, is_active], map: "IDX_whatsapp_integrations_tenant_active")
@@ -3018,6 +3148,7 @@ model whatsapp_conversations {
   contact_phone            String    @db.VarChar(50)
   contact_phone_normalized String    @db.VarChar(30)
   contact_name             String?   @db.VarChar(255)
+  contact_avatar_url       String?
   chat_id                  String?   @db.VarChar(120)
   last_message_preview     String?
   first_message_at         DateTime  @default(now()) @db.Timestamp(6)
@@ -3029,6 +3160,15 @@ model whatsapp_conversations {
   classification_summary   String?
   extracted_json           Json?
   lead_id                  String?   @db.Uuid
+  owner_user_id            String?   @db.Uuid
+  marketing_opt_in_status  String    @default("UNKNOWN") @db.VarChar(30)
+  marketing_opt_in_source  String?   @db.VarChar(80)
+  marketing_opt_in_at      DateTime? @db.Timestamp(6)
+  marketing_opt_out_at     DateTime? @db.Timestamp(6)
+  last_campaign_at         DateTime? @db.Timestamp(6)
+  claimed_at               DateTime? @db.Timestamp(6)
+  last_replied_at          DateTime? @db.Timestamp(6)
+  last_note_at             DateTime? @db.Timestamp(6)
   lead_created_at          DateTime? @db.Timestamp(6)
   team_notified_at         DateTime? @db.Timestamp(6)
   auto_replied_at          DateTime? @db.Timestamp(6)
@@ -3038,11 +3178,15 @@ model whatsapp_conversations {
 
   integration whatsapp_integrations @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_conversations_integration")
   lead        leads?                @relation("WhatsappConversationLead", fields: [lead_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_conversations_lead")
+  owner_user  users?                @relation("WhatsappConversationOwner", fields: [owner_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_conversations_owner")
   messages    whatsapp_messages[]
+  notes       whatsapp_conversation_notes[]
+  campaign_recipients whatsapp_campaign_recipients[]
 
   @@unique([tenant_id, integration_id, contact_phone_normalized], map: "uq_whatsapp_conversations_phone")
   @@index([tenant_id, integration_id, last_message_at], map: "IDX_whatsapp_conversations_tenant_last_message")
   @@index([tenant_id, lead_id], map: "IDX_whatsapp_conversations_tenant_lead")
+  @@index([tenant_id, owner_user_id, status], map: "IDX_whatsapp_conversations_tenant_owner_status")
 }
 
 model whatsapp_messages {
@@ -3068,6 +3212,104 @@ model whatsapp_messages {
   @@index([tenant_id, integration_id, created_at], map: "IDX_whatsapp_messages_tenant_created")
   @@index([tenant_id, conversation_id, created_at], map: "IDX_whatsapp_messages_conversation_created")
   @@index([tenant_id, integration_id, external_message_id], map: "IDX_whatsapp_messages_external")
+}
+
+model whatsapp_conversation_notes {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String    @db.Uuid
+  conversation_id String    @db.Uuid
+  user_id         String?   @db.Uuid
+  note_text       String
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime  @default(now()) @db.Timestamp(6)
+
+  conversation whatsapp_conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_conversation_notes_conversation")
+  user         users?                 @relation("WhatsappConversationNoteUser", fields: [user_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_conversation_notes_user")
+
+  @@index([tenant_id, conversation_id, created_at], map: "IDX_whatsapp_conversation_notes_conversation")
+  @@index([tenant_id, user_id, created_at], map: "IDX_whatsapp_conversation_notes_user")
+}
+
+model whatsapp_message_templates {
+  id                 String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id          String    @db.Uuid
+  integration_id     String?   @db.Uuid
+  name               String    @db.VarChar(160)
+  category           String    @default("GENERAL") @db.VarChar(40)
+  usage_scope        String    @default("BOTH") @db.VarChar(20)
+  message_text       String
+  variables_json     Json?
+  is_active          Boolean   @default(true)
+  sort_order         Int       @default(0)
+  created_by_user_id String?   @db.Uuid
+  updated_by_user_id String?   @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @default(now()) @db.Timestamp(6)
+
+  integration whatsapp_integrations? @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_message_templates_integration")
+  campaigns   whatsapp_campaigns[]
+
+  @@unique([tenant_id, name], map: "uq_whatsapp_message_templates_tenant_name")
+  @@index([tenant_id, integration_id, is_active], map: "IDX_whatsapp_message_templates_tenant_integration")
+  @@index([tenant_id, usage_scope, is_active], map: "IDX_whatsapp_message_templates_tenant_scope")
+}
+
+model whatsapp_campaigns {
+  id                    String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id             String    @db.Uuid
+  integration_id        String    @db.Uuid
+  template_id           String?   @db.Uuid
+  name                  String    @db.VarChar(160)
+  status                String    @default("DRAFT") @db.VarChar(30)
+  audience_mode         String    @default("MANUAL") @db.VarChar(30)
+  message_text          String
+  filters_json          Json?
+  launched_at           DateTime? @db.Timestamp(6)
+  finished_at           DateTime? @db.Timestamp(6)
+  last_error            String?
+  recipients_total      Int       @default(0)
+  sent_total            Int       @default(0)
+  failed_total          Int       @default(0)
+  skipped_total         Int       @default(0)
+  created_by_user_id    String?   @db.Uuid
+  updated_by_user_id    String?   @db.Uuid
+  created_at            DateTime  @default(now()) @db.Timestamp(6)
+  updated_at            DateTime  @default(now()) @db.Timestamp(6)
+
+  integration whatsapp_integrations    @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_campaigns_integration")
+  template    whatsapp_message_templates? @relation(fields: [template_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_campaigns_template")
+  recipients  whatsapp_campaign_recipients[]
+
+  @@index([tenant_id, integration_id, status], map: "IDX_whatsapp_campaigns_tenant_integration_status")
+  @@index([tenant_id, created_at], map: "IDX_whatsapp_campaigns_tenant_created")
+}
+
+model whatsapp_campaign_recipients {
+  id                      String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id               String    @db.Uuid
+  campaign_id             String    @db.Uuid
+  conversation_id         String?   @db.Uuid
+  lead_id                 String?   @db.Uuid
+  phone_number            String    @db.VarChar(50)
+  phone_number_normalized String    @db.VarChar(30)
+  contact_name            String?   @db.VarChar(255)
+  company_name            String?   @db.VarChar(255)
+  source_label            String?   @db.VarChar(120)
+  snapshot_opt_in_status  String    @default("UNKNOWN") @db.VarChar(30)
+  send_status             String    @default("PENDING") @db.VarChar(30)
+  campaign_message_id     String?   @db.VarChar(120)
+  last_error              String?
+  sent_at                 DateTime? @db.Timestamp(6)
+  delivered_at            DateTime? @db.Timestamp(6)
+  created_at              DateTime  @default(now()) @db.Timestamp(6)
+  updated_at              DateTime  @default(now()) @db.Timestamp(6)
+
+  campaign     whatsapp_campaigns     @relation(fields: [campaign_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_campaign_recipients_campaign")
+  conversation whatsapp_conversations? @relation(fields: [conversation_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_whatsapp_campaign_recipients_conversation")
+
+  @@unique([campaign_id, phone_number_normalized], map: "uq_whatsapp_campaign_recipients_campaign_phone")
+  @@index([tenant_id, campaign_id, send_status], map: "IDX_whatsapp_campaign_recipients_campaign_status")
+  @@index([tenant_id, conversation_id], map: "IDX_whatsapp_campaign_recipients_conversation")
 }
 
 enum IncidentStatus {
@@ -3610,6 +3852,20 @@ enum FinancialEntryStatus {
   CANCELED
 }
 
+enum FinancialEntryGroup {
+  FIXED
+  VARIABLE
+  PERSONAL
+  TAX
+  TRANSFER
+}
+
+enum FinancialRecurrenceFrequency {
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
 enum FinancialPaymentMethod {
   BANK_TRANSFER
   PIX
@@ -3624,6 +3880,36 @@ enum FinancialPaymentMethod {
 enum FinancialMovementType {
   CREDIT
   DEBIT
+}
+
+enum FinancialImportSourceType {
+  OFX
+  CSV
+  PDF
+}
+
+enum FinancialImportJobStatus {
+  REVIEW
+  APPLIED
+  FAILED
+}
+
+enum FinancialImportSuggestionKind {
+  CREATE_MOVEMENT
+  MATCH_RECEIVABLE_PAYMENT
+  MATCH_PAYABLE_PAYMENT
+  CREATE_RECEIVABLE
+  CREATE_PAYABLE
+  TRANSFER
+  IGNORE
+}
+
+enum FinancialImportSuggestionStatus {
+  SUGGESTED
+  APPROVED
+  APPLIED
+  IGNORED
+  ERROR
 }
 
 enum HrEmployeeGender {

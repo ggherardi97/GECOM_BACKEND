@@ -15,6 +15,7 @@ type PrismaMiddlewareParams = {
 
 @Injectable()
 export class PrismaService implements OnModuleInit, OnModuleDestroy {
+  private readonly baseClient: PrismaClient;
   private readonly client: PrismaClient;
   private automationDispatcherProxy: { dispatch: (event: Record<string, unknown>) => void } | null | undefined;
 
@@ -94,6 +95,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly whatsapp_integrations: PrismaClient['whatsapp_integrations'];
   public readonly whatsapp_conversations: PrismaClient['whatsapp_conversations'];
   public readonly whatsapp_messages: PrismaClient['whatsapp_messages'];
+  public readonly whatsapp_conversation_notes: PrismaClient['whatsapp_conversation_notes'];
+  public readonly whatsapp_message_templates: PrismaClient['whatsapp_message_templates'];
+  public readonly whatsapp_campaigns: PrismaClient['whatsapp_campaigns'];
+  public readonly whatsapp_campaign_recipients: PrismaClient['whatsapp_campaign_recipients'];
   public readonly modules: PrismaClient['modules'];
   public readonly plans: PrismaClient['plans'];
   public readonly plan_modules: PrismaClient['plan_modules'];
@@ -172,6 +177,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     'whatsapp_integrations',
     'whatsapp_conversations',
     'whatsapp_messages',
+    'whatsapp_conversation_notes',
+    'whatsapp_message_templates',
+    'whatsapp_campaigns',
+    'whatsapp_campaign_recipients',
     'financial_cost_centers',
     'financial_categories',
     'financial_bank_accounts',
@@ -249,6 +258,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     const base = new PrismaClient({
       log: prismaLogLevels,
     });
+    this.baseClient = base;
 
     const prismaService = this;
     const extended = base.$extends({
@@ -429,6 +439,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.whatsapp_integrations = this.client.whatsapp_integrations;
     this.whatsapp_conversations = this.client.whatsapp_conversations;
     this.whatsapp_messages = this.client.whatsapp_messages;
+    this.whatsapp_conversation_notes = this.client.whatsapp_conversation_notes;
+    this.whatsapp_message_templates = this.client.whatsapp_message_templates;
+    this.whatsapp_campaigns = this.client.whatsapp_campaigns;
+    this.whatsapp_campaign_recipients = this.client.whatsapp_campaign_recipients;
     this.modules = this.client.modules;
     this.plans = this.client.plans;
     this.plan_modules = this.client.plan_modules;
@@ -468,6 +482,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   // OPTIONAL: if you need raw client sometimes
   get raw(): PrismaClient {
     return this.client;
+  }
+
+  get unscoped(): PrismaClient {
+    return this.baseClient;
   }
 
   private getAutomationDispatcher():

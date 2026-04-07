@@ -52,6 +52,13 @@ type LandingPageSettings = {
   published_at: Date | null;
 };
 
+type PublicLandingPageLookupInput = {
+  tenantRef?: string | null;
+  requestedUrl?: string | null;
+  requestedHost?: string | null;
+  requestedPath?: string | null;
+};
+
 type OptionSetSeedRow = {
   value: string;
   label: string;
@@ -200,6 +207,146 @@ export class AdminConfigService {
     if (!raw) return null;
     if (raw.length > 500) throw new BadRequestException('URL muito grande.');
     return raw;
+  }
+
+  private normalizePublicLookupText(value: unknown, maxLength = 500): string | null {
+    const raw = this.normalizeText(value);
+    if (!raw) return null;
+    return raw.slice(0, maxLength);
+  }
+
+  private normalizeLookupPath(value: unknown): string | null {
+    const raw = this.normalizePublicLookupText(value);
+    if (!raw) return null;
+    const source = raw.includes('://')
+      ? (() => {
+          try {
+            return new URL(raw).pathname || '/';
+          } catch {
+            return raw;
+          }
+        })()
+      : raw;
+    const prefixed = source.startsWith('/') ? source : `/${source}`;
+    const compact = prefixed.replace(/\/{2,}/g, '/').trim();
+    if (!compact) return null;
+    if (compact === '/') return '/';
+    return compact.replace(/\/+$/, '');
+  }
+
+  private normalizeLookupHost(value: unknown): string | null {
+    const raw = this.normalizePublicLookupText(value, 255);
+    if (!raw) return null;
+    return raw.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim() || null;
+  }
+
+  private normalizeComparableUrl(value: unknown): string | null {
+    const raw = this.normalizePublicLookupText(value);
+    if (!raw) return null;
+    if (raw === '/') return '/';
+    return raw.replace(/\/+$/, '').trim() || null;
+  }
+
+  private buildLandingUrlCandidates(input: PublicLandingPageLookupInput): string[] {
+    const candidates = new Set<string>();
+    const requestedUrl = this.normalizeComparableUrl(input?.requestedUrl);
+    const requestedHost = this.normalizeLookupHost(input?.requestedHost);
+    const requestedPath = this.normalizeLookupPath(input?.requestedPath);
+
+    const append = (value?: string | null) => {
+      const normalized = this.normalizeComparableUrl(value);
+      if (!normalized) return;
+      candidates.add(normalized);
+      if (normalized.startsWith('/')) {
+        candidates.add(normalized.replace(/^\/+/, '') || '/');
+      } else if (!normalized.includes('://') && !normalized.startsWith('/')) {
+        candidates.add(`/${normalized.replace(/^\/+/, '')}`);
+      }
+    };
+
+    append(requestedUrl);
+
+    if (requestedUrl) {
+      try {
+        const parsed = new URL(requestedUrl);
+        append(parsed.pathname || '/');
+        append(`${parsed.host}${parsed.pathname || '/'}`);
+      } catch {
+        // ignore parse failures for non-absolute URLs
+      }
+    }
+
+    if (requestedPath) append(requestedPath);
+
+    if (requestedHost && requestedPath) {
+      append(`${requestedHost}${requestedPath}`);
+      append(`https://${requestedHost}${requestedPath}`);
+      append(`http://${requestedHost}${requestedPath}`);
+      append(`https://${requestedHost}${requestedPath}/`);
+      append(`http://${requestedHost}${requestedPath}/`);
+    }
+
+    return Array.from(candidates);
+  }
+
+  private isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+
+  private async resolvePublicLandingTenantRef(tenantRef?: string | null): Promise<{
+    tenant_id: string;
+    tenant_name: string | null;
+    tenant_slug: string | null;
+  } | null> {
+    const normalizedRef = this.normalizePublicLookupText(tenantRef, 120);
+    if (!normalizedRef) return null;
+
+    const tenant = await this.db.tenants.findFirst({
+      where: this.isUuid(normalizedRef)
+        ? {
+            id: normalizedRef,
+            deleted_at: null,
+          }
+        : {
+            slug: normalizedRef,
+            deleted_at: null,
+          },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+      },
+    });
+
+    if (!tenant?.id) return null;
+    return {
+      tenant_id: String(tenant.id),
+      tenant_name: this.normalizeText(tenant.name) || null,
+      tenant_slug: this.normalizeText(tenant.slug) || null,
+    };
+  }
+
+  private async resolvePublicLandingByUrl(input: PublicLandingPageLookupInput): Promise<{
+    tenant_id: string;
+    tenant_name: string | null;
+    tenant_slug: string | null;
+  } | null> {
+    const candidates = this.buildLandingUrlCandidates(input);
+    if (!candidates.length) return null;
+
+    const row = await this.db.tenant_landing_page_settings.findFirst({
+      where: {
+        landing_page_url: { in: candidates },
+        published_html: { not: null },
+      },
+      select: {
+        tenant_id: true,
+      },
+    });
+
+    const tenantId = this.normalizeText(row?.tenant_id);
+    if (!tenantId) return null;
+    return this.resolvePublicLandingTenantRef(tenantId);
   }
 
   private maskSecret(value: unknown): string | null {
@@ -1018,6 +1165,42 @@ export class AdminConfigService {
 
     const normalized = row ? this.normalizeLandingPageRecord(row) : this.emptyLandingPageSettings();
     return {
+      landing_page_url: normalized.landing_page_url,
+      published_html: normalized.published_html,
+      published_css: normalized.published_css,
+      published_project_json: normalized.published_project_json,
+      updated_at: normalized.updated_at,
+      published_at: normalized.published_at,
+    };
+  }
+
+  async getPublishedLandingPagePublic(input: PublicLandingPageLookupInput) {
+    const resolvedTenant =
+      (await this.resolvePublicLandingTenantRef(input?.tenantRef)) || (await this.resolvePublicLandingByUrl(input));
+
+    if (!resolvedTenant?.tenant_id) {
+      return {
+        tenant_id: null,
+        tenant_name: null,
+        tenant_slug: null,
+        landing_page_url: null,
+        published_html: null,
+        published_css: null,
+        published_project_json: null,
+        updated_at: null,
+        published_at: null,
+      };
+    }
+
+    const row = await this.db.tenant_landing_page_settings.findFirst({
+      where: { tenant_id: resolvedTenant.tenant_id },
+    });
+
+    const normalized = row ? this.normalizeLandingPageRecord(row) : this.emptyLandingPageSettings();
+    return {
+      tenant_id: resolvedTenant.tenant_id,
+      tenant_name: resolvedTenant.tenant_name,
+      tenant_slug: resolvedTenant.tenant_slug,
       landing_page_url: normalized.landing_page_url,
       published_html: normalized.published_html,
       published_css: normalized.published_css,

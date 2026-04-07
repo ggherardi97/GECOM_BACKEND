@@ -461,7 +461,7 @@ export class ProjectOperationsService {
         status: { select: { id: true, name: true, code: true, color: true } },
         owner_user: { select: { id: true, full_name: true, email: true } },
         company: { select: { id: true, company_name: true } },
-        _count: { select: { project_processes: true, work_orders: true } },
+        _count: { select: { project_processes: true, milestones: true, deliverables: true, checklists: true, work_orders: true } },
       },
       parseCreate: async (dto, user) => {
         const data = { ...dto };
@@ -489,9 +489,11 @@ export class ProjectOperationsService {
       orderBy: [{ sort_order: 'asc' }, { due_date: 'asc' }, { created_at: 'asc' }],
       softDelete: true,
       statusField: 'status',
+      projectField: 'project_id',
       processField: 'process_id',
       dueDateField: 'due_date',
       include: {
+        project: { select: { id: true, code: true, name: true } },
         process: { select: { id: true, process_number: true } },
       },
     },
@@ -502,9 +504,11 @@ export class ProjectOperationsService {
       orderBy: [{ due_date: 'asc' }, { updated_at: 'desc' }],
       softDelete: true,
       statusField: 'status_id',
+      projectField: 'project_id',
       processField: 'process_id',
       dueDateField: 'due_date',
       include: {
+        project: { select: { id: true, code: true, name: true } },
         process: { select: { id: true, process_number: true } },
         currency: { select: { id: true, code: true, symbol: true } },
         status: { select: { id: true, name: true, code: true, color: true } },
@@ -521,8 +525,10 @@ export class ProjectOperationsService {
       searchFields: ['name'],
       orderBy: [{ updated_at: 'desc' }],
       softDelete: true,
+      projectField: 'project_id',
       processField: 'process_id',
       include: {
+        project: { select: { id: true, code: true, name: true } },
         process: { select: { id: true, process_number: true } },
         _count: { select: { items: true } },
       },
@@ -538,7 +544,15 @@ export class ProjectOperationsService {
       ownerField: 'assigned_user_id',
       dueDateField: 'due_date',
       include: {
-        checklist: { select: { id: true, name: true, process_id: true } },
+        checklist: {
+          select: {
+            id: true,
+            name: true,
+            process_id: true,
+            project_id: true,
+            project: { select: { id: true, code: true, name: true } },
+          },
+        },
         assigned_user: { select: { id: true, full_name: true, email: true } },
       },
     },
@@ -550,14 +564,12 @@ export class ProjectOperationsService {
       softDelete: true,
       statusField: 'status_id',
       projectField: 'project_id',
-      processField: 'process_id',
       incidentField: 'incident_id',
       ownerField: 'owner_user_id',
       priorityField: 'priority',
       startDateField: 'planned_start',
       include: {
         incident: { select: { id: true, number: true, title: true, status: true } },
-        process: { select: { id: true, process_number: true } },
         project: { select: { id: true, code: true, name: true } },
         status: { select: { id: true, name: true, code: true, color: true } },
         created_by_user: { select: { id: true, full_name: true, email: true } },
@@ -625,6 +637,536 @@ export class ProjectOperationsService {
     const config = this.resources[String(resourceKey || '').trim()];
     if (!config) throw new NotFoundException('Recurso de Project & Operations nao encontrado.');
     return config;
+  }
+
+  private getRelatedTableAliases(resourceKey: string): string[] {
+    const key = String(resourceKey || '').trim().toLowerCase();
+    switch (key) {
+      case 'projects':
+        return ['po_projects', 'po_project', 'project', 'projects'];
+      case 'work-orders':
+        return ['po_work_orders', 'po_work_order', 'work_order', 'work_orders'];
+      default:
+        return [];
+    }
+  }
+
+  private async findRelatedEvents(user: AuthUser, resourceKey: string, id: string) {
+    const aliases = this.getRelatedTableAliases(resourceKey);
+    if (!aliases.length) return [];
+
+    return this.db.events.findMany({
+      where: {
+        tenant_id: user.tenant_id,
+        related_id: id,
+        related_table: { in: aliases },
+      },
+      orderBy: [{ start_time: 'desc' }, { created_at: 'desc' }],
+    });
+  }
+
+  private buildProjectSummaryTimeline(project: any) {
+    const items: Array<Record<string, any>> = [];
+
+    items.push({
+      id: `project-created-${project.id}`,
+      kind: 'PROJECT_CREATED',
+      occurred_at: project.created_at,
+      title: project.name || project.code || 'Projeto',
+      subtitle: project.code || null,
+      description: project.description || null,
+      meta: {
+        status: project.status?.name || null,
+        company: project.company?.company_name || null,
+      },
+    });
+
+    if (project.actual_end_date) {
+      items.push({
+        id: `project-completed-${project.id}`,
+        kind: 'PROJECT_COMPLETED',
+        occurred_at: project.actual_end_date,
+        title: project.name || project.code || 'Projeto',
+        subtitle: project.code || null,
+        description: null,
+        meta: {
+          status: project.status?.name || null,
+        },
+      });
+    }
+
+    return items;
+  }
+
+  private buildWorkOrderSummaryTimeline(workOrder: any) {
+    const items: Array<Record<string, any>> = [];
+
+    items.push({
+      id: `work-order-created-${workOrder.id}`,
+      kind: 'WORK_ORDER_CREATED',
+      occurred_at: workOrder.created_at,
+      title: workOrder.title || workOrder.code || 'Work order',
+      subtitle: workOrder.code || null,
+      description: workOrder.description || null,
+      meta: {
+        status: workOrder.status?.name || null,
+        priority: workOrder.priority || null,
+      },
+    });
+
+    if (workOrder.actual_start) {
+      items.push({
+        id: `work-order-started-${workOrder.id}`,
+        kind: 'WORK_ORDER_STARTED',
+        occurred_at: workOrder.actual_start,
+        title: workOrder.title || workOrder.code || 'Work order',
+        subtitle: workOrder.code || null,
+        description: null,
+        meta: {
+          status: workOrder.status?.name || null,
+        },
+      });
+    }
+
+    if (workOrder.actual_end) {
+      items.push({
+        id: `work-order-completed-${workOrder.id}`,
+        kind: 'WORK_ORDER_COMPLETED',
+        occurred_at: workOrder.actual_end,
+        title: workOrder.title || workOrder.code || 'Work order',
+        subtitle: workOrder.code || null,
+        description: null,
+        meta: {
+          status: workOrder.status?.name || null,
+        },
+      });
+    }
+
+    return items;
+  }
+
+  async getTimeline(user: AuthUser, resourceKey: string, id: string) {
+    const key = String(resourceKey || '').trim().toLowerCase();
+    if (key === 'projects') return this.getProjectTimeline(user, id);
+    if (key === 'work-orders') return this.getWorkOrderTimeline(user, id);
+    throw new NotFoundException('Timeline nao disponivel para este recurso.');
+  }
+
+  async getRelated(user: AuthUser, resourceKey: string, id: string) {
+    const key = String(resourceKey || '').trim().toLowerCase();
+    if (key === 'projects') return this.getProjectRelated(user, id);
+    if (key === 'work-orders') return this.getWorkOrderRelated(user, id);
+    throw new NotFoundException('Relacionados nao disponiveis para este recurso.');
+  }
+
+  private async getProjectTimeline(user: AuthUser, id: string) {
+    const project = await this.findResourceById(user, 'projects', id);
+    const [projectProcesses, milestones, deliverables, checklists, workOrders, events, linkedAppointments] = await Promise.all([
+      this.db.po_project_processes.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+        },
+        include: {
+          process: { select: { id: true, process_number: true, exporter: true, importer: true } },
+        },
+        orderBy: [{ sort_order: 'asc' }, { created_at: 'desc' }],
+      }),
+      this.db.po_milestones.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+          deleted_at: null,
+        },
+        orderBy: [{ due_date: 'asc' }, { created_at: 'desc' }],
+      }),
+      this.db.po_deliverables.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+          deleted_at: null,
+        },
+        include: {
+          status: { select: { id: true, name: true, code: true, color: true } },
+        },
+        orderBy: [{ due_date: 'asc' }, { created_at: 'desc' }],
+      }),
+      this.db.po_checklists.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+          deleted_at: null,
+        },
+        include: {
+          _count: { select: { items: true } },
+        },
+        orderBy: [{ updated_at: 'desc' }],
+      }),
+      this.db.po_work_orders.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+          deleted_at: null,
+        },
+        include: {
+          incident: { select: { id: true, number: true, title: true } },
+          status: { select: { id: true, name: true, code: true, color: true } },
+          owner_user: { select: { id: true, full_name: true, email: true } },
+        },
+        orderBy: [{ created_at: 'desc' }],
+      }),
+      this.findRelatedEvents(user, 'projects', id),
+      this.db.po_work_order_appointments.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          work_order: {
+            is: {
+              project_id: id,
+              deleted_at: null,
+            },
+          },
+        },
+        include: {
+          work_order: {
+            select: {
+              id: true,
+              code: true,
+              title: true,
+              status: { select: { id: true, name: true, code: true, color: true } },
+            },
+          },
+          appointment: {
+            include: {
+              resource: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: [{ created_at: 'desc' }],
+      }),
+    ]);
+
+    const items: Array<Record<string, any>> = [...this.buildProjectSummaryTimeline(project)];
+
+    projectProcesses.forEach((row: any) => {
+      items.push({
+        id: `project-process-${row.id}`,
+        kind: 'PROCESS_LINK',
+        occurred_at: row.created_at,
+        title: row.process?.process_number || 'Processo vinculado',
+        subtitle: project.code || project.name || null,
+        description: row.process?.exporter || row.process?.importer || null,
+        meta: {
+          process_id: row.process_id,
+        },
+      });
+    });
+
+    milestones.forEach((row: any) => {
+      items.push({
+        id: `project-milestone-${row.id}`,
+        kind: 'MILESTONE',
+        occurred_at: row.due_date || row.created_at,
+        title: row.title || 'Marco',
+        subtitle: row.status || null,
+        description: row.description || null,
+      });
+    });
+
+    deliverables.forEach((row: any) => {
+      items.push({
+        id: `project-deliverable-${row.id}`,
+        kind: 'DELIVERABLE',
+        occurred_at: row.due_date || row.created_at,
+        title: row.title || 'Entrega',
+        subtitle: row.status?.name || null,
+        description: row.description || null,
+      });
+    });
+
+    checklists.forEach((row: any) => {
+      items.push({
+        id: `project-checklist-${row.id}`,
+        kind: 'CHECKLIST',
+        occurred_at: row.updated_at || row.created_at,
+        title: row.name || 'Checklist',
+        subtitle: row._count?.items != null ? `${row._count.items} itens` : null,
+        description: null,
+      });
+    });
+
+    workOrders.forEach((row: any) => {
+      items.push({
+        id: `project-work-order-${row.id}`,
+        kind: 'WORK_ORDER',
+        occurred_at: row.created_at || row.planned_start || row.updated_at,
+        title: row.title || row.code || 'Work order',
+        subtitle: row.code || row.status?.name || null,
+        description: row.description || row.incident?.title || null,
+        meta: {
+          status: row.status?.name || null,
+          owner: row.owner_user?.full_name || null,
+        },
+      });
+    });
+
+    events.forEach((row: any) => {
+      items.push({
+        id: `project-event-${row.id}`,
+        kind: 'EVENT',
+        occurred_at: row.start_time || row.created_at,
+        title: row.title || 'Evento',
+        subtitle: row.related_table || null,
+        description: row.description || null,
+        meta: {
+          type: row.type,
+          status: row.status,
+          finished: row.finished,
+        },
+      });
+    });
+
+    linkedAppointments.forEach((row: any) => {
+      const appointment = row.appointment;
+      items.push({
+        id: `project-appointment-${row.id}`,
+        kind: 'APPOINTMENT',
+        occurred_at: appointment?.start_at || row.created_at,
+        title: appointment?.title || 'Atividade',
+        subtitle: appointment?.resource?.name || row.work_order?.code || null,
+        description: appointment?.notes || row.work_order?.title || null,
+        meta: {
+          work_order_code: row.work_order?.code || null,
+          status: appointment?.status || null,
+        },
+      });
+    });
+
+    return items.sort((a, b) => new Date(b.occurred_at || 0).getTime() - new Date(a.occurred_at || 0).getTime());
+  }
+
+  private async getProjectRelated(user: AuthUser, id: string) {
+    await this.findResourceById(user, 'projects', id);
+    const [projectProcesses, milestones, deliverables, checklists, workOrders, events, linkedAppointments] = await Promise.all([
+      this.db.po_project_processes.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+        },
+        include: {
+          process: { select: { id: true, process_number: true, exporter: true, importer: true } },
+        },
+        orderBy: [{ sort_order: 'asc' }, { created_at: 'desc' }],
+      }),
+      this.db.po_milestones.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+          deleted_at: null,
+        },
+        include: {
+          project: { select: { id: true, code: true, name: true } },
+        },
+        orderBy: [{ due_date: 'asc' }, { created_at: 'desc' }],
+      }),
+      this.db.po_deliverables.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+          deleted_at: null,
+        },
+        include: {
+          project: { select: { id: true, code: true, name: true } },
+          currency: { select: { id: true, code: true, symbol: true } },
+          status: { select: { id: true, name: true, code: true, color: true } },
+        },
+        orderBy: [{ due_date: 'asc' }, { created_at: 'desc' }],
+      }),
+      this.db.po_checklists.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+          deleted_at: null,
+        },
+        include: {
+          project: { select: { id: true, code: true, name: true } },
+          _count: { select: { items: true } },
+        },
+        orderBy: [{ updated_at: 'desc' }],
+      }),
+      this.db.po_work_orders.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          project_id: id,
+          deleted_at: null,
+        },
+        include: {
+          incident: { select: { id: true, number: true, title: true } },
+          status: { select: { id: true, name: true, code: true, color: true } },
+          owner_user: { select: { id: true, full_name: true, email: true } },
+          _count: { select: { assignments: true, appointments: true } },
+        },
+        orderBy: [{ updated_at: 'desc' }],
+      }),
+      this.findRelatedEvents(user, 'projects', id),
+      this.db.po_work_order_appointments.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          work_order: {
+            is: {
+              project_id: id,
+              deleted_at: null,
+            },
+          },
+        },
+        include: {
+          work_order: {
+            select: { id: true, code: true, title: true },
+          },
+          appointment: {
+            include: {
+              resource: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: [{ created_at: 'desc' }],
+      }),
+    ]);
+
+    return {
+      project_processes: projectProcesses,
+      milestones,
+      deliverables,
+      checklists,
+      work_orders: workOrders,
+      events,
+      activities: linkedAppointments,
+    };
+  }
+
+  private async getWorkOrderTimeline(user: AuthUser, id: string) {
+    const workOrder = await this.findResourceById(user, 'work-orders', id);
+    const [assignments, appointments, events] = await Promise.all([
+      this.db.po_work_order_assignments.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          work_order_id: id,
+        },
+        include: {
+          resource: { select: { id: true, name: true, capacity_per_day: true } },
+          role: { select: { id: true, name: true, code: true } },
+        },
+        orderBy: [{ created_at: 'desc' }],
+      }),
+      this.db.po_work_order_appointments.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          work_order_id: id,
+        },
+        include: {
+          appointment: {
+            include: {
+              resource: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: [{ created_at: 'desc' }],
+      }),
+      this.findRelatedEvents(user, 'work-orders', id),
+    ]);
+
+    const items: Array<Record<string, any>> = [...this.buildWorkOrderSummaryTimeline(workOrder)];
+
+    assignments.forEach((row: any) => {
+      items.push({
+        id: `work-order-assignment-${row.id}`,
+        kind: 'ASSIGNMENT',
+        occurred_at: row.created_at,
+        title: row.resource?.name || 'Recurso alocado',
+        subtitle: row.role?.name || null,
+        description:
+          row.planned_hours != null
+            ? `${row.planned_hours}h planejadas`
+            : row.allocation_percent != null
+              ? `${row.allocation_percent}% de alocacao`
+              : null,
+        meta: {
+          resource_id: row.resource_id,
+          role_id: row.role_id,
+        },
+      });
+    });
+
+    appointments.forEach((row: any) => {
+      const appointment = row.appointment;
+      items.push({
+        id: `work-order-appointment-${row.id}`,
+        kind: 'APPOINTMENT',
+        occurred_at: appointment?.start_at || row.created_at,
+        title: appointment?.title || 'Atividade',
+        subtitle: appointment?.resource?.name || null,
+        description: appointment?.notes || null,
+        meta: {
+          status: appointment?.status || null,
+          end_at: appointment?.end_at || null,
+        },
+      });
+    });
+
+    events.forEach((row: any) => {
+      items.push({
+        id: `work-order-event-${row.id}`,
+        kind: 'EVENT',
+        occurred_at: row.start_time || row.created_at,
+        title: row.title || 'Evento',
+        subtitle: row.related_table || null,
+        description: row.description || null,
+        meta: {
+          type: row.type,
+          status: row.status,
+          finished: row.finished,
+        },
+      });
+    });
+
+    return items.sort((a, b) => new Date(b.occurred_at || 0).getTime() - new Date(a.occurred_at || 0).getTime());
+  }
+
+  private async getWorkOrderRelated(user: AuthUser, id: string) {
+    await this.findResourceById(user, 'work-orders', id);
+    const [assignments, appointments, events] = await Promise.all([
+      this.db.po_work_order_assignments.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          work_order_id: id,
+        },
+        include: {
+          resource: { select: { id: true, name: true, capacity_per_day: true } },
+          role: { select: { id: true, name: true, code: true } },
+        },
+        orderBy: [{ created_at: 'desc' }],
+      }),
+      this.db.po_work_order_appointments.findMany({
+        where: {
+          tenant_id: user.tenant_id,
+          work_order_id: id,
+        },
+        include: {
+          appointment: {
+            include: {
+              resource: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: [{ created_at: 'desc' }],
+      }),
+      this.findRelatedEvents(user, 'work-orders', id),
+    ]);
+
+    return {
+      assignments,
+      appointments,
+      events,
+    };
   }
 
   listResource(user: AuthUser, resourceKey: string, query: ListQuery = {}) {

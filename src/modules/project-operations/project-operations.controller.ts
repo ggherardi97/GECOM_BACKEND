@@ -175,6 +175,16 @@ export class ProjectOperationsController {
     return this.service.listResource(this.getUser(req), 'projects', query || {});
   }
 
+  @Get('projects/:id/timeline')
+  findProjectTimeline(@Req() req: Request, @Param('id') id: string) {
+    return this.service.getTimeline(this.getUser(req), 'projects', id);
+  }
+
+  @Get('projects/:id/related')
+  findProjectRelated(@Req() req: Request, @Param('id') id: string) {
+    return this.service.getRelated(this.getUser(req), 'projects', id);
+  }
+
   @Get('projects/:id')
   findProjectById(@Req() req: Request, @Param('id') id: string) {
     return this.service.findResourceById(this.getUser(req), 'projects', id);
@@ -348,6 +358,16 @@ export class ProjectOperationsController {
   @Get('work-orders')
   listWorkOrders(@Req() req: Request, @Query() query: any) {
     return this.service.listResource(this.getUser(req), 'work-orders', query || {});
+  }
+
+  @Get('work-orders/:id/timeline')
+  findWorkOrderTimeline(@Req() req: Request, @Param('id') id: string) {
+    return this.service.getTimeline(this.getUser(req), 'work-orders', id);
+  }
+
+  @Get('work-orders/:id/related')
+  findWorkOrderRelated(@Req() req: Request, @Param('id') id: string) {
+    return this.service.getRelated(this.getUser(req), 'work-orders', id);
   }
 
   @Get('work-orders/:id')

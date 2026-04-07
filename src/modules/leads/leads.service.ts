@@ -1,7 +1,8 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
-import { lead_activity_type_enum, lead_source_enum, lead_status_enum, lead_type_enum } from '@prisma/client';
+import { lead_activity_type_enum, lead_source_enum, lead_status_enum, lead_type_enum, user_role_enum, user_status_enum } from '@prisma/client';
 import { LeadRepository } from './leads.repository';
 import { CreateLeadDto } from './dto/create-lead.dto';
+import { CreatePublicGecomLeadDto } from './dto/create-public-gecom-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { MoveLeadStageDto } from './dto/move-lead-stage.dto';
 import { CreateLeadStageDto } from './dto/create-lead-stage.dto';
@@ -14,6 +15,8 @@ import { ConvertLeadDto } from './dto/convert-lead.dto';
 import { ListLeadsQueryDto } from './dto/list-leads.dto';
 import { StatusConfigService } from '../status-config/status-config.service';
 import { AutomationDispatcherService } from '../automation/automation-dispatcher.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { MailerService } from '../mailer/mailer.service';
 
 type AuthUser = {
   id?: string;
@@ -25,11 +28,165 @@ type AuthUser = {
 @Injectable()
 export class LeadsService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly repository: LeadRepository,
     private readonly statusConfigService: StatusConfigService,
+    private readonly mailerService: MailerService,
     @Inject(forwardRef(() => AutomationDispatcherService))
     private readonly automationDispatcher: AutomationDispatcherService,
   ) {}
+
+  private normalizeText(value: unknown): string {
+    return String(value ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private escapeHtml(value: unknown): string {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private splitFullName(fullName: string): { firstName?: string; lastName?: string } {
+    const parts = this.normalizeText(fullName).split(' ').filter(Boolean);
+    if (!parts.length) return {};
+    return {
+      firstName: parts[0],
+      lastName: parts.slice(1).join(' ') || undefined,
+    };
+  }
+
+  private async resolveGecomTenant() {
+    const tenant = await this.prisma.tenants.findFirst({
+      where: {
+        deleted_at: null,
+        company: {
+          is: {
+            deleted_at: null,
+            company_name: {
+              equals: 'GECOM',
+              mode: 'insensitive',
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        company: {
+          select: {
+            id: true,
+            company_name: true,
+            user_id: true,
+          },
+        },
+      },
+    });
+
+    if (!tenant) {
+      throw new NotFoundException('Tenant da GECOM nao encontrado.');
+    }
+
+    return tenant;
+  }
+
+  private async resolveGecomLeadOwner(tenantId: string, preferredUserId?: string | null) {
+    const preferredId = String(preferredUserId ?? '').trim();
+
+    if (preferredId) {
+      const preferredUser = await this.prisma.users.findFirst({
+        where: {
+          id: preferredId,
+          tenant_id: tenantId,
+          status: user_status_enum.ACTIVE,
+        },
+        select: {
+          id: true,
+          full_name: true,
+          email: true,
+        },
+      });
+
+      if (preferredUser) return preferredUser;
+    }
+
+    const adminOrManager = await this.prisma.users.findFirst({
+      where: {
+        tenant_id: tenantId,
+        status: user_status_enum.ACTIVE,
+        role: {
+          in: [user_role_enum.ADMIN, user_role_enum.MANAGER],
+        },
+      },
+      orderBy: [{ created_at: 'asc' }],
+      select: {
+        id: true,
+        full_name: true,
+        email: true,
+      },
+    });
+
+    if (adminOrManager) return adminOrManager;
+
+    const fallbackUser = await this.prisma.users.findFirst({
+      where: {
+        tenant_id: tenantId,
+        status: user_status_enum.ACTIVE,
+      },
+      orderBy: [{ created_at: 'asc' }],
+      select: {
+        id: true,
+        full_name: true,
+        email: true,
+      },
+    });
+
+    if (!fallbackUser) {
+      throw new NotFoundException('Nenhum usuario ativo encontrado para receber leads da GECOM.');
+    }
+
+    return fallbackUser;
+  }
+
+  private async sendGecomPublicLeadNotification(params: {
+    leadId: string;
+    tenantName: string;
+    leadName: string;
+    phone: string;
+    email: string;
+    description: string;
+  }) {
+    const subject = 'Novo lead registrado pela plataforma GECOM';
+    const descriptionHtml = this.escapeHtml(params.description).replace(/\r?\n/g, '<br>');
+
+    await this.mailerService.sendAutomationEmail({
+      to: 'ggherardi97@gmail.com',
+      subject,
+      html: `
+        <p>Um novo lead foi registrado pela landing page da GECOM.</p>
+        <p><strong>Tenant:</strong> ${this.escapeHtml(params.tenantName)}</p>
+        <p><strong>Lead ID:</strong> ${this.escapeHtml(params.leadId)}</p>
+        <p><strong>Nome:</strong> ${this.escapeHtml(params.leadName)}</p>
+        <p><strong>Telefone:</strong> ${this.escapeHtml(params.phone)}</p>
+        <p><strong>E-mail:</strong> ${this.escapeHtml(params.email)}</p>
+        <p><strong>Descricao:</strong><br>${descriptionHtml}</p>
+      `,
+      text: [
+        'Um novo lead foi registrado pela landing page da GECOM.',
+        `Tenant: ${params.tenantName}`,
+        `Lead ID: ${params.leadId}`,
+        `Nome: ${params.leadName}`,
+        `Telefone: ${params.phone}`,
+        `E-mail: ${params.email}`,
+        `Descricao: ${params.description}`,
+      ].join('\n'),
+    });
+  }
 
   private getUserId(user: AuthUser): string {
     const id = String(user.id ?? user.user_id ?? '').trim();
@@ -202,6 +359,99 @@ export class LeadsService {
     });
 
     return completeLead ?? lead;
+  }
+
+  async createPublicGecomContactLead(dto: CreatePublicGecomLeadDto) {
+    if (!dto.consent) {
+      throw new BadRequestException('Voce precisa autorizar o contato pelos dados informados.');
+    }
+
+    const gecomTenant = await this.resolveGecomTenant();
+    const ownerUser = await this.resolveGecomLeadOwner(gecomTenant.id, gecomTenant.company?.user_id ?? null);
+
+    await this.repository.ensureDefaultStages(gecomTenant.id);
+
+    const stages = await this.repository.listStages(gecomTenant.id);
+    const firstActiveStage = stages.find((stage) => stage.is_active);
+
+    const resolvedStatus = await this.statusConfigService.resolveLeadStatus(gecomTenant.id, {
+      status: lead_status_enum.NEW,
+    });
+
+    const fullName = this.normalizeText(dto.name);
+    const phone = this.normalizeText(dto.phone);
+    const email = this.normalizeText(dto.email).toLowerCase();
+    const description = String(dto.description ?? '').trim();
+    const splitName = this.splitFullName(fullName);
+
+    const notes = [
+      'Lead criado pela landing page publica /gecom.',
+      `Descricao do contato: ${description}`,
+      `Consentimento para contato: ${dto.consent ? 'SIM' : 'NAO'}`,
+      `Telefone informado: ${phone}`,
+      `E-mail informado: ${email}`,
+    ].join('\n\n');
+
+    const lead = await this.repository.createLead({
+      tenantId: gecomTenant.id,
+      name: fullName,
+      type: lead_type_enum.PERSON,
+      firstName: splitName.firstName,
+      lastName: splitName.lastName,
+      email,
+      phone,
+      source: lead_source_enum.WEBSITE,
+      ownerUserId: ownerUser.id,
+      status: resolvedStatus.status,
+      statusConfigId: resolvedStatus.statusConfig.id,
+      stageId: firstActiveStage?.id,
+      notes,
+    });
+
+    if (firstActiveStage?.id) {
+      await this.repository.createStageHistory({
+        tenantId: gecomTenant.id,
+        leadId: lead.id,
+        toStageId: firstActiveStage.id,
+        changedByUserId: ownerUser.id,
+        note: 'Lead criado pela landing page publica /gecom',
+      });
+    }
+
+    const completeLead = await this.repository.findLeadById(gecomTenant.id, lead.id);
+
+    this.automationDispatcher.dispatch({
+      tenantId: gecomTenant.id,
+      userId: ownerUser.id,
+      entityName: 'leads',
+      eventType: 'CREATE',
+      recordId: lead.id,
+      payload: (completeLead ?? lead) as unknown as Record<string, unknown>,
+    });
+
+    let emailSent = true;
+    let emailError: string | null = null;
+
+    try {
+      await this.sendGecomPublicLeadNotification({
+        leadId: lead.id,
+        tenantName: gecomTenant.company?.company_name || gecomTenant.name,
+        leadName: fullName,
+        phone,
+        email,
+        description,
+      });
+    } catch (error) {
+      emailSent = false;
+      emailError = error instanceof Error ? error.message : 'Falha ao enviar o email de notificacao.';
+    }
+
+    return {
+      success: true,
+      lead: completeLead ?? lead,
+      email_sent: emailSent,
+      email_error: emailError,
+    };
   }
 
   async updateLead(user: AuthUser, leadId: string, dto: UpdateLeadDto) {
