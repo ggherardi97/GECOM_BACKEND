@@ -9,6 +9,7 @@ type CreateProcessInput = Omit<CreateProcessDTO, 'process_number' | 'status' | '
   process_number: string;
   status: number;
   status_config_id?: string | null;
+  primary_contact_id?: string | null;
 };
 
 @Injectable()
@@ -65,7 +66,7 @@ export class ProcessRepository {
           invoice: data.invoice ?? null,
           company_id: data.company_id,
           process_type_id: data.process_type_id,
-          primary_contact_id: data.primary_contact_id,
+          primary_contact_id: data.primary_contact_id ?? null,
           ship_date: data.ship_date ? new Date(data.ship_date) : null,
           completed: data.completed ?? 0,
         },
@@ -300,6 +301,7 @@ export class ProcessRepository {
     data: Omit<CreateProcessDTO, 'process_number' | 'status' | 'status_config_id'> & {
       status: number;
       status_config_id?: string | null;
+      primary_contact_id?: string | null;
     },
     tenantId: string,
   ): Promise<processes> {
@@ -326,7 +328,7 @@ export class ProcessRepository {
           invoice: data.invoice ?? null,
           company_id: data.company_id,
           process_type_id: data.process_type_id,
-          primary_contact_id: data.primary_contact_id,
+          primary_contact_id: data.primary_contact_id ?? null,
           ship_date: data.ship_date ? new Date(data.ship_date) : null,
           completed: data.completed ?? 0,
         },

@@ -104,6 +104,12 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly plan_modules: PrismaClient['plan_modules'];
   public readonly tenant_subscriptions: PrismaClient['tenant_subscriptions'];
   public readonly tenant_module_overrides: PrismaClient['tenant_module_overrides'];
+  public readonly scarlet_drive_guests: PrismaClient['scarlet_drive_guests'];
+  public readonly scarlet_drive_repertoire_songs: PrismaClient['scarlet_drive_repertoire_songs'];
+  public readonly scarlet_drive_vote_sessions: PrismaClient['scarlet_drive_vote_sessions'];
+  public readonly scarlet_drive_vote_session_songs: PrismaClient['scarlet_drive_vote_session_songs'];
+  public readonly scarlet_drive_votes: PrismaClient['scarlet_drive_votes'];
+  public readonly scarlet_drive_voter_ip_locks: PrismaClient['scarlet_drive_voter_ip_locks'];
 
   // Models that MUST be tenant-scoped
   private static readonly tenantModels = new Set<string>([
@@ -448,6 +454,12 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.plan_modules = this.client.plan_modules;
     this.tenant_subscriptions = this.client.tenant_subscriptions;
     this.tenant_module_overrides = this.client.tenant_module_overrides;
+    this.scarlet_drive_guests = this.client.scarlet_drive_guests;
+    this.scarlet_drive_repertoire_songs = this.client.scarlet_drive_repertoire_songs;
+    this.scarlet_drive_vote_sessions = this.client.scarlet_drive_vote_sessions;
+    this.scarlet_drive_vote_session_songs = this.client.scarlet_drive_vote_session_songs;
+    this.scarlet_drive_votes = this.client.scarlet_drive_votes;
+    this.scarlet_drive_voter_ip_locks = this.client.scarlet_drive_voter_ip_locks;
     this.notifications = this.client.notifications;
     this.notification_reads = this.client.notification_reads;
     this.boards = this.client.boards;

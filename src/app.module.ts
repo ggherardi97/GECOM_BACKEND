@@ -52,6 +52,7 @@ import { CalendarActivitiesModule } from './modules/calendar-activities/calendar
 import { GoogleCalendarModule } from './modules/google-calendar/google-calendar.module';
 import { MetadataDesignerModule } from './modules/metadata-designer/metadata-designer.module';
 import { WhatsappSalesModule } from './modules/whatsapp-sales/whatsapp-sales.module';
+import { ScarletDriveModule } from './modules/scarlet-drive/scarlet-drive.module';
 
 @Module({
   imports: [
@@ -111,6 +112,7 @@ import { WhatsappSalesModule } from './modules/whatsapp-sales/whatsapp-sales.mod
     GoogleCalendarModule,
     MetadataDesignerModule,
     WhatsappSalesModule,
+    ScarletDriveModule,
   ],
   controllers: [AppController],
   providers: [

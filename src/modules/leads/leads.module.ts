@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { LeadsController } from './leads.controller';
+import { PublicGecomContactController } from './public-gecom-contact.controller';
 import { LeadRepository } from './leads.repository';
 import { LeadsService } from './leads.service';
 import { StatusConfigModule } from '../status-config/status-config.module';
@@ -11,7 +12,7 @@ import { MailModule } from '../mailer/mailer.module';
 
 @Module({
   imports: [MailModule, StatusConfigModule, forwardRef(() => AutomationModule)],
-  controllers: [LeadsController],
+  controllers: [LeadsController, PublicGecomContactController],
   providers: [PrismaService, LeadRepository, LeadsService, JwtAuthGuard, RolesGuard],
   exports: [LeadRepository, LeadsService],
 })

@@ -433,7 +433,7 @@ model processes {
   status_config_id   String?   @db.Uuid
   invoice            String?   @db.VarChar(100)
   company_id         String    @db.Uuid
-  primary_contact_id String    @db.Uuid
+  primary_contact_id String?   @db.Uuid
   ship_date          DateTime? @db.Timestamp(6)
   completed          Int       @default(0)
   total_value        Decimal   @default(0) @db.Decimal(19, 4)
@@ -441,7 +441,7 @@ model processes {
   deleted_at         DateTime? @db.Timestamp(6)
   process_type_id    String?   @db.Uuid
 
-  users         users           @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
+  users         users?          @relation(fields: [primary_contact_id], references: [id], onUpdate: NoAction, map: "FK_6a27da7b5df1b56ebe811b02f4f")
   companies     companies       @relation("CompanyProcesses", fields: [company_id], references: [id], onUpdate: NoAction, map: "FK_756ba2f334b54581a432b83929b")
   process_types process_types?  @relation(fields: [process_type_id], references: [id], onUpdate: NoAction, map: "FK_ded16035eaef6f141a36aea73b3")
   status_config status_configs? @relation("ProcessStatusConfig", fields: [status_config_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FK_processes_status_config")
@@ -3987,4 +3987,82 @@ enum PoWorkOrderPriority {
 enum AutomationExecutionStatus {
   SUCCESS
   ERROR
+}
+
+model scarlet_drive_guests {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name         String   @unique(map: "uq_scarlet_drive_guests_name") @db.VarChar(120)
+  invited_by   String   @db.VarChar(80)
+  is_paid      Boolean  @default(false)
+  is_confirmed Boolean  @default(false)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([invited_by], map: "idx_scarlet_drive_guests_invited_by")
+  @@index([is_confirmed], map: "idx_scarlet_drive_guests_is_confirmed")
+}
+
+model scarlet_drive_repertoire_songs {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name         String   @unique(map: "uq_scarlet_drive_repertoire_songs_name") @db.VarChar(160)
+  suggested_by String   @db.VarChar(80)
+  sort_order   Int      @default(0)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([sort_order], map: "idx_scarlet_drive_repertoire_songs_sort_order")
+}
+
+model scarlet_drive_vote_sessions {
+  id                      String                           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name                    String                           @unique(map: "uq_scarlet_drive_vote_sessions_name") @db.VarChar(120)
+  is_active               Boolean                          @default(true)
+  answer_mode             String                           @default("yes_no") @db.VarChar(20)
+  is_secret               Boolean                          @default(false)
+  max_yes_votes_per_voter Int                              @default(5)
+  created_at              DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                         @default(now()) @db.Timestamptz(6)
+
+  songs scarlet_drive_vote_session_songs[]
+
+  @@index([is_active], map: "idx_scarlet_drive_vote_sessions_is_active")
+}
+
+model scarlet_drive_vote_session_songs {
+  id              String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  vote_session_id String                     @db.Uuid
+  name            String                     @db.VarChar(160)
+  suggested_by    String                     @db.VarChar(80)
+  sort_order      Int                        @default(0)
+  created_at      DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime                   @default(now()) @db.Timestamptz(6)
+
+  vote_session scarlet_drive_vote_sessions   @relation(fields: [vote_session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  votes        scarlet_drive_votes[]
+
+  @@unique([vote_session_id, name], map: "uq_scarlet_drive_vote_session_songs_name")
+  @@index([vote_session_id], map: "idx_scarlet_drive_vote_session_songs_session_id")
+  @@index([sort_order], map: "idx_scarlet_drive_vote_session_songs_sort_order")
+}
+
+model scarlet_drive_votes {
+  id              String                           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  vote_song_id    String                           @db.Uuid
+  voter           String                           @db.VarChar(80)
+  vote            String                           @db.VarChar(10)
+  created_at      DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime                         @default(now()) @db.Timestamptz(6)
+
+  vote_song scarlet_drive_vote_session_songs       @relation(fields: [vote_song_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([vote_song_id, voter], map: "uq_scarlet_drive_votes_song_voter")
+  @@index([voter], map: "idx_scarlet_drive_votes_voter")
+}
+
+model scarlet_drive_voter_ip_locks {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  voter      String   @unique(map: "uq_scarlet_drive_voter_ip_locks_voter") @db.VarChar(80)
+  ip         String   @unique(map: "uq_scarlet_drive_voter_ip_locks_ip") @db.VarChar(120)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
 }

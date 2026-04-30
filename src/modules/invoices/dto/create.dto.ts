@@ -12,7 +12,7 @@ import {
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
-export class CreateInvoiceLineDTO {
+export class CreateInvoiceDraftLineDTO {
   @ApiPropertyOptional({
     description: 'Product id (optional). If missing, you can still use description + unit + pricing.',
     example: 'e3594b9c-fea9-4e72-adc2-29bccb16cf35',
@@ -207,12 +207,12 @@ export class CreateInvoiceDTO {
 
   @ApiPropertyOptional({
     description: 'Invoice lines (optional on create; can be added later by PATCH).',
-    type: CreateInvoiceLineDTO,
+    type: CreateInvoiceDraftLineDTO,
     isArray: true,
   })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CreateInvoiceLineDTO)
-  lines?: CreateInvoiceLineDTO[];
+  @Type(() => CreateInvoiceDraftLineDTO)
+  lines?: CreateInvoiceDraftLineDTO[];
 }

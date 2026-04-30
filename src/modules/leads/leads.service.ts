@@ -154,36 +154,55 @@ export class LeadsService {
   }
 
   private async sendGecomPublicLeadNotification(params: {
-    leadId: string;
-    tenantName: string;
+    leadId?: string | null;
+    tenantName?: string | null;
     leadName: string;
+    companyName: string;
     phone: string;
-    email: string;
-    description: string;
+    operationMode: string;
+    importVolume: string;
+    formContext?: string;
+    leadCreationIssue?: string;
   }) {
     const subject = 'Novo lead registrado pela plataforma GECOM';
-    const descriptionHtml = this.escapeHtml(params.description).replace(/\r?\n/g, '<br>');
+    const tenantLabel = this.normalizeText(params.tenantName) || 'Nao identificado';
+    const leadIdLabel = this.normalizeText(params.leadId) || 'Nao gerado';
 
     await this.mailerService.sendAutomationEmail({
-      to: 'ggherardi97@gmail.com',
+      to: 'contato@portalgecom.log.br',
+      cc: 'ggherardi97@gmail.com',
       subject,
       html: `
         <p>Um novo lead foi registrado pela landing page da GECOM.</p>
-        <p><strong>Tenant:</strong> ${this.escapeHtml(params.tenantName)}</p>
-        <p><strong>Lead ID:</strong> ${this.escapeHtml(params.leadId)}</p>
+        <p><strong>Tenant:</strong> ${this.escapeHtml(tenantLabel)}</p>
+        <p><strong>Lead ID:</strong> ${this.escapeHtml(leadIdLabel)}</p>
         <p><strong>Nome:</strong> ${this.escapeHtml(params.leadName)}</p>
+        <p><strong>Empresa:</strong> ${this.escapeHtml(params.companyName)}</p>
         <p><strong>Telefone:</strong> ${this.escapeHtml(params.phone)}</p>
-        <p><strong>E-mail:</strong> ${this.escapeHtml(params.email)}</p>
-        <p><strong>Descricao:</strong><br>${descriptionHtml}</p>
+        <p><strong>Como opera hoje:</strong> ${this.escapeHtml(params.operationMode)}</p>
+        <p><strong>Volume mensal:</strong> ${this.escapeHtml(params.importVolume)}</p>
+        ${
+          params.formContext
+            ? `<p><strong>Origem do formulario:</strong> ${this.escapeHtml(params.formContext)}</p>`
+            : ''
+        }
+        ${
+          params.leadCreationIssue
+            ? `<p><strong>Observacao:</strong> ${this.escapeHtml(params.leadCreationIssue)}</p>`
+            : ''
+        }
       `,
       text: [
         'Um novo lead foi registrado pela landing page da GECOM.',
-        `Tenant: ${params.tenantName}`,
-        `Lead ID: ${params.leadId}`,
+        `Tenant: ${tenantLabel}`,
+        `Lead ID: ${leadIdLabel}`,
         `Nome: ${params.leadName}`,
+        `Empresa: ${params.companyName}`,
         `Telefone: ${params.phone}`,
-        `E-mail: ${params.email}`,
-        `Descricao: ${params.description}`,
+        `Como opera hoje: ${params.operationMode}`,
+        `Volume mensal: ${params.importVolume}`,
+        ...(params.formContext ? [`Origem do formulario: ${params.formContext}`] : []),
+        ...(params.leadCreationIssue ? [`Observacao: ${params.leadCreationIssue}`] : []),
       ].join('\n'),
     });
   }
@@ -362,93 +381,114 @@ export class LeadsService {
   }
 
   async createPublicGecomContactLead(dto: CreatePublicGecomLeadDto) {
-    if (!dto.consent) {
-      throw new BadRequestException('Voce precisa autorizar o contato pelos dados informados.');
-    }
-
-    const gecomTenant = await this.resolveGecomTenant();
-    const ownerUser = await this.resolveGecomLeadOwner(gecomTenant.id, gecomTenant.company?.user_id ?? null);
-
-    await this.repository.ensureDefaultStages(gecomTenant.id);
-
-    const stages = await this.repository.listStages(gecomTenant.id);
-    const firstActiveStage = stages.find((stage) => stage.is_active);
-
-    const resolvedStatus = await this.statusConfigService.resolveLeadStatus(gecomTenant.id, {
-      status: lead_status_enum.NEW,
-    });
-
     const fullName = this.normalizeText(dto.name);
     const phone = this.normalizeText(dto.phone);
-    const email = this.normalizeText(dto.email).toLowerCase();
-    const description = String(dto.description ?? '').trim();
+    const companyName = this.normalizeText(dto.company);
+    const operationMode = this.normalizeText(dto.operation_mode);
+    const importVolume = this.normalizeText(dto.import_volume);
+    const formContext = this.normalizeText(dto.form_context);
     const splitName = this.splitFullName(fullName);
+
+    let gecomTenant: Awaited<ReturnType<LeadsService['resolveGecomTenant']>> | null = null;
+    let lead: any = null;
+    let completeLead: any = null;
+    let leadCreationIssue: string | null = null;
+
+    try {
+      gecomTenant = await this.resolveGecomTenant();
+      const ownerUser = await this.resolveGecomLeadOwner(gecomTenant.id, gecomTenant.company?.user_id ?? null);
+
+      await this.repository.ensureDefaultStages(gecomTenant.id);
+
+      const stages = await this.repository.listStages(gecomTenant.id);
+      const firstActiveStage = stages.find((stage) => stage.is_active);
+
+      const resolvedStatus = await this.statusConfigService.resolveLeadStatus(gecomTenant.id, {
+        status: lead_status_enum.NEW,
+      });
 
     const notes = [
       'Lead criado pela landing page publica /gecom.',
-      `Descricao do contato: ${description}`,
-      `Consentimento para contato: ${dto.consent ? 'SIM' : 'NAO'}`,
+      `Empresa: ${companyName}`,
+      `Como opera hoje: ${operationMode}`,
+      `Volume mensal de importação: ${importVolume}`,
       `Telefone informado: ${phone}`,
-      `E-mail informado: ${email}`,
+      ...(formContext ? [`Origem do formulario: ${formContext}`] : []),
     ].join('\n\n');
 
-    const lead = await this.repository.createLead({
-      tenantId: gecomTenant.id,
-      name: fullName,
-      type: lead_type_enum.PERSON,
-      firstName: splitName.firstName,
-      lastName: splitName.lastName,
-      email,
-      phone,
-      source: lead_source_enum.WEBSITE,
-      ownerUserId: ownerUser.id,
-      status: resolvedStatus.status,
-      statusConfigId: resolvedStatus.statusConfig.id,
-      stageId: firstActiveStage?.id,
-      notes,
-    });
-
-    if (firstActiveStage?.id) {
-      await this.repository.createStageHistory({
+      lead = await this.repository.createLead({
         tenantId: gecomTenant.id,
-        leadId: lead.id,
-        toStageId: firstActiveStage.id,
-        changedByUserId: ownerUser.id,
-        note: 'Lead criado pela landing page publica /gecom',
+        name: fullName,
+        type: lead_type_enum.PERSON,
+        companyName,
+        firstName: splitName.firstName,
+        lastName: splitName.lastName,
+        phone,
+        source: lead_source_enum.WEBSITE,
+        ownerUserId: ownerUser.id,
+        status: resolvedStatus.status,
+        statusConfigId: resolvedStatus.statusConfig.id,
+        stageId: firstActiveStage?.id,
+        notes,
       });
+
+      if (firstActiveStage?.id) {
+        await this.repository.createStageHistory({
+          tenantId: gecomTenant.id,
+          leadId: lead.id,
+          toStageId: firstActiveStage.id,
+          changedByUserId: ownerUser.id,
+          note: 'Lead criado pela landing page publica /gecom',
+        });
+      }
+
+      completeLead = await this.repository.findLeadById(gecomTenant.id, lead.id);
+
+      this.automationDispatcher.dispatch({
+        tenantId: gecomTenant.id,
+        userId: ownerUser.id,
+        entityName: 'leads',
+        eventType: 'CREATE',
+        recordId: lead.id,
+        payload: (completeLead ?? lead) as unknown as Record<string, unknown>,
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        leadCreationIssue = error.message;
+      } else {
+        leadCreationIssue = error instanceof Error ? error.message : 'Falha ao criar lead no tenant GECOM.';
+      }
     }
-
-    const completeLead = await this.repository.findLeadById(gecomTenant.id, lead.id);
-
-    this.automationDispatcher.dispatch({
-      tenantId: gecomTenant.id,
-      userId: ownerUser.id,
-      entityName: 'leads',
-      eventType: 'CREATE',
-      recordId: lead.id,
-      payload: (completeLead ?? lead) as unknown as Record<string, unknown>,
-    });
 
     let emailSent = true;
     let emailError: string | null = null;
 
     try {
       await this.sendGecomPublicLeadNotification({
-        leadId: lead.id,
-        tenantName: gecomTenant.company?.company_name || gecomTenant.name,
+        leadId: lead?.id || null,
+        tenantName: gecomTenant?.company?.company_name || gecomTenant?.name || null,
         leadName: fullName,
+        companyName,
         phone,
-        email,
-        description,
+        operationMode,
+        importVolume,
+        formContext: formContext || undefined,
+        leadCreationIssue: leadCreationIssue || undefined,
       });
     } catch (error) {
       emailSent = false;
       emailError = error instanceof Error ? error.message : 'Falha ao enviar o email de notificacao.';
     }
 
+    if (!emailSent && !lead) {
+      throw new BadRequestException(emailError || 'Nao foi possivel registrar o contato.');
+    }
+
     return {
       success: true,
-      lead: completeLead ?? lead,
+      lead: completeLead ?? lead ?? null,
+      lead_created: Boolean(lead),
+      lead_creation_issue: leadCreationIssue,
       email_sent: emailSent,
       email_error: emailError,
     };
