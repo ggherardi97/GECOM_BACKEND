@@ -82,6 +82,17 @@ async findAll(
     return this.service.create(data, tenantId);
   }
 
+  @Post(':id/clone')
+  @ApiCreatedResponse({ description: 'Invoice successfully cloned' })
+  @ApiOperation({
+    summary: 'Clone invoice',
+    description: 'Creates a new draft invoice by copying header and lines from the source invoice.',
+  })
+  async clone(@Req() req: Request, @Param('id') id: string) {
+    const tenantId = this.getTenantId(req);
+    return this.service.clone(id, tenantId);
+  }
+
   @Patch(':id')
   @ApiBody({ type: UpdateInvoiceDTO })
   @ApiOkResponse({ description: 'Invoice updated' })

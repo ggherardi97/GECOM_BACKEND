@@ -25,6 +25,8 @@ type AuthUser = {
   role?: string | null;
 };
 
+const GECOM_TENANT_ID = 'cfad9e93-2206-44cd-9cc3-351f74113a5f';
+
 @Injectable()
 export class LeadsService {
   constructor(
@@ -63,16 +65,8 @@ export class LeadsService {
   private async resolveGecomTenant() {
     const tenant = await this.prisma.tenants.findFirst({
       where: {
+        id: GECOM_TENANT_ID,
         deleted_at: null,
-        company: {
-          is: {
-            deleted_at: null,
-            company_name: {
-              equals: 'GECOM',
-              mode: 'insensitive',
-            },
-          },
-        },
       },
       select: {
         id: true,
@@ -83,13 +77,18 @@ export class LeadsService {
             id: true,
             company_name: true,
             user_id: true,
+            deleted_at: true,
           },
         },
       },
     });
 
     if (!tenant) {
-      throw new NotFoundException('Tenant da GECOM nao encontrado.');
+      throw new NotFoundException(`Tenant da GECOM nao encontrado para o id ${GECOM_TENANT_ID}.`);
+    }
+
+    if (!tenant.company || tenant.company.deleted_at) {
+      throw new NotFoundException(`Empresa principal do tenant GECOM nao encontrada para o id ${GECOM_TENANT_ID}.`);
     }
 
     return tenant;

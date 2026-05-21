@@ -146,6 +146,43 @@ export class InvoiceService {
     return created;
   }
 
+  async clone(id: string, tenantId: string) {
+    const source = await this.repository.findById(id, tenantId);
+    if (!source) throw new NotFoundException('Invoice not found');
+
+    const companyId = String((source as any)?.company_id ?? '').trim();
+    const currencyId = String((source as any)?.currency_id ?? '').trim();
+    if (!companyId || !currencyId) {
+      throw new BadRequestException('Source invoice is missing company_id or currency_id');
+    }
+
+    const payload: CreateInvoiceDTO = {
+      company_id: companyId,
+      currency_id: currencyId,
+      quote_at: this.toIsoDateString((source as any)?.quote_at),
+      due_at: this.toIsoDateString((source as any)?.due_at),
+      exchange_rate: this.toDecimalString((source as any)?.exchange_rate),
+      status: '0',
+      discount_percent: this.normalizePercent((source as any)?.discount_percent ?? 0),
+      version: 1,
+      notes: this.toOptionalString((source as any)?.notes),
+      terms: this.toOptionalString((source as any)?.terms),
+      billing_address_line1: this.toOptionalString((source as any)?.billing_address_line1),
+      billing_address_line2: this.toOptionalString((source as any)?.billing_address_line2),
+      billing_address_city: this.toOptionalString((source as any)?.billing_address_city),
+      billing_address_state: this.toOptionalString((source as any)?.billing_address_state),
+      billing_address_postal_code: this.toOptionalString((source as any)?.billing_address_postal_code),
+      billing_address_country: this.toOptionalString((source as any)?.billing_address_country),
+      lines: this.mapClonedLines((source as any)?.invoice_lines),
+    };
+
+    const cloned = await this.create(payload, tenantId);
+    return {
+      ...(cloned as any),
+      source_invoice_id: id,
+    };
+  }
+
   async update(id: string, tenantId: string, data: UpdateInvoiceDTO, userId?: string) {
     const existing = await this.repository.findById(id, tenantId);
     if (!existing) throw new NotFoundException('Invoice not found');
@@ -340,6 +377,60 @@ export class InvoiceService {
     const n = Number(value ?? 0);
     if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(100, Math.trunc(n)));
+  }
+
+  private toOptionalString(value: unknown): string | undefined {
+    if (value === null || value === undefined) return undefined;
+    return String(value);
+  }
+
+  private toIsoDateString(value: unknown): string | undefined {
+    if (!value) return undefined;
+    const date = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(date.getTime())) return undefined;
+    return date.toISOString();
+  }
+
+  private toDecimalString(value: unknown): string | undefined {
+    const raw = String(value ?? '').trim();
+    return raw || undefined;
+  }
+
+  private toNonNegativeDecimalString(value: unknown, fallback = '0'): string {
+    try {
+      const decimal = new Prisma.Decimal(String(value ?? '').trim());
+      if (decimal.isNegative()) return fallback;
+      return decimal.toString();
+    } catch {
+      return fallback;
+    }
+  }
+
+  private toPositiveIntegerString(value: unknown): string {
+    const numeric = Number(String(value ?? '').replace(',', '.'));
+    if (!Number.isFinite(numeric)) return '1';
+    return String(Math.max(1, Math.trunc(numeric)));
+  }
+
+  private toTaxRateString(value: unknown): string {
+    const numeric = Number(String(value ?? '').replace(',', '.'));
+    if (!Number.isFinite(numeric)) return '0';
+    return String(Math.max(0, Math.min(1, numeric)));
+  }
+
+  private mapClonedLines(lines: unknown): CreateInvoiceDTO['lines'] {
+    if (!Array.isArray(lines)) return [];
+
+    return lines.map((line: any) => ({
+      product_id: line?.product_id ? String(line.product_id).trim() : undefined,
+      description: this.toOptionalString(line?.description),
+      unit: this.toOptionalString(line?.unit),
+      unit_price: this.toNonNegativeDecimalString(line?.unit_price, '0'),
+      quantity: this.toPositiveIntegerString(line?.quantity),
+      tax_rate: this.toTaxRateString(line?.tax_rate),
+      discount_percent: this.normalizePercent(line?.discount_percent ?? 0),
+      discount_amount: this.toNonNegativeDecimalString(line?.discount_amount, '0'),
+    }));
   }
 
   private parseExchangeRateInput(value: unknown, explicitOverride = true) {
