@@ -24,6 +24,20 @@ export class ProcessTypeRepository {
     });
   }
 
+  async findByName(name: string): Promise<process_types | null> {
+    const normalized = String(name || '').trim();
+    if (!normalized) return null;
+
+    return await this.prisma.process_types.findFirst({
+      where: {
+        name: {
+          equals: normalized,
+          mode: 'insensitive',
+        },
+      },
+    });
+  }
+
   async update(id: string, data: UpdateProcessTypeDTO): Promise<process_types> {
     return await this.prisma.process_types.update({
       where: { id },

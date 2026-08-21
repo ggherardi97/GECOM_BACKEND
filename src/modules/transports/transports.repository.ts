@@ -78,11 +78,15 @@ export class TransportsRepository {
   }
 
   async updateById(id: string, tenantId: string, data: Prisma.transportsUncheckedUpdateInput): Promise<transports | null> {
+    const cleanData = Object.fromEntries(
+      Object.entries((data as any) || {}).filter(([, value]) => value !== null && value !== undefined)
+    ) as Prisma.transportsUncheckedUpdateInput;
+
     // IMPORTANT: updateMany allows filtering by tenant_id (and avoids needing composite unique)
     const result = await this.prisma.transports.updateMany({
       where: { id, tenant_id: tenantId } as any,
       data: {
-        ...(data as any),
+        ...(cleanData as any),
         tenant_id: undefined, // never allow tenant change
         id: undefined,        // never allow id change
         updated_at: new Date(),

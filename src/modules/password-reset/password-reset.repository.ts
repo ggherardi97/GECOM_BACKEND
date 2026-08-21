@@ -43,7 +43,7 @@ export class PasswordResetRepository {
   }
 
   async deleteToken(user_id: string) {
-    return this.prisma.password_resets.delete({
+    return this.prisma.password_resets.deleteMany({
       where: { user_id },
     });
   }

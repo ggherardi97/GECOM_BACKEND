@@ -1,4 +1,4 @@
-import { BadGatewayException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProviderSnapshotInput, TrackingPoint, TrackingProvider, TrackingSnapshot, TrackingStatus } from '../types';
 
@@ -16,15 +16,20 @@ export class MarineTrafficProvider implements TrackingProvider {
     const vesselEndpoint = (this.configService.get<string>('MT_VESSEL_ENDPOINT') ?? '').trim();
     const routeEndpoint = (this.configService.get<string>('MT_ROUTE_ENDPOINT') ?? '').trim();
 
-    if (!baseUrl || !vesselEndpoint) {
-      throw new InternalServerErrorException('MarineTraffic endpoint configuration is missing.');
+    let vesselPayload: any = null;
+    if (baseUrl && vesselEndpoint) {
+      try {
+        const vesselUrl = this.buildUrl(baseUrl, vesselEndpoint, input.externalId);
+        vesselPayload = await this.requestJson(vesselUrl, input.apiKey);
+      } catch (error) {
+        this.logger.warn(`MarineTraffic vessel endpoint failed. Falling back to identifier-only snapshot: ${(error as Error).message}`);
+      }
+    } else {
+      this.logger.warn('MarineTraffic endpoint configuration is missing. Returning identifier-only snapshot.');
     }
 
-    const vesselUrl = this.buildUrl(baseUrl, vesselEndpoint, input.externalId);
-    const vesselPayload = await this.requestJson(vesselUrl, input.apiKey);
-
     let routePayload: any = null;
-    if (routeEndpoint) {
+    if (baseUrl && routeEndpoint) {
       try {
         const routeUrl = this.buildUrl(baseUrl, routeEndpoint, input.externalId);
         routePayload = await this.requestJson(routeUrl, input.apiKey);
@@ -33,15 +38,15 @@ export class MarineTrafficProvider implements TrackingProvider {
       }
     }
 
-    const current = this.extractCurrentPoint(vesselPayload);
-    const route = this.extractRoutePoints(routePayload ?? vesselPayload, 'MT');
+    const current = vesselPayload ? this.extractCurrentPoint(vesselPayload) : undefined;
+    const route = vesselPayload ? this.extractRoutePoints(routePayload ?? vesselPayload, 'MT') : [];
 
     return {
       mode: 'SEA',
-      status: this.mapStatus(vesselPayload),
+      status: vesselPayload ? this.mapStatus(vesselPayload) : 'UNKNOWN',
       current: current ?? route[route.length - 1],
       route: route.length > 0 ? route : undefined,
-      eta: this.extractEta(vesselPayload),
+      eta: vesselPayload ? this.extractEta(vesselPayload) : undefined,
       meta: {
         provider: this.provider,
         externalId: input.externalId,

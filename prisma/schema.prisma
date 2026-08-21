@@ -815,6 +815,7 @@ model transports {
   origin              String              @db.VarChar
   destination         String              @db.VarChar
   contact_phone       String?             @db.VarChar
+  ship_id             String?             @db.VarChar(120)
   transport_type_id   String?             @db.Uuid
   departure_forecast  DateTime?           @db.Timestamp(6)
   arrival_forecast    DateTime?           @db.Timestamp(6)

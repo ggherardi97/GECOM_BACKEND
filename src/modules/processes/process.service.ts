@@ -3,6 +3,7 @@ import { ProcessRepository } from './process.repository';
 import { EventService } from '../events/event.service';
 import { CreateProcessDTO } from './dto/create-process.dto';
 import { UpdateProcessDTO } from './dto/update-process.dto';
+import { ProcessTypeService } from '../process-type/process-type.service';
 
 import type { processes, events as EventRow } from '@prisma/client';
 
@@ -15,12 +16,38 @@ export class ProcessService {
     private readonly repository: ProcessRepository,
     private readonly eventService: EventService,
     private readonly statusConfigService: StatusConfigService,
+    private readonly processTypeService: ProcessTypeService,
   ) {}
+
+  private isUuidLike(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+  }
+
+  private async resolveProcessTypeId(input: string): Promise<string> {
+    const rawValue = String(input || '').trim();
+    if (!rawValue) {
+      throw new BadRequestException('process_type_id is required');
+    }
+
+    if (this.isUuidLike(rawValue)) {
+      const existingById = await this.processTypeService.findById(rawValue);
+      if (existingById) return rawValue;
+    }
+
+    const byName = await this.processTypeService.findByName(rawValue);
+    if (byName?.id) {
+      return byName.id;
+    }
+
+    throw new BadRequestException('process_type_id must be a valid process type UUID or name');
+  }
 
   async create(data: CreateProcessDTO, tenantId: string): Promise<processes> {
     if (data.total_value !== undefined && (!Number.isFinite(Number(data.total_value)) || Number(data.total_value) < 0)) {
       throw new BadRequestException('total_value must be a non-negative number');
     }
+
+    const resolvedProcessTypeId = await this.resolveProcessTypeId(data.process_type_id);
 
     const resolvedStatus = await this.statusConfigService.resolveProcessStatus(tenantId, {
       status: data.status,
@@ -40,6 +67,7 @@ export class ProcessService {
       createdProcess = await this.repository.create(
         {
           ...data,
+          process_type_id: resolvedProcessTypeId,
           status: resolvedStatus.status,
           status_config_id: resolvedStatus.statusConfig.id,
           process_number: providedProcessNumber,
@@ -53,7 +81,7 @@ export class ProcessService {
           status_config_id: resolvedStatus.statusConfig.id,
           invoice: data.invoice,
           company_id: data.company_id,
-          process_type_id: data.process_type_id,
+          process_type_id: resolvedProcessTypeId,
           primary_contact_id: data.primary_contact_id,
           ship_date: data.ship_date,
           completed: data.completed,

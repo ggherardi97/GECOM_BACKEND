@@ -69,7 +69,12 @@ export class CreateProcessDTO {
     description: 'Process type',
     example: 'b1c2d3e4-5f6g-7h8i-9j0k-l1m2n3o4p5q6',
   })
-  @IsUUID()
+  @IsString()
+  @Transform(({ value }) => {
+    if (value == null) return undefined;
+    const trimmed = String(value).trim();
+    return trimmed.length ? trimmed : undefined;
+  })
   process_type_id: string;
 
   @ApiPropertyOptional({

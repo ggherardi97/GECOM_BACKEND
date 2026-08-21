@@ -190,6 +190,23 @@ private getUserId(req: AuthRequest): string {
     return this.service.update(this.getTenantId(req), id, data);
   }
 
+  @ApiOperation({ summary: 'Resend access link to user' })
+  @ApiParam({ name: 'id' })
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Post(':id/resend-access-link')
+  resendAccessLink(@Req() req: AuthRequest, @Param('id') id: string) {
+    const headers = (req as any)?.headers || {};
+    const hostRaw = headers['x-forwarded-host'] || headers.host || null;
+    const protoRaw = headers['x-forwarded-proto'] || headers['x-forwarded-protocol'] || null;
+    const host = Array.isArray(hostRaw) ? hostRaw[0] : hostRaw;
+    const protocol = Array.isArray(protoRaw) ? protoRaw[0] : protoRaw;
+
+    return this.service.resendAccessLink(this.getTenantId(req), id, {
+      host: typeof host === 'string' ? host : null,
+      protocol: typeof protocol === 'string' ? protocol : null,
+    });
+  }
+
   @ApiOperation({ summary: 'Soft delete user (status=DELETED)' })
   @ApiParam({ name: 'id' })
   @ApiOkResponse({ description: 'User marked as DELETED' })

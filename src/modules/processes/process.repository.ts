@@ -54,6 +54,34 @@ export class ProcessRepository {
     }
   } as const;
 
+  private static readonly transportWithTrackingSelect = {
+    id: true,
+    tenant_id: true,
+    transport_company: true,
+    origin: true,
+    destination: true,
+    contact_phone: true,
+    ship_id: true,
+    transport_type_id: true,
+    departure_forecast: true,
+    arrival_forecast: true,
+    transit_time: true,
+    transport_status_id: true,
+    process_id: true,
+    created_at: true,
+    updated_at: true,
+    tracking_links: {
+      select: {
+        id: true,
+        mode: true,
+        provider: true,
+        external_id: true,
+        last_synced_at: true,
+        last_snapshot_json: true,
+      },
+    },
+  } as const;
+
   async create(data: CreateProcessInput, tenantId: string): Promise<processes> {
     try {
       return await this.prisma.processes.create({
@@ -92,7 +120,9 @@ export class ProcessRepository {
       include: {
         companies: true,
         process_types: true,
-        transports: true,
+        transports: {
+          select: ProcessRepository.transportWithTrackingSelect as any,
+        },
         status_config: true,
         users: {
           select: {
@@ -114,7 +144,9 @@ export class ProcessRepository {
       include: {
         companies: true,
         process_types: true,
-        transports: true,
+        transports: {
+          select: ProcessRepository.transportWithTrackingSelect as any,
+        },
         status_config: true,
         users: {
           select: {
@@ -143,7 +175,9 @@ export class ProcessRepository {
       include: {
         companies: true,
         process_types: true,
-        transports: true,
+        transports: {
+          select: ProcessRepository.transportWithTrackingSelect as any,
+        },
         status_config: true,
         users: {
           select: {

@@ -33,6 +33,10 @@ export class ProcessTypeService {
     return await this.repository.findById(id);
   }
 
+  async findByName(name: string): Promise<process_types | null> {
+    return await this.repository.findByName(name);
+  }
+
   async update(id: string, data: UpdateProcessTypeDTO): Promise<process_types> {
     return await this.repository.update(id, data);
   }

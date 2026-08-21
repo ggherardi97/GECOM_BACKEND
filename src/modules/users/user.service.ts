@@ -108,6 +108,48 @@ export class UserService {
     };
   }
 
+  private async sendFirstAccessEmail(
+    user: { id: string; email: string; full_name: string },
+    tenantId: string,
+    portalRequest?: { host?: string | null; protocol?: string | null },
+  ): Promise<void> {
+    const portalBrand = resolvePortalBrandFromHost(portalRequest?.host);
+    const brandIdentity = getPortalBrandIdentity(portalBrand);
+
+    const resetToken = generateToken(32);
+    const tokenHash = await this.crypto.hash(resetToken);
+
+    await this.passwordResetService.deleteToken(user.id).catch(() => undefined);
+    await this.passwordResetService.generateResetToken({
+      tenant_id: tenantId,
+      token: tokenHash,
+      user_id: user.id,
+    } as any);
+
+    const templateFileName =
+      portalBrand === 'convert' ? 'first-access-convert.html' : 'first-access.html';
+    const templatePath = join(__dirname, '..', 'mailer', 'templates', templateFileName);
+    const template = readFileSync(templatePath, 'utf8');
+    const frontendBaseUrl = resolvePortalBaseUrlFromHost(
+      portalRequest?.host,
+      portalRequest?.protocol,
+    );
+    const resetLink = `${frontendBaseUrl}?token=${resetToken}&userId=${user.id}`;
+    const currentYear = new Date().getFullYear();
+
+    const html = applyEmailTemplateBranding(template, portalBrand)
+      .replace(/{{name}}/g, user.full_name)
+      .replace(/{{resetLink}}/g, resetLink)
+      .replace(/{{year}}/g, currentYear.toString());
+
+    await this.mailerService.sendWelcomeEmail(
+      user.email,
+      `Bem-vindo ao ${brandIdentity.subjectBrandName} - Definicao de Senha`,
+      html,
+      getPortalEmailFrom(portalBrand),
+    );
+  }
+
   private async syncUserPrimaryAccessRole(
     tenantId: string,
     userId: string,
@@ -213,40 +255,7 @@ export class UserService {
 
     if (isFirstAccess) {
       try {
-        const portalBrand = resolvePortalBrandFromHost(portalRequest?.host);
-        const brandIdentity = getPortalBrandIdentity(portalBrand);
-
-        const resetToken = generateToken(32);
-        const tokenHash = await this.crypto.hash(resetToken);
-
-        await this.passwordResetService.generateResetToken({
-          tenant_id: tenantId,
-          token: tokenHash,
-          user_id: user.id,
-        } as any);
-
-        const templateFileName =
-          portalBrand === 'convert' ? 'first-access-convert.html' : 'first-access.html';
-        const templatePath = join(__dirname, '..', 'mailer', 'templates', templateFileName);
-        const template = readFileSync(templatePath, 'utf8');
-        const frontendBaseUrl = resolvePortalBaseUrlFromHost(
-          portalRequest?.host,
-          portalRequest?.protocol,
-        );
-        const resetLink = `${frontendBaseUrl}?token=${resetToken}&userId=${user.id}`;
-        const currentYear = new Date().getFullYear();
-
-        const html = applyEmailTemplateBranding(template, portalBrand)
-          .replace(/{{name}}/g, user.full_name)
-          .replace(/{{resetLink}}/g, resetLink)
-          .replace(/{{year}}/g, currentYear.toString());
-
-        await this.mailerService.sendWelcomeEmail(
-          user.email,
-          `Bem-vindo ao ${brandIdentity.subjectBrandName} - Definicao de Senha`,
-          html,
-          getPortalEmailFrom(portalBrand),
-        );
+        await this.sendFirstAccessEmail(user, tenantId, portalRequest);
       } catch (error) {
         console.error('Failed to send first access email:', error);
       }
@@ -328,6 +337,44 @@ export class UserService {
   async updatePassword(tenantId: string, id: string, password: string): Promise<UserSafe> {
     const hashed = await this.crypto.hash(password);
     return this.repository.updatePassword(tenantId, id, hashed);
+  }
+
+  async resendAccessLink(
+    tenantId: string,
+    id: string,
+    portalRequest?: { host?: string | null; protocol?: string | null },
+  ): Promise<{ message: string }> {
+    const user = await this.findById(tenantId, id, true);
+    const tempPassword = generateToken(16);
+    const hashedPassword = await this.crypto.hash(tempPassword);
+
+    await this.repository.update(tenantId, id, {
+      password: hashedPassword,
+      first_access: true,
+    });
+
+    const sessions = (user as any)?.sessions;
+    const refreshToken = Array.isArray(sessions)
+      ? String(sessions[0]?.refresh_token || '').trim()
+      : String(sessions?.refresh_token || '').trim();
+
+    if (refreshToken) {
+      try {
+        await this.logoutAll(tenantId, refreshToken);
+      } catch (error) {
+        console.error('Failed to invalidate sessions while resending access link:', error);
+      }
+    }
+
+    try {
+      await this.sendFirstAccessEmail(user as any, tenantId, portalRequest);
+    } catch (error) {
+      console.error('Failed to send first access email:', error);
+    }
+
+    return {
+      message: 'Link de acesso reenviado com sucesso.',
+    };
   }
 
   async activateFirstAccess(tenantId: string, id: string, password: string): Promise<UserSafe> {
