@@ -7,7 +7,7 @@ import {
   ScarletDriveVoteSession,
 } from './scarlet-drive.repository';
 
-const HOST_OPTIONS = Object.freeze(['Diogo', 'Gustavo', 'Gill', 'Renan', 'Leonardo', 'Natalie']);
+const HOST_OPTIONS = Object.freeze(['Diogo', 'Gustavo', 'Gill', 'Renan', 'Leonardo']);
 const HOST_SET = new Set(HOST_OPTIONS);
 const ANSWER_MODE_YES_NO = 'yes_no';
 const ANSWER_MODE_RATING = 'rating_1_5';

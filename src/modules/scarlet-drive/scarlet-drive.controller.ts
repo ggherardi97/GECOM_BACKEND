@@ -39,16 +39,16 @@ export class ScarletDriveController {
 
   @Patch('guests/:id')
   async updateGuest(@Req() req: Request, @Param('id') id: string, @Body() body: any) {
-    return this.service.updateGuest(
-      id,
-      {
-        name: body?.name,
-        invitedBy: body?.invitedBy,
-        isPaid: body?.isPaid ?? body?.pago,
-        isConfirmed: body?.isConfirmed ?? body?.confirmed,
-      },
-      this.getRequestIp(req),
-    );
+    const input: Record<string, unknown> = {};
+    const hasField = (field: string) => Object.prototype.hasOwnProperty.call(body ?? {}, field);
+
+    // PATCH must preserve omitted fields so the service keeps their current values.
+    if (hasField('name')) input.name = body.name;
+    if (hasField('invitedBy')) input.invitedBy = body.invitedBy;
+    if (hasField('isPaid') || hasField('pago')) input.isPaid = body.isPaid ?? body.pago;
+    if (hasField('isConfirmed') || hasField('confirmed')) input.isConfirmed = body.isConfirmed ?? body.confirmed;
+
+    return this.service.updateGuest(id, input, this.getRequestIp(req));
   }
 
   @Delete('guests/:id')
