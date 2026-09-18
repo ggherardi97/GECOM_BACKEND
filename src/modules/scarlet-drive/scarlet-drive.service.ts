@@ -22,6 +22,38 @@ const IP_MISMATCH_MESSAGE = 'Você está em um IP diferente, está tentando vota
 export class ScarletDriveService {
   constructor(private readonly repository: ScarletDriveRepository) {}
 
+  async getGuestTicket(id: string) {
+    const guest = await this.repository.findGuestTicket(this.parseTicketUuid(id));
+    if (!guest) throw new NotFoundException('Convidado não encontrado.');
+    return { token: guest.ticket_token, path: `/ingresso/${guest.ticket_token}` };
+  }
+
+  async getTicket(token: string) {
+    const guest = await this.repository.findGuestByTicket(this.parseTicketUuid(token));
+    if (!guest) throw new NotFoundException('Ingresso inválido ou convidado removido.');
+    return {
+      name: guest.name,
+      invitedBy: guest.invited_by,
+      isPaid: guest.is_paid,
+      isConfirmed: guest.is_confirmed,
+      checkedInAt: guest.checked_in_at,
+    };
+  }
+
+  async checkInTicket(token: unknown) {
+    const normalized = this.parseTicketUuid(token);
+    const admitted = await this.repository.checkInGuest(normalized);
+    const guest = await this.getTicket(normalized);
+    return { status: admitted ? 'admitted' : 'already_used', guest };
+  }
+
+  private parseTicketUuid(value: unknown): string {
+    if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())) {
+      throw new BadRequestException('Código de ingresso inválido.');
+    }
+    return value.trim().toLowerCase();
+  }
+
   async getState(ip: string | null) {
     const [guests, songs, voteSessions, currentIpLock] = await Promise.all([
       this.repository.listGuests(),
@@ -362,6 +394,7 @@ export class ScarletDriveService {
       invitedBy: guest.invited_by,
       isPaid: guest.is_paid,
       isConfirmed: guest.is_confirmed,
+      checkedInAt: guest.checked_in_at,
       createdAt: guest.created_at,
       updatedAt: guest.updated_at,
     }));

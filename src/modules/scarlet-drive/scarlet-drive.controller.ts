@@ -10,6 +10,22 @@ import { ScarletDriveService } from './scarlet-drive.service';
 export class ScarletDriveController {
   constructor(private readonly service: ScarletDriveService) {}
 
+  @Get('guests/:id/ticket')
+  async getGuestTicket(@Param('id') id: string) {
+    return this.service.getGuestTicket(id);
+  }
+
+  @Get('tickets/:token')
+  async getTicket(@Param('token') token: string) {
+    return this.service.getTicket(token);
+  }
+
+  // Public by design for the friends' event, just like the guest list.
+  @Post('check-in')
+  async checkIn(@Body() body: any) {
+    return this.service.checkInTicket(body?.token);
+  }
+
   @Get('state')
   async getState(@Req() req: Request) {
     return this.service.getState(this.getRequestIp(req));

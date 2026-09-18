@@ -97,3 +97,12 @@ export function resolvePortalBaseUrlFromRequest(req?: RequestLike | null): strin
 
   return resolvePortalBaseUrlFromHost(host, proto);
 }
+
+export function buildPortalLoginUrl(baseUrl: string, reset?: { token: string; userId: string }): string {
+  const url = new URL('/login', baseUrl);
+  if (reset) {
+    url.searchParams.set('token', reset.token);
+    url.searchParams.set('userId', reset.userId);
+  }
+  return url.toString();
+}

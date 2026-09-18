@@ -28,6 +28,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { runWithTenant } from '../../common/tenant/tenant-context';
 import {
   applyEmailTemplateBranding,
+  buildPortalLoginUrl,
   getPortalEmailFrom,
   getPortalBrandIdentity,
   resolvePortalBaseUrlFromRequest,
@@ -1525,7 +1526,7 @@ export class AuthService {
       );
 
       const frontendBaseUrl = resolvePortalBaseUrlFromRequest(req);
-      const resetLink = `${frontendBaseUrl}?token=${resetToken}&userId=${user.id}`;
+      const resetLink = buildPortalLoginUrl(frontendBaseUrl, { token: resetToken, userId: user.id });
       const currentYear = new Date().getFullYear();
 
       const html = applyEmailTemplateBranding(template, portalBrand)
@@ -1604,7 +1605,7 @@ export class AuthService {
       const portalBrand = resolvePortalBrandFromRequest(req);
       const brandIdentity = getPortalBrandIdentity(portalBrand);
       const currentYear = new Date().getFullYear();
-      const loginLink = resolvePortalBaseUrlFromRequest(req);
+      const loginLink = buildPortalLoginUrl(resolvePortalBaseUrlFromRequest(req));
 
       const html = applyEmailTemplateBranding(template, portalBrand)
         .replace(/{{name}}/g, user.full_name)

@@ -3992,6 +3992,8 @@ enum AutomationExecutionStatus {
 
 model scarlet_drive_guests {
   id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  ticket_token String   @unique(map: "uq_scarlet_drive_guests_ticket_token") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  checked_in_at DateTime? @db.Timestamptz(6)
   name         String   @unique(map: "uq_scarlet_drive_guests_name") @db.VarChar(120)
   invited_by   String   @db.VarChar(80)
   is_paid      Boolean  @default(false)

@@ -15,6 +15,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
   applyEmailTemplateBranding,
+  buildPortalLoginUrl,
   getPortalEmailFrom,
   getPortalBrandIdentity,
   resolvePortalBaseUrlFromHost,
@@ -134,7 +135,7 @@ export class UserService {
       portalRequest?.host,
       portalRequest?.protocol,
     );
-    const resetLink = `${frontendBaseUrl}?token=${resetToken}&userId=${user.id}`;
+    const resetLink = buildPortalLoginUrl(frontendBaseUrl, { token: resetToken, userId: user.id });
     const currentYear = new Date().getFullYear();
 
     const html = applyEmailTemplateBranding(template, portalBrand)

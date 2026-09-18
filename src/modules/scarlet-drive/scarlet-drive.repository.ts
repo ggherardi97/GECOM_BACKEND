@@ -8,6 +8,7 @@ const guestSelect = {
   invited_by: true,
   is_paid: true,
   is_confirmed: true,
+  checked_in_at: true,
   created_at: true,
   updated_at: true,
 } satisfies Prisma.scarlet_drive_guestsSelect;
@@ -100,6 +101,30 @@ export class ScarletDriveRepository {
       where: { id },
       select: guestSelect,
     });
+  }
+
+  async findGuestTicket(id: string) {
+    return this.prisma.scarlet_drive_guests.findUnique({
+      where: { id },
+      select: { ticket_token: true },
+    });
+  }
+
+  async findGuestByTicket(token: string) {
+    return this.prisma.scarlet_drive_guests.findUnique({
+      where: { ticket_token: token },
+      select: guestSelect,
+    });
+  }
+
+  async checkInGuest(token: string): Promise<boolean> {
+    const now = new Date();
+    // One conditional UPDATE: concurrent scans cannot both admit the guest.
+    const result = await this.prisma.scarlet_drive_guests.updateMany({
+      where: { ticket_token: token, checked_in_at: null },
+      data: { checked_in_at: now, updated_at: now },
+    });
+    return result.count === 1;
   }
 
   async createGuest(data: Prisma.scarlet_drive_guestsCreateInput, client?: ScarletTransactionClient): Promise<ScarletDriveGuest> {

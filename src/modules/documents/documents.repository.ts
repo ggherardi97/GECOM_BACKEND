@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import type { documents } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateDocumentDTO } from './dto/create.dto';
 import { UpdateDocumentDTO } from './dto/update.dto';
@@ -46,11 +47,79 @@ export class DocumentsRepository {
       where.name = { contains: String(filters.q), mode: 'insensitive' };
     }
 
-    return this.prisma.documents.findMany({
+    const rows = await this.prisma.documents.findMany({
       where,
       orderBy: [{ name: 'asc' }, { created_at: 'desc' }],
       take,
       skip,
+    });
+    return this.withRelatedDetails(rows, tenantId);
+  }
+
+  private async withRelatedDetails(rows: documents[], tenantId: string) {
+    type DocumentScope = Pick<documents, 'id' | 'parent_id' | 'related_table' | 'related_id'>;
+    const scopes = new Map<string, DocumentScope>(rows.map((row) => [row.id, row]));
+    const requestedParents = new Set<string>();
+    let pending: DocumentScope[] = rows;
+
+    // Older uploads only carry the relation on an ancestor folder. Load each
+    // missing level in a batch, stopping at explicit relations and cycles.
+    while (pending.length) {
+      const parentIds = [...new Set(pending
+        .filter((row) => !row.related_table && !row.related_id)
+        .map((row) => row.parent_id)
+        .filter((id): id is string => !!id && !scopes.has(id) && !requestedParents.has(id)))];
+      if (!parentIds.length) break;
+      parentIds.forEach((id) => requestedParents.add(id));
+      pending = await this.prisma.documents.findMany({
+        where: { id: { in: parentIds }, tenant_id: tenantId, deleted_at: null },
+        select: { id: true, parent_id: true, related_table: true, related_id: true },
+      });
+      pending.forEach((row) => scopes.set(row.id, row));
+    }
+
+    const relatedScopes = rows.map((row) => {
+      let current: DocumentScope | undefined = row;
+      const visited = new Set<string>();
+      while (current && !visited.has(current.id)) {
+        visited.add(current.id);
+        if (current.related_table || current.related_id) return current;
+        current = current.parent_id ? scopes.get(current.parent_id) : undefined;
+      }
+      return undefined;
+    });
+    const tableOf = (row?: DocumentScope) => this.normalizeRelatedTable(row?.related_table);
+    const isProcess = (row?: DocumentScope) => ['process', 'processes'].includes(tableOf(row) ?? '');
+    const isCompany = (row?: DocumentScope) => ['company', 'companies'].includes(tableOf(row) ?? '');
+    const processIds = [...new Set(relatedScopes
+      .filter((row) => isProcess(row))
+      .map((row) => row?.related_id)
+      .filter((id): id is string => !!id))];
+    const processes = processIds.length ? await this.prisma.processes.findMany({
+      where: { id: { in: processIds }, tenant_id: tenantId, deleted_at: null },
+      select: { id: true, company_id: true, invoice: true },
+    }) : [];
+    const processesById = new Map(processes.map((row) => [row.id, row]));
+    const companyIds = [...new Set([
+      ...processes.map((row) => row.company_id),
+      ...relatedScopes.filter((row) => isCompany(row)).map((row) => row?.related_id),
+    ].filter((id): id is string => !!id))];
+    const companies = companyIds.length ? await this.prisma.companies.findMany({
+      where: { id: { in: companyIds }, tenant_id: tenantId, deleted_at: null },
+      select: { id: true, company_name: true },
+    }) : [];
+    const companiesById = new Map(companies.map((row) => [row.id, row]));
+
+    return rows.map((row, index) => {
+      const scope = relatedScopes[index];
+      const process = isProcess(scope) ? processesById.get(scope?.related_id ?? '') : undefined;
+      const companyId = process?.company_id ?? (isCompany(scope) ? scope?.related_id : null);
+      return {
+        ...row,
+        client_name: companyId ? companiesById.get(companyId)?.company_name ?? null : null,
+        // This is the commercial invoice shown on ProcessDetail, not a billing invoice.
+        invoice_number: process?.invoice ?? null,
+      };
     });
   }
 
