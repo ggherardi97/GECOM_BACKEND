@@ -37,6 +37,13 @@ export class MailerService {
     });
   }
 
+  async sendFlyCheckerEmail(options: { to: string; subject: string; text: string; html: string }): Promise<void> {
+    await this.nestMailerService.sendMail({
+      ...options,
+      from: process.env.EMAIL_FROM || process.env.MAIL_FROM || getPortalEmailFrom('gecom'),
+    });
+  }
+
   async sendAutomationEmail(options: {
     to: string | string[];
     cc?: string | string[];

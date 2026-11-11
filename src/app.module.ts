@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { FlyCheckerModule } from './modules/fly-checker/fly-checker.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -56,6 +58,8 @@ import { ScarletDriveModule } from './modules/scarlet-drive/scarlet-drive.module
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
+    FlyCheckerModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,

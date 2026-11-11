@@ -17,6 +17,7 @@ import { StatusConfigService } from '../status-config/status-config.service';
 import { AutomationDispatcherService } from '../automation/automation-dispatcher.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
+import { randomUUID } from 'node:crypto';
 
 type AuthUser = {
   id?: string;
@@ -204,6 +205,51 @@ export class LeadsService {
         ...(params.leadCreationIssue ? [`Observacao: ${params.leadCreationIssue}`] : []),
       ].join('\n'),
     });
+  }
+
+  private async sendGecomLeadToAllture(params: {
+    submissionId: string;
+    leadName: string;
+    companyName: string;
+    phone: string;
+    operationMode: string;
+    importVolume: string;
+    formContext: string;
+  }): Promise<void> {
+    const apiKey = process.env.ALLTURE_API_KEY?.trim();
+    if (!apiKey) throw new Error('ALLTURE_API_KEY nao configurada.');
+
+    const customFields: Record<string, string> = {};
+    if (params.operationMode) customFields.como_opera_hoje = params.operationMode;
+    if (params.importVolume) customFields.volume_mensal = params.importVolume;
+    if (params.formContext) customFields.origem_formulario = params.formContext;
+
+    const response = await fetch('https://api.allturecrm.com/functions/v1/leads-ingest', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': apiKey,
+        'Idempotency-Key': `gecom-${params.submissionId}`,
+      },
+      body: JSON.stringify({
+        name: params.leadName,
+        ...(params.companyName ? { empresa: params.companyName } : {}),
+        ...(params.phone ? { telefone: params.phone } : {}),
+        origem: 'Portal Gecom',
+        ...(Object.keys(customFields).length ? { custom_fields: customFields } : {}),
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const data: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(`Allture CRM respondeu HTTP ${response.status}.`);
+    if (!data || typeof data !== 'object' || !('ok' in data) || data.ok !== true) {
+      throw new Error('Allture CRM nao confirmou o recebimento do lead.');
+    }
+    const ignoredFields = 'ignored_fields' in data ? data.ignored_fields : undefined;
+    if (!Array.isArray(ignoredFields) || ignoredFields.length > 0) {
+      throw new Error('Allture CRM ignorou campos ou nao informou ignored_fields.');
+    }
   }
 
   private getUserId(user: AuthUser): string {
@@ -479,8 +525,26 @@ export class LeadsService {
       emailError = error instanceof Error ? error.message : 'Falha ao enviar o email de notificacao.';
     }
 
-    if (!emailSent && !lead) {
-      throw new BadRequestException(emailError || 'Nao foi possivel registrar o contato.');
+    let alltureSent = true;
+    let alltureError: string | null = null;
+
+    try {
+      await this.sendGecomLeadToAllture({
+        submissionId: lead?.id || randomUUID(),
+        leadName: fullName,
+        companyName,
+        phone,
+        operationMode,
+        importVolume,
+        formContext,
+      });
+    } catch (error) {
+      alltureSent = false;
+      alltureError = error instanceof Error ? error.message : 'Falha ao enviar lead ao Allture CRM.';
+    }
+
+    if (!lead && !emailSent && !alltureSent) {
+      throw new BadRequestException('Nao foi possivel registrar o contato.');
     }
 
     return {
@@ -490,6 +554,8 @@ export class LeadsService {
       lead_creation_issue: leadCreationIssue,
       email_sent: emailSent,
       email_error: emailError,
+      allture_sent: alltureSent,
+      allture_error: alltureError,
     };
   }
 

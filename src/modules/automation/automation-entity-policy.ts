@@ -69,6 +69,7 @@ const CONFIG_ENTITY_EXCLUSIONS = new Set<string>([
 ]);
 
 const CONFIG_PREFIX_EXCLUSIONS = [
+  'fly_checker_',
   'billing_stripe_',
   'public_signup_',
 ];

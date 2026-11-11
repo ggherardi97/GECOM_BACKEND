@@ -113,6 +113,10 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
 
   // Models that MUST be tenant-scoped
   private static readonly tenantModels = new Set<string>([
+    'fly_checker_searches',
+    'fly_checker_checks',
+    'fly_checker_prices',
+    'fly_checker_alerts',
     'users',
     'companies',
     'processes',

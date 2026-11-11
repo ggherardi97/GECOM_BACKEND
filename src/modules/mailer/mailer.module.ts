@@ -35,6 +35,9 @@ import { EmailTestController } from './email-test.controller';
 
         return {
           transport: {
+            connectionTimeout: 15000,
+            greetingTimeout: 15000,
+            socketTimeout: 30000,
             host,
             port,
             secure: port === 465,

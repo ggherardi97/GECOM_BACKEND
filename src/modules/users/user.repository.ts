@@ -137,13 +137,18 @@ export class UserRepository {
     }
   }
 
-  async update(tenantId: string, id: string, data: Prisma.usersUncheckedUpdateInput): Promise<UserSafe> {
+  async update(
+    tenantId: string,
+    id: string,
+    data: Prisma.usersUncheckedUpdateInput,
+    includeDeleted = false,
+  ): Promise<UserSafe> {
     try {
       const result = await this.prisma.users.updateMany({
         where: {
           id,
           tenant_id: tenantId,
-          status: { not: user_status_enum.DELETED },
+          ...(includeDeleted ? {} : { status: { not: user_status_enum.DELETED } }),
         },
         data: {
           ...data,
@@ -159,7 +164,6 @@ export class UserRepository {
         where: {
           id,
           tenant_id: tenantId,
-          status: { not: user_status_enum.DELETED },
         },
         select: userSafeSelect,
       });

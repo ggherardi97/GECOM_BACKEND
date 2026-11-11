@@ -285,7 +285,8 @@ export class UserService {
       patch.password = await this.crypto.hash(String(data.password));
     }
 
-    const updated = await this.repository.update(tenantId, id, patch);
+    // Administrative edits may preserve or restore a soft-deleted contact.
+    const updated = await this.repository.update(tenantId, id, patch, true);
 
     if (roleAssignment) {
       try {
